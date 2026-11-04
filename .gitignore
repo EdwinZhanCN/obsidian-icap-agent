@@ -1,0 +1,11 @@
+node_modules/
+main.js
+styles.css
+dev-vault/.obsidian/workspace*.json
+dev-vault/.obsidian/plugins/icpa-agent/data.json
+*.log
+.DS_Store
+.shots
+
+try-vault/
+*.zip

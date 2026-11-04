@@ -1,0 +1,1154 @@
+/*
+ * icpa-agent design system
+ * ────────────────────────
+ * Tailwind v4 provides tokens + utilities (no preflight: Obsidian owns the base layer,
+ * and output is unlayered so it can hold its own against theme CSS). Everything else is
+ * inherited from Obsidian's CSS variables, so community themes keep working.
+ *
+ * Two voices on one page:
+ *   learner — the note's own body text (no marks)
+ *   agent   — same column, slightly smaller, an ink rule set into the left gutter
+ */
+@import "tailwindcss/theme.css" prefix(tw);
+@import "tailwindcss/utilities.css" prefix(tw);
+@source "../";
+
+@theme inline {
+	--color-ink: var(--icpa-ink);
+	--color-ink-soft: var(--icpa-ink-soft);
+	--color-ink-faint: var(--icpa-ink-faint);
+	--color-ink-wash: var(--icpa-ink-wash);
+	--color-normal: var(--text-normal);
+	--color-muted: var(--text-muted);
+	--color-faint: var(--text-faint);
+	--color-paper: var(--background-primary);
+	--color-hairline: var(--background-modifier-border);
+	--font-ui: var(--font-interface);
+	--font-prose: var(--font-text);
+	--font-code: var(--font-monospace);
+	--text-label: 0.68rem;
+	--text-caption: 0.76rem;
+	--ease-ink: cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/* ───────────── tokens ───────────── */
+
+body {
+	/* Madder: a warm tutor's-pencil red-brown. Distinct from Obsidian's default violet accent,
+	   so the agent's marks never read as app chrome. */
+	--icpa-ink: oklch(0.53 0.13 38);
+	--icpa-ink-soft: color-mix(in oklab, var(--icpa-ink) 62%, transparent);
+	--icpa-ink-faint: color-mix(in oklab, var(--icpa-ink) 24%, transparent);
+	--icpa-ink-wash: color-mix(in oklab, var(--icpa-ink) 7%, transparent);
+	--icpa-rule: 1.5px;
+	--icpa-gutter: 1.05rem;
+	--icpa-voice: 0.95em;
+}
+.theme-dark {
+	--icpa-ink: oklch(0.75 0.1 48);
+	--icpa-ink-wash: color-mix(in oklab, var(--icpa-ink) 9%, transparent);
+}
+body.icpa-ink-accent {
+	--icpa-ink: var(--text-accent);
+}
+@media (max-width: 640px) {
+	body {
+		--icpa-gutter: 0.6rem;
+	}
+}
+
+/* ───────────── shared atoms ───────────── */
+
+/* The ink rule is drawn and retracted by animating this (see src/ui/motion.ts). Registered so it
+   interpolates as a number; inherited so the ::before rule picks it up from its element. */
+@property --icpa-rule-scale {
+	syntax: "<number>";
+	inherits: true;
+	initial-value: 1;
+}
+
+.icpa-voice {
+	@apply tw:relative;
+	--icpa-rule-scale: 1;
+}
+.icpa-voice::before {
+	content: "";
+	position: absolute;
+	left: calc(-1 * var(--icpa-gutter));
+	top: 0.3em;
+	bottom: 0.3em;
+	width: var(--icpa-rule);
+	border-radius: 1px;
+	background: var(--icpa-ink-soft);
+	transform: scaleY(var(--icpa-rule-scale));
+	transform-origin: top;
+}
+
+/* Frames: the only boxes whose height animates. They contain their children's margins so the
+   measured height is the rendered height. */
+.icpa-frame,
+.icpa-frame > * {
+	display: flow-root;
+}
+/* Waiting is the ink being drawn: a short stroke travels down a faint rule. */
+.icpa-voice.is-drawing::before {
+	background: var(--icpa-ink-faint);
+}
+.icpa-voice.is-drawing::after {
+	content: "";
+	position: absolute;
+	left: calc(-1 * var(--icpa-gutter));
+	top: 0.3em;
+	width: var(--icpa-rule);
+	height: 1.4em;
+	border-radius: 1px;
+	background: var(--icpa-ink);
+	animation: icpa-draw 1.5s var(--tw-ease-ink, ease-in-out) infinite;
+}
+@keyframes icpa-draw {
+	0% {
+		transform: translateY(-0.2em) scaleY(0.2);
+		opacity: 0;
+		transform-origin: top;
+	}
+	25% {
+		opacity: 1;
+	}
+	100% {
+		transform: translateY(calc(var(--icpa-draw-span, 2.6em))) scaleY(1);
+		opacity: 0;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.icpa-voice.is-drawing::after {
+		display: none;
+	}
+	.icpa-voice.is-drawing::before {
+		background: repeating-linear-gradient(to bottom, var(--icpa-ink-soft) 0 4px, transparent 4px 8px);
+	}
+}
+
+.icpa-label {
+	@apply tw:flex tw:flex-wrap tw:items-baseline tw:gap-x-2 tw:font-ui tw:text-faint;
+	font-size: var(--tw-text-label, 0.68rem);
+	letter-spacing: 0.09em;
+	text-transform: uppercase;
+	line-height: 1.5;
+	margin: 0 0 0.3em;
+}
+.icpa-label-kind {
+	@apply tw:font-semibold tw:text-ink;
+}
+.icpa-label-term {
+	@apply tw:font-prose tw:text-muted;
+	font-size: 0.86rem;
+	letter-spacing: 0;
+	text-transform: none;
+	font-style: italic;
+	overflow-wrap: anywhere;
+}
+.icpa-sublabel {
+	@apply tw:font-ui tw:text-ink;
+	font-size: var(--tw-text-label, 0.68rem);
+	letter-spacing: 0.09em;
+	text-transform: uppercase;
+	margin: 0.9em 0 0.2em;
+}
+
+.icpa-md {
+	white-space: normal;
+}
+.icpa-md > :first-child {
+	margin-top: 0;
+}
+.icpa-md > :last-child {
+	margin-bottom: 0;
+}
+.icpa-md p {
+	margin-block: 0.45em;
+}
+.icpa-md pre {
+	margin-block: 0.6em;
+}
+.icpa-md table {
+	font-size: 0.95em;
+	margin-block: 0.5em;
+}
+
+/* Button reset — doubled class to outrank `.markdown-rendered button` and theme rules. */
+.icpa-link.icpa-link,
+.icpa-icon-btn.icpa-icon-btn,
+.icpa-label-btn.icpa-label-btn,
+.icpa-row-title.icpa-row-title,
+.icpa-mark.icpa-mark,
+.icpa-selmark button {
+	all: unset;
+	box-sizing: border-box;
+	cursor: pointer;
+	font: inherit;
+	color: inherit;
+}
+.icpa-link.icpa-link {
+	@apply tw:inline-flex tw:items-center tw:gap-1 tw:text-muted;
+	text-decoration: underline;
+	text-decoration-color: var(--icpa-ink-faint);
+	text-decoration-thickness: 1px;
+	text-underline-offset: 3px;
+	transition:
+		color 120ms ease,
+		text-decoration-color 120ms ease;
+}
+.icpa-link.icpa-link:hover {
+	@apply tw:text-normal;
+	text-decoration-color: var(--icpa-ink);
+}
+.icpa-link.icpa-link.icpa-primary {
+	@apply tw:font-semibold tw:text-ink;
+	text-decoration-color: var(--icpa-ink-soft);
+}
+.icpa-link.icpa-link.is-quiet {
+	@apply tw:text-faint;
+	text-decoration-color: transparent;
+}
+.icpa-link.icpa-link.is-quiet:hover {
+	@apply tw:text-muted;
+	text-decoration-color: var(--icpa-ink-faint);
+}
+.icpa-link.icpa-link:disabled {
+	opacity: 0.38;
+	cursor: default;
+	text-decoration-color: transparent;
+}
+:is(.icpa-link, .icpa-icon-btn, .icpa-label-btn, .icpa-row-title, .icpa-mark, .icpa-selmark button):focus-visible {
+	outline: 2px solid var(--icpa-ink-soft);
+	outline-offset: 2px;
+	border-radius: 3px;
+}
+
+.icpa-actions {
+	@apply tw:flex tw:flex-wrap tw:items-baseline tw:font-ui tw:text-muted;
+	gap: 0.15em 0.85em;
+	font-size: var(--tw-text-caption, 0.76rem);
+	margin-top: 0.6em;
+	line-height: 1.6;
+}
+.icpa-dot {
+	@apply tw:text-faint;
+	margin-inline: -0.35em;
+}
+.icpa-caption {
+	@apply tw:font-ui tw:text-faint;
+	font-size: var(--tw-text-caption, 0.76rem);
+}
+.icpa-pending {
+	@apply tw:text-faint;
+	font-style: italic;
+	margin: 0.15em 0;
+}
+.icpa-error {
+	@apply tw:font-ui;
+	color: var(--text-error);
+	font-size: var(--tw-text-caption, 0.76rem);
+	margin: 0.4em 0 0;
+}
+.icpa-hint {
+	@apply tw:font-code tw:text-faint;
+	font-size: 0.72rem;
+}
+
+/* ───────────── Explanation: the gloss ───────────── */
+
+.icpa-term {
+	text-decoration: underline dotted var(--icpa-ink);
+	text-decoration-thickness: 1.5px;
+	text-underline-offset: 4px;
+	background: var(--icpa-ink-wash);
+	border-radius: 2px;
+}
+
+/* Live Preview paints-contains widgets; the ink rule lives in the gutter, so let it out. */
+.markdown-source-view.mod-cm6 .cm-content > .icpa-gloss-host,
+.markdown-source-view.mod-cm6 .cm-content > .cm-embed-block:has(.icpa-ask-host),
+.icpa-gloss-host,
+.cm-embed-block:has(.icpa-ask-host),
+.cm-embed-block.cm-callout:has(.callout:is([data-callout="gloss"], [data-callout="feedback"], [data-callout="practice"])) {
+	contain: none !important;
+	overflow: visible !important;
+}
+.icpa-gloss-host {
+	white-space: normal;
+	cursor: auto;
+	caret-color: auto;
+}
+.icpa-gloss-pad {
+	padding: 0.65em 0 0.85em;
+}
+.icpa-gloss {
+	font-size: var(--icpa-voice);
+	line-height: var(--line-height-normal);
+	color: var(--text-normal);
+	outline: none;
+}
+.icpa-gloss.is-collapsed .icpa-label {
+	margin-bottom: 0;
+}
+.icpa-label-btn.icpa-label-btn {
+	@apply tw:inline-flex tw:items-baseline tw:gap-2;
+	text-transform: inherit;
+	letter-spacing: inherit;
+}
+.icpa-label-btn.icpa-label-btn:hover .icpa-label-term {
+	@apply tw:text-normal;
+}
+.icpa-gloss-part.is-follow {
+	border-top: 1px solid var(--icpa-ink-faint);
+	margin-top: 0.8em;
+}
+.icpa-gloss-part.is-follow .icpa-sublabel {
+	margin-top: 0.55em;
+}
+.icpa-sources {
+	@apply tw:font-ui tw:text-faint;
+	font-size: var(--tw-text-caption, 0.76rem);
+	margin: 0.6em 0 0;
+}
+.icpa-compare {
+	@apply tw:flex tw:flex-wrap tw:items-baseline tw:gap-2;
+	flex: 1 1 100%;
+}
+.icpa-compare label {
+	@apply tw:text-ink tw:font-semibold;
+}
+.icpa-compare input.icpa-compare-input,
+.icpa-compare input {
+	all: unset;
+	@apply tw:font-prose tw:text-normal;
+	flex: 1 1 12em;
+	min-width: 8em;
+	font-size: 0.95rem;
+	border-bottom: 1px solid var(--icpa-ink-soft);
+	padding: 0.05em 0.1em;
+	caret-color: var(--icpa-ink);
+}
+.icpa-compare input::placeholder {
+	@apply tw:text-faint;
+	font-style: italic;
+}
+
+
+/* ───────────── Interactive Block ───────────── */
+
+/* Live Preview wraps processors in an embed block; make it part of the page, not a widget. */
+.cm-embed-block.cm-preview-code-block:has(> .block-language-icpa-ask),
+.cm-embed-block:has(.icpa-ask-host) {
+	box-shadow: none !important;
+	background: transparent !important;
+	border-radius: 0;
+	cursor: auto;
+}
+.cm-embed-block:has(.icpa-ask-host) .edit-block-button {
+	opacity: 0;
+}
+.cm-embed-block:has(.icpa-ask-host):hover .edit-block-button {
+	opacity: 0.45;
+}
+.block-language-icpa-ask {
+	white-space: normal;
+}
+
+.icpa-ask {
+	margin: 0.35em 0 0.6em;
+	line-height: var(--line-height-normal);
+	color: var(--text-normal);
+}
+.icpa-turn + .icpa-turn {
+	margin-top: 1.1em;
+}
+.icpa-question {
+	font-size: var(--icpa-voice);
+	margin: 0 0 0.45em;
+}
+.icpa-question .icpa-md strong {
+	color: var(--text-normal);
+}
+.icpa-ref {
+	@apply tw:font-ui tw:text-faint;
+	font-size: var(--tw-text-caption, 0.76rem);
+	margin: 0 0 0.3em;
+}
+
+/* The learner's words: body text, no ink. */
+.icpa-learner {
+	margin: 0.35em 0 0.55em;
+	font-size: 1em;
+}
+.icpa-decision {
+	@apply tw:text-muted;
+	font-style: italic;
+}
+
+.icpa-feedback {
+	font-size: var(--icpa-voice);
+	margin: 0.5em 0 0.2em;
+}
+.icpa-verdict {
+	position: absolute;
+	left: calc(-1 * var(--icpa-gutter) - 1.35em);
+	top: 0.05em;
+	width: 1.1em;
+	text-align: center;
+	color: var(--icpa-ink);
+	font-weight: 700;
+	font-family: var(--font-interface);
+}
+.icpa-verdict-word {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip: rect(0 0 0 0);
+}
+.icpa-feedback[data-verdict="holds"]::before {
+	background: var(--icpa-ink-faint);
+}
+@media (max-width: 640px) {
+	.icpa-verdict {
+		position: static;
+		display: inline;
+		margin-right: 0.35em;
+	}
+}
+
+.icpa-summary {
+	font-size: var(--icpa-voice);
+	margin: 1em 0 0.2em;
+	min-height: 1.6em;
+	--icpa-draw-span: 1.4em;
+}
+.icpa-summary.is-final::before {
+	width: calc(var(--icpa-rule) + 1.5px);
+	background: var(--icpa-ink);
+}
+
+/* Writing line: lined paper for your own words. */
+.icpa-writing {
+	margin: 0.3em 0 0.4em;
+}
+.icpa-writing textarea.icpa-writing-ta,
+.icpa-writing textarea {
+	all: unset;
+	box-sizing: border-box;
+	display: block;
+	width: 100%;
+	min-height: calc(2 * var(--line-height-normal) * 1em);
+	font-family: var(--font-text);
+	font-size: 1em;
+	line-height: var(--line-height-normal);
+	color: var(--text-normal);
+	caret-color: var(--icpa-ink);
+	white-space: pre-wrap;
+	overflow: hidden;
+	resize: none;
+	padding: 0 0 2px;
+	background-image: linear-gradient(to bottom, transparent calc(100% - 1px), var(--icpa-ink-faint) calc(100% - 1px));
+	background-size: 100% calc(var(--line-height-normal) * 1em);
+	background-attachment: local;
+	transition: background-image 150ms ease;
+}
+.icpa-writing textarea:focus {
+	--icpa-ink-faint: color-mix(in oklab, var(--icpa-ink) 38%, transparent);
+}
+.icpa-writing textarea::placeholder {
+	@apply tw:text-faint;
+	font-style: italic;
+}
+.icpa-writing-foot {
+	@apply tw:flex tw:items-baseline tw:justify-end tw:gap-3 tw:font-ui;
+	font-size: var(--tw-text-caption, 0.76rem);
+	margin-top: 0.35em;
+}
+.icpa-writing:not(:focus-within) .icpa-hint {
+	visibility: hidden;
+}
+
+/* [[ link suggestions under a writing line: quiet, like a margin index. */
+.icpa-writing {
+	position: relative;
+}
+.icpa-link-suggest {
+	@apply tw:font-ui;
+	list-style: none;
+	margin: 0.2em 0 0;
+	padding: 0.25em 0;
+	padding-inline-start: 0;
+	margin-inline-start: 0;
+	max-width: 32em;
+	border-left: 2px solid var(--icpa-ink-faint);
+	font-size: var(--font-ui-small);
+}
+.icpa-link-suggest li {
+	margin: 0;
+	padding: 0;
+}
+.icpa-link-suggest button {
+	all: unset;
+	box-sizing: border-box;
+	display: flex;
+	align-items: baseline;
+	gap: 0.6em;
+	width: 100%;
+	padding: 0.15em 0.7em;
+	cursor: pointer;
+	color: var(--text-muted);
+}
+.icpa-link-suggest button.is-active {
+	color: var(--text-normal);
+	background: color-mix(in oklab, var(--icpa-ink) 10%, transparent);
+}
+.icpa-link-name {
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+.icpa-link-path {
+	@apply tw:text-faint;
+	font-size: 0.92em;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+/* Choices: lettered, marked like paper. */
+.icpa-choices {
+	@apply tw:grid;
+	gap: 0.1em;
+	margin: 0.35em 0 0.45em;
+}
+.icpa-choice {
+	@apply tw:grid tw:items-baseline;
+	grid-template-columns: 2em 1fr;
+	padding: 0.18em 0.4em 0.18em 0;
+	margin-left: -0.15em;
+	border-radius: 4px;
+	cursor: pointer;
+	transition: background-color 100ms ease;
+}
+.icpa-choices:not(.is-locked) .icpa-choice:hover {
+	background: var(--icpa-ink-wash);
+}
+.is-locked .icpa-choice {
+	cursor: default;
+}
+/* Keyboard focus on an option: a wash and an ink caret in the letter column, not a box. */
+.icpa-choice:focus-visible {
+	outline: none;
+	background: var(--icpa-ink-wash);
+	box-shadow: inset 2px 0 0 var(--icpa-ink);
+}
+.icpa-choice-mark {
+	@apply tw:relative tw:inline-grid tw:place-items-center tw:font-ui tw:text-muted;
+	width: 1.45em;
+	height: 1.45em;
+	font-size: 0.86em;
+	justify-self: center;
+}
+.icpa-choice.is-on .icpa-choice-mark {
+	@apply tw:text-ink tw:font-semibold;
+}
+/* A hand-drawn ring (or box + tick) around the chosen letter, stroked on by Motion. */
+.icpa-ink-svg {
+	position: absolute;
+	inset: -0.32em -0.42em;
+	width: calc(100% + 0.84em);
+	height: calc(100% + 0.64em);
+	overflow: visible;
+	pointer-events: none;
+}
+.icpa-ink-svg path {
+	fill: none;
+	stroke: var(--icpa-ink);
+	stroke-width: 1.7;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+.icpa-ink-svg .is-tick {
+	stroke-width: 2.1;
+}
+.icpa-choices:not(.is-multi) .icpa-ink-svg {
+	transform: rotate(-8deg);
+}
+.icpa-choice-letter {
+	position: relative;
+}
+.icpa-choice-label > p,
+.icpa-choice-label p {
+	margin: 0;
+}
+
+.icpa-confirm {
+	@apply tw:flex tw:flex-wrap tw:items-baseline tw:gap-x-3 tw:font-ui;
+	font-size: 0.86rem;
+	margin: 0.3em 0 0.4em;
+}
+
+.icpa-review-title {
+	@apply tw:font-ui tw:text-faint;
+	font-size: var(--tw-text-caption, 0.76rem);
+	margin: 0 0 0.2em;
+}
+.icpa-diff {
+	@apply tw:font-code;
+	font-size: 0.8rem;
+	line-height: 1.55;
+	margin: 0.4em 0;
+	overflow-wrap: anywhere;
+}
+.icpa-diff > div {
+	white-space: pre-wrap;
+	padding: 0 0.5em 0 1.6em;
+	text-indent: -1.1em;
+}
+.icpa-diff span {
+	display: inline-block;
+	width: 1.1em;
+	text-indent: 0;
+}
+.icpa-diff-del {
+	@apply tw:text-faint;
+	text-decoration: line-through;
+	text-decoration-color: var(--icpa-ink-faint);
+}
+.icpa-diff-add {
+	background: var(--icpa-ink-wash);
+}
+.icpa-diff-add span {
+	color: var(--icpa-ink);
+}
+/* Decided: an applied change is simply the note now; a declined one recedes. */
+.icpa-diff.is-applied .icpa-diff-del {
+	display: none;
+}
+.icpa-diff.is-applied .icpa-diff-add {
+	background: none;
+}
+.icpa-diff.is-declined .icpa-diff-add {
+	opacity: 0.45;
+}
+
+.icpa-veil-toggle.icpa-veil-toggle {
+	margin-left: auto;
+	letter-spacing: 0.02em;
+	text-transform: none;
+	font-size: 0.74rem;
+}
+.icpa-ask.is-orphan .icpa-caption {
+	margin: 0;
+}
+
+/* The recall veil: everything but the block goes soft. */
+.icpa-veiled :is(.cm-content > *, .markdown-preview-sizer > *):not(.icpa-unveiled),
+.icpa-veiled :is(.inline-title, .metadata-container, .mod-header, .embedded-backlinks) {
+	filter: blur(5px) saturate(0.4);
+	opacity: 0.42;
+	transition:
+		filter 280ms ease,
+		opacity 280ms ease;
+	user-select: none;
+}
+@media (prefers-reduced-motion: reduce) {
+	.icpa-veiled :is(.cm-content > *, .markdown-preview-sizer > *):not(.icpa-unveiled) {
+		transition: none;
+	}
+}
+
+/* ───────────── Kept content: native callouts in the same voice ───────────── */
+
+.callout:is([data-callout="gloss"], [data-callout="feedback"], [data-callout="practice"]) {
+	--callout-color: 168, 84, 54;
+	--callout-padding: 0;
+	position: relative;
+	background: transparent;
+	border: 0;
+	border-radius: 0;
+	box-shadow: none;
+	padding: 0;
+	margin: 0.25em 0 1em;
+	mix-blend-mode: normal;
+	font-size: var(--icpa-voice);
+	overflow: visible;
+}
+.callout:is([data-callout="gloss"], [data-callout="feedback"], [data-callout="practice"])::before {
+	transform: scaleY(var(--icpa-rule-scale, 1));
+	transform-origin: top;
+	content: "";
+	position: absolute;
+	left: calc(-1 * var(--icpa-gutter));
+	top: 0.3em;
+	bottom: 0.3em;
+	width: var(--icpa-rule);
+	border-radius: 1px;
+	background: var(--icpa-ink-soft);
+}
+.callout:is([data-callout="gloss"], [data-callout="feedback"], [data-callout="practice"]) .callout-title {
+	@apply tw:font-ui tw:items-baseline tw:gap-2;
+	padding: 0;
+	font-size: var(--tw-text-label, 0.68rem);
+	letter-spacing: 0.09em;
+	text-transform: uppercase;
+	color: var(--text-faint);
+	font-weight: 400;
+}
+.callout:is([data-callout="gloss"], [data-callout="feedback"], [data-callout="practice"]) .callout-icon {
+	display: none;
+}
+.callout:is([data-callout="gloss"], [data-callout="feedback"], [data-callout="practice"]) .callout-title::before {
+	color: var(--icpa-ink);
+	font-weight: 600;
+}
+.callout[data-callout="gloss"] .callout-title::before {
+	content: "gloss";
+}
+.callout[data-callout="feedback"] .callout-title::before {
+	content: "feedback";
+}
+.callout[data-callout="practice"] .callout-title::before {
+	content: "practice";
+}
+.callout:is([data-callout="gloss"], [data-callout="feedback"], [data-callout="practice"]) .callout-title-inner {
+	@apply tw:font-prose tw:text-muted;
+	font-size: 0.86rem;
+	letter-spacing: 0;
+	text-transform: none;
+	font-style: italic;
+	font-weight: 400;
+}
+.callout:is([data-callout="gloss"], [data-callout="feedback"], [data-callout="practice"]) .callout-content {
+	padding: 0;
+	margin-top: 0.3em;
+	background: transparent;
+}
+.callout:is([data-callout="gloss"], [data-callout="feedback"], [data-callout="practice"]) .callout-content > :first-child {
+	margin-top: 0;
+}
+
+/* ───────────── Selection mark ───────────── */
+
+.icpa-selmark {
+	position: absolute;
+	z-index: 30;
+	display: none;
+	align-items: baseline;
+	gap: 0.45em;
+	padding: 2px 9px 3px 8px;
+	background: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 6px;
+	box-shadow: var(--shadow-s);
+	font-family: var(--font-interface);
+	font-size: 12px;
+	line-height: 1.6;
+	color: var(--text-muted);
+	white-space: nowrap;
+}
+.icpa-selmark.is-shown {
+	display: inline-flex;
+}
+.icpa-selmark::before {
+	content: "";
+	align-self: center;
+	width: 5px;
+	height: 5px;
+	border-radius: 50%;
+	background: var(--icpa-ink);
+}
+.icpa-selmark button {
+	text-decoration: underline;
+	text-decoration-color: transparent;
+	text-underline-offset: 3px;
+}
+.icpa-selmark button:hover {
+	color: var(--icpa-ink);
+	text-decoration-color: var(--icpa-ink-soft);
+}
+.icpa-selmark-sep {
+	color: var(--text-faint);
+}
+
+/* ───────────── Activity: mark + ledger ───────────── */
+
+.icpa-statusbar {
+	padding: 0 2px;
+}
+.icpa-mark.icpa-mark {
+	@apply tw:inline-flex tw:items-center tw:gap-1.5;
+	padding: 0 4px;
+	height: 100%;
+	color: var(--text-muted);
+	font-size: var(--status-bar-font-size, 12px);
+	border-radius: 4px;
+}
+.icpa-mark.icpa-mark:hover {
+	color: var(--text-normal);
+	background: var(--background-modifier-hover);
+}
+.icpa-mark-glyph {
+	position: relative;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	border: 1.25px solid var(--text-faint);
+	flex: none;
+}
+.icpa-mark[data-state="working"] .icpa-mark-glyph {
+	border-color: var(--icpa-ink-faint);
+	border-top-color: var(--icpa-ink);
+	animation: icpa-spin 1.4s linear infinite;
+}
+.icpa-mark[data-state="waiting"] .icpa-mark-glyph {
+	border-color: var(--icpa-ink);
+	background: var(--icpa-ink);
+}
+.icpa-mark[data-state="waiting"] {
+	color: var(--icpa-ink);
+}
+.icpa-mark[data-state="completed"] .icpa-mark-glyph {
+	border-color: var(--icpa-ink);
+}
+.icpa-mark[data-state="failed"] .icpa-mark-glyph {
+	border-color: var(--text-error);
+	background: var(--text-error);
+}
+.icpa-mark-label {
+	display: inline-block;
+}
+@keyframes icpa-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.icpa-mark-glyph {
+		animation: none !important;
+	}
+}
+
+.icpa-ledger {
+	position: fixed;
+	right: 12px;
+	bottom: calc(var(--status-bar-height, 26px) + 12px);
+	z-index: var(--layer-popover, 30);
+	width: min(390px, calc(100vw - 24px));
+	max-height: min(62vh, 560px);
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	background: var(--background-primary);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-m, 8px);
+	box-shadow: var(--shadow-l);
+	padding: 10px 14px 12px;
+	font-family: var(--font-interface);
+	font-size: var(--font-ui-small, 13px);
+	color: var(--text-normal);
+	outline: none;
+	transform-origin: 100% 100%;
+}
+.icpa-ledger-head {
+	@apply tw:flex tw:items-center tw:gap-3;
+	margin-bottom: 4px;
+}
+.icpa-ledger-head h2 {
+	margin: 0;
+	margin-right: auto;
+	font-size: 0.7rem;
+	font-weight: 600;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	color: var(--icpa-ink);
+}
+.icpa-ledger-head .icpa-link {
+	font-size: 0.74rem;
+}
+.icpa-icon-btn.icpa-icon-btn {
+	@apply tw:inline-grid tw:place-items-center tw:text-faint;
+	width: 22px;
+	height: 22px;
+	border-radius: 4px;
+}
+.icpa-icon-btn.icpa-icon-btn:hover {
+	color: var(--text-normal);
+	background: var(--background-modifier-hover);
+}
+.icpa-ledger-empty {
+	color: var(--text-muted);
+	line-height: 1.5;
+	margin: 6px 0 2px;
+}
+.icpa-ledger-group h3 {
+	margin: 12px 0 2px;
+	font-size: 0.66rem;
+	font-weight: 500;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+	color: var(--text-faint);
+}
+.icpa-ledger-group ul {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+.icpa-row {
+	display: grid;
+	grid-template-columns: 14px 1fr auto;
+	gap: 0 8px;
+	padding: 6px 0;
+	border-top: 1px solid var(--background-modifier-border);
+}
+.icpa-ledger-group li:first-child {
+	border-top: 0;
+}
+.icpa-row-glyph {
+	position: relative;
+	width: 7px;
+	height: 7px;
+	margin-top: 6px;
+	border-radius: 50%;
+	border: 1.25px solid var(--text-faint);
+	justify-self: center;
+}
+.icpa-row[data-status="processing"] .icpa-row-glyph {
+	border-color: var(--icpa-ink-faint);
+	border-top-color: var(--icpa-ink);
+	animation: icpa-spin 1.4s linear infinite;
+}
+.icpa-row[data-status="waiting"] .icpa-row-glyph {
+	background: var(--icpa-ink);
+	border-color: var(--icpa-ink);
+}
+.icpa-row-check {
+	width: 11px;
+	height: 11px;
+	margin-top: 4px;
+	margin-left: -2px;
+	overflow: visible;
+}
+.icpa-row-check path {
+	fill: none;
+	stroke: var(--text-muted);
+	stroke-width: 1.5;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+.icpa-row[data-status="failed"] .icpa-row-glyph {
+	background: var(--text-error);
+	border-color: var(--text-error);
+}
+.icpa-row[data-status="cancelled"] .icpa-row-glyph {
+	border-style: dashed;
+}
+.icpa-row-main {
+	min-width: 0;
+}
+.icpa-row-line {
+	margin: 0;
+	line-height: 1.45;
+}
+.icpa-row-title.icpa-row-title {
+	color: var(--text-normal);
+	overflow-wrap: anywhere;
+}
+button.icpa-row-title.icpa-row-title:hover {
+	text-decoration: underline;
+	text-decoration-color: var(--icpa-ink-soft);
+	text-underline-offset: 3px;
+}
+.icpa-row[data-status="cancelled"] .icpa-row-title,
+.icpa-row[data-status="completed"] .icpa-row-title {
+	color: var(--text-muted);
+}
+.icpa-row-meta {
+	@apply tw:flex tw:flex-wrap tw:items-baseline;
+	gap: 0 0.7em;
+	margin: 1px 0 0;
+	font-size: 0.74rem;
+	color: var(--text-faint);
+}
+.icpa-row-meta .icpa-link.icpa-link {
+	color: var(--text-faint);
+}
+.icpa-row-status {
+	color: var(--icpa-ink);
+}
+.icpa-row[data-status="failed"] .icpa-row-status {
+	color: var(--text-error);
+}
+.icpa-row-error {
+	margin: 2px 0 0;
+	font-size: 0.74rem;
+	color: var(--text-error);
+	overflow-wrap: anywhere;
+}
+.icpa-row-artifacts {
+	margin: 3px 0 0 !important;
+	font-size: 0.78rem;
+}
+.icpa-row-artifacts li {
+	display: flex;
+	gap: 0.5em;
+	align-items: baseline;
+}
+.icpa-artifact-kind {
+	font-size: 0.64rem;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--icpa-ink);
+}
+.icpa-row-actions {
+	@apply tw:flex tw:items-baseline tw:gap-2;
+	font-size: 0.76rem;
+	padding-top: 1px;
+}
+
+/* The learner's final version stands apart from the dialogue above it. */
+.icpa-turn.is-final {
+  @apply tw:mt-6 tw:pt-4;
+  border-top: 1px dashed var(--icpa-rule-soft, var(--background-modifier-border));
+}
+
+/* An explanation the learner stopped: the text simply ends, with a quiet note where it ends. */
+.icpa-stopped {
+	@apply tw:font-ui tw:text-faint tw:flex tw:items-baseline tw:gap-2;
+	font-size: var(--tw-text-caption, 0.76rem);
+	margin: 0.1em 0 0;
+}
+
+/* Keyboard arrival in a gloss or block (via the "move into" command, Ledger, or Esc-return):
+   underline the label in ink instead of drawing a box around the passage. */
+.icpa-gloss:focus,
+.icpa-ask:focus {
+	outline: none;
+}
+.icpa-gloss:focus-visible .icpa-label-kind,
+.icpa-ask:focus-visible .icpa-label-kind {
+	text-decoration: underline 1.5px var(--icpa-ink);
+	text-underline-offset: 4px;
+}
+
+/* ───────────── Guidance: completion, what changed, where to look ───────────── */
+
+/* The rule is pressed once when a passage is complete (motion.ts → seal). */
+@property --icpa-press {
+	syntax: "<number>";
+	inherits: true;
+	initial-value: 0;
+}
+/* A second, wider stroke of full ink laid over the rule; invisible at rest, so every rule keeps
+   its own resting colour (faint for "holds", solid for a final summary). */
+.icpa-voice:not(.is-drawing)::after,
+.callout:is([data-callout="gloss"], [data-callout="feedback"], [data-callout="practice"])::after {
+	content: "";
+	position: absolute;
+	left: calc(-1 * var(--icpa-gutter) - 0.75px);
+	top: 0.3em;
+	bottom: 0.3em;
+	width: calc(var(--icpa-rule) + 1.5px);
+	border-radius: 1px;
+	background: var(--icpa-ink);
+	opacity: var(--icpa-press, 0);
+	transform: scaleY(var(--icpa-rule-scale, 1));
+	transform-origin: top;
+	pointer-events: none;
+}
+
+/* The next step's underline is drawn under it (motion.ts → beckon). */
+@property --icpa-underline {
+	syntax: "<number>";
+	inherits: false;
+	initial-value: 1;
+}
+.icpa-link.icpa-link.icpa-primary {
+	position: relative;
+}
+.icpa-link.icpa-link.icpa-primary.is-beckoning {
+	text-decoration-color: transparent;
+}
+.icpa-link.icpa-link.icpa-primary.is-beckoning::after {
+	content: "";
+	position: absolute;
+	left: 0;
+	right: 0;
+	bottom: -2px;
+	height: 1.5px;
+	border-radius: 1px;
+	background: var(--icpa-ink);
+	transform: scaleX(var(--icpa-underline));
+	transform-origin: left;
+	pointer-events: none;
+}
+
+/* What just changed in the note: a highlighter pass that fades (editor/fresh.ts). */
+body {
+	--icpa-ink-highlight: color-mix(in oklab, var(--icpa-ink) 18%, transparent);
+	--icpa-ink-highlight-soft: color-mix(in oklab, var(--icpa-ink) 9%, transparent);
+}
+.icpa-fresh {
+	border-radius: 2px;
+	animation: icpa-fresh 3.2s ease-out forwards;
+}
+.icpa-fresh-block .callout {
+	animation: icpa-fresh-block 3.2s ease-out forwards;
+}
+@keyframes icpa-fresh {
+	0%,
+	35% {
+		background-color: var(--icpa-ink-highlight);
+	}
+	100% {
+		background-color: transparent;
+	}
+}
+@keyframes icpa-fresh-block {
+	0%,
+	35% {
+		background-color: var(--icpa-ink-highlight-soft);
+		box-shadow: 0 0 0 0.4em var(--icpa-ink-highlight-soft);
+	}
+	100% {
+		background-color: transparent;
+		box-shadow: 0 0 0 0.4em transparent;
+	}
+}
+
+/* Edge cue: a small note at the editor's edge pointing at what needs you (editor/cue.ts). */
+.icpa-cue.icpa-cue {
+	position: absolute;
+	left: 50%;
+	translate: -50% 0;
+	z-index: 20;
+	display: inline-flex;
+	align-items: center;
+	gap: 0.4em;
+	height: auto;
+	padding: 4px 12px 4px 10px;
+	border: 1px solid var(--icpa-ink-faint);
+	border-radius: 999px;
+	background: var(--background-primary);
+	box-shadow: var(--shadow-s);
+	color: var(--icpa-ink);
+	font-family: var(--font-interface);
+	font-size: var(--font-ui-small, 13px);
+	font-weight: 600;
+	cursor: pointer;
+}
+.icpa-cue.is-down {
+	bottom: 18px;
+}
+.icpa-cue.is-up {
+	top: 14px;
+}
+.icpa-cue:hover {
+	border-color: var(--icpa-ink-soft);
+}
+.icpa-cue-arrow {
+	display: inline-block;
+	font-weight: 700;
+}

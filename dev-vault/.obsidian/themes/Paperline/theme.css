@@ -1,0 +1,34 @@
+/* Test fixture: a custom theme far from the defaults — paper ground, serif text, green accent. */
+.theme-light {
+	--background-primary: #f4efe3;
+	--background-primary-alt: #ebe4d3;
+	--background-secondary: #e9e1cd;
+	--background-secondary-alt: #e2d9c2;
+	--background-modifier-border: #d3c7aa;
+	--text-normal: #2b2a26;
+	--text-muted: #6b6455;
+	--text-faint: #9a917c;
+	--accent-h: 152; --accent-s: 45%; --accent-l: 32%;
+	--interactive-accent: #2f7a55;
+	--text-accent: #2f7a55;
+	--code-background: #ebe4d3;
+}
+.theme-dark {
+	--background-primary: #1d2321;
+	--background-primary-alt: #181d1b;
+	--background-secondary: #161b19;
+	--background-modifier-border: #34403b;
+	--text-normal: #dfe6df;
+	--text-muted: #9fb0a6;
+	--text-faint: #6f8279;
+	--accent-h: 152; --accent-s: 40%; --accent-l: 58%;
+	--interactive-accent: #5fb98d;
+	--text-accent: #6cc79a;
+	--code-background: #232b28;
+}
+body {
+	--font-text-theme: "Iowan Old Style", "Palatino", "Georgia", serif;
+	--font-interface-theme: "Avenir Next", "Helvetica Neue", sans-serif;
+	--h1-size: 2.1em;
+	--line-height-normal: 1.65;
+}
