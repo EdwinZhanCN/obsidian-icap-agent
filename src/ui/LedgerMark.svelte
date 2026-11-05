@@ -57,7 +57,7 @@
 
 <button
 	type="button"
-	class="icpa-mark"
+	class="icap-mark"
 	data-state={markState}
 	aria-haspopup="dialog"
 	aria-expanded={ledger.open}
@@ -68,6 +68,6 @@
 		ledger.open = !ledger.open;
 	}}
 >
-	<span class="icpa-mark-glyph" aria-hidden="true" bind:this={glyph}></span>
-	{#key label}{#if label}<span class="icpa-mark-label" use:settleIn>{label}</span>{/if}{/key}
+	<span class="icap-mark-glyph" aria-hidden="true" bind:this={glyph}></span>
+	{#key label}{#if label}<span class="icap-mark-label" use:settleIn>{label}</span>{/if}{/key}
 </button>

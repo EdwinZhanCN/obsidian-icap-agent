@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { JsonlSplitter } from "../src/agent/jsonl";
 import {
 	findAskBlock,
 	glossCallout,
@@ -34,15 +33,6 @@ std::lock_guard<std::mutex> g(m);
 
 unique_ptr owns.
 `;
-
-describe("jsonl", () => {
-	it("splits on LF only and keeps U+2028 inside strings", () => {
-		const s = new JsonlSplitter();
-		const a = s.push('{"a":"x y"}\n{"b":');
-		expect(a).toEqual([{ a: "x y" }]);
-		expect(s.push("1}\r\n")).toEqual([{ b: 1 }]);
-	});
-});
 
 describe("structure", () => {
 	it("finds the heading trail", () => {
@@ -84,6 +74,13 @@ describe("dsl", () => {
 		const r = findAskBlock(doc, "abc")!;
 		expect(doc.slice(r.from, r.to)).toBe(src);
 		expect(findAskBlock(doc, "nope")).toBeNull();
+		expect(src.startsWith("```icap-ask\n")).toBe(true);
+	});
+	it("still finds blocks written before the rename (```icpa-ask)", () => {
+		const old = "```icpa-ask\nid: old1\nkind: recall\n---\nExplain lift.\n```";
+		const doc = `para\n\n${old}\n\nafter`;
+		const r = findAskBlock(doc, "old1")!;
+		expect(doc.slice(r.from, r.to)).toBe(old);
 	});
 	it("reads authored blocks (and ignores runtime ones)", () => {
 		const quiz = parseAskSource("id: q1\nkind: quiz\nauthored: yes\ntopic: Modes\n---\nWhich is **constructive**?\n- [ ] re-reading\n- [ ] explaining it yourself");
@@ -141,7 +138,7 @@ describe("ask tidying", () => {
 import { askReplacement } from "../src/dsl/blocks";
 
 describe("block removal", () => {
-	const block = "```icpa-ask\nid: q1\nkind: recall\n---\n```";
+	const block = "```icap-ask\nid: q1\nkind: recall\n---\n```";
 	const apply = (t: string, s: { from: number; to: number; insert: string } | null) => (s ? t.slice(0, s.from) + s.insert + t.slice(s.to) : t);
 	it("leaves exactly one blank line between neighbours", () => {
 		const t = `para one\n\n${block}\n\n\n## Next`;
@@ -163,17 +160,23 @@ describe("guide", () => {
 	for (const lang of ["zh-cn", "en"]) {
 		it(`has three live exercises (${lang})`, () => {
 			const g = guideNote(lang);
-			const fences = [...g.content.matchAll(/```icpa-ask\n([\s\S]*?)\n```/g)].map((m) => parseAuthored(parseAskSource(m[1])));
+			const fences = [...g.content.matchAll(/```icap-ask\n([\s\S]*?)\n```/g)].map((m) => parseAuthored(parseAskSource(m[1])));
 			expect(fences.map((f) => f?.kind)).toEqual(["quiz", "recall", "agent"]);
 			expect(fences[0]?.options.length).toBe(4);
 			expect(g.content).not.toMatch(/^# /m); // the file name is the title
 			for (const id of g.blockIds) expect(g.content).toContain(`id: ${id}`);
 		});
+		it(`shows the submit shortcut as keycaps for the platform (${lang})`, () => {
+			expect(guideNote(lang, true).content).toContain("<kbd>⌘</kbd> <kbd>↵</kbd>");
+			const other = guideNote(lang, false).content;
+			expect(other).toContain("<kbd>Ctrl</kbd> <kbd>↵</kbd>");
+			expect(other).not.toContain("⌘");
+		});
 	}
 });
 
 import { requestRecord } from "../src/dsl/blocks";
-import { piArgs } from "../src/agent/pi-session";
+import { sessionPlan, vaultContextFiles } from "../src/agent/pi-session";
 
 describe("request record", () => {
 	it("keeps each request with its reply, and the files touched", () => {
@@ -202,23 +205,35 @@ describe("request record", () => {
 	});
 });
 
-describe("pi launch", () => {
-	const base = { extensionPath: "/ext.ts", systemPrompt: "PROTOCOL", tools: ["read", "obsidian", "read_document", "ask_learner"] };
-	it("uses the learner's own setup, appending the protocol and hiding unused ICPA tools", () => {
-		const a = piArgs({ ...base, config: "mine" });
-		expect(a).toContain("--append-system-prompt");
-		expect(a).not.toContain("--system-prompt");
-		expect(a).not.toContain("--no-extensions");
-		expect(a).not.toContain("--no-context-files");
-		expect(a).not.toContain("--tools");
-		expect(a[a.indexOf("--exclude-tools") + 1]).toBe("create_note,propose_edit");
+describe("context files", () => {
+	it("keeps Pi's global AGENTS.md and the vault's own, drops what lies above the vault", () => {
+		const files = [
+			{ path: "/Users/me/.pi/agent/AGENTS.md" },
+			{ path: "/Users/me/AGENTS.md" },
+			{ path: "/Users/me/code/repo/CLAUDE.md" },
+			{ path: "/Users/me/code/repo/vault/AGENTS.md" },
+			{ path: "/Users/me/code/repo/vault-other/AGENTS.md" },
+		];
+		expect(vaultContextFiles(files, "/Users/me/code/repo/vault", "/Users/me/.pi/agent").map((f) => f.path)).toEqual([
+			"/Users/me/.pi/agent/AGENTS.md",
+			"/Users/me/code/repo/vault/AGENTS.md",
+		]);
+		expect(vaultContextFiles(files, "/Users/me/code/repo/vault", "/Users/me/.pi/agent", true).map((f) => f.path)).toEqual(["/Users/me/code/repo/vault/AGENTS.md"]);
 	});
-	it("isolates: only ICPA, the given tools, the protocol as the whole prompt", () => {
-		const a = piArgs({ ...base, config: "isolated" });
-		for (const f of ["--no-extensions", "--no-skills", "--no-context-files", "--no-mcp", "--no-approve"]) expect(a).toContain(f);
-		expect(a[a.indexOf("--tools") + 1]).toBe("read,obsidian,read_document,ask_learner");
-		expect(a[a.indexOf("--system-prompt") + 1]).toBe("PROTOCOL");
-		expect(a[a.indexOf("-e") + 1]).toBe("/ext.ts");
+});
+
+describe("pi session plan", () => {
+	const base = { systemPrompt: "PROTOCOL", tools: ["read", "obsidian", "read_document", "ask_learner"] };
+	it("uses the learner's own setup, appending the protocol and hiding unused ICAP tools", () => {
+		const p = sessionPlan({ ...base, config: "mine" });
+		expect(p).toMatchObject({ bare: false, contextFiles: "vault+pi", builtins: true, appendSystemPrompt: ["PROTOCOL"], excludeTools: ["create_note", "propose_edit"] });
+		expect(p.systemPrompt).toBeUndefined();
+		expect(p.tools).toBeUndefined();
+	});
+	it("isolates: only ICAP, the given tools, the protocol as the whole prompt, the vault's own AGENTS.md", () => {
+		const p = sessionPlan({ ...base, config: "isolated" });
+		expect(p).toMatchObject({ bare: true, contextFiles: "vault", builtins: false, systemPrompt: "PROTOCOL", tools: ["read", "obsidian", "read_document", "ask_learner"] });
+		expect(p.appendSystemPrompt).toBeUndefined();
 	});
 });
 
@@ -319,7 +334,7 @@ describe("[[ links in a request", () => {
 	});
 });
 
-import { parseEnv } from "../src/agent/pi-env";
+import { envAdditions, parseEnv } from "../src/agent/pi-host";
 
 describe("login shell environment", () => {
 	it("parses env -0 output, keeping = and newlines in values", () => {
@@ -328,6 +343,14 @@ describe("login shell environment", () => {
 			DEEPSEEK_API_KEY: "sk-a=b",
 			MULTI: "line1\nline2",
 		});
+	});
+	it("adds only what Obsidian lacks, and the shell's PATH first", () => {
+		const add = envAdditions({ HOME: "/h", PATH: "/usr/bin", KEEP: "mine" }, { PATH: "/opt/pi/bin:/usr/bin", KEEP: "shell", DEEPSEEK_API_KEY: "sk", SHLVL: "2" });
+		expect(add.DEEPSEEK_API_KEY).toBe("sk");
+		expect(add.KEEP).toBeUndefined();
+		expect(add.SHLVL).toBeUndefined();
+		expect(add.PATH?.split(":").slice(0, 2)).toEqual(["/opt/pi/bin", "/usr/bin"]);
+		expect(add.PATH?.split(":").filter((p) => p === "/usr/bin")).toHaveLength(1);
 	});
 });
 

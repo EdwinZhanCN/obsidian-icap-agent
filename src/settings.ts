@@ -1,11 +1,16 @@
-import { App, PluginSettingTab, Setting, type DropdownComponent } from "obsidian";
-import type IcpaPlugin from "./main";
-import { probeModels, resetPiEnvironment, resolvePiEnvironment } from "./agent/pi-env";
-import type { AgentConfig } from "./agent/pi-session";
+import { App, Notice, PluginSettingTab, Setting, type DropdownComponent } from "obsidian";
+import type IcapPlugin from "./main";
+import { probeModels, type AgentConfig } from "./agent/pi-session";
+import { providerStates } from "./agent/pi-login";
+import type { Visuals } from "./agent/prompts";
+import { LoginModal } from "./ui/login-modal";
+import { RulesModal, VAULT_RULES } from "./ui/rules-modal";
 import { L } from "./i18n";
 
-export interface IcpaSettings {
-	piPath: string;
+/** The property value create_note writes (before the rename ICPA → ICAP it was "icpa-agent"). */
+export const GENERATED_BY = "icap-agent";
+
+export interface IcapSettings {
 	agentConfig: AgentConfig;
 	model: string;
 	thinking: string;
@@ -13,7 +18,7 @@ export interface IcpaSettings {
 	/** How the learner likes to be taught (language, style…); appended to the agent's instructions. */
 	preferences: string;
 	notesFolder: string;
-	/** create_note records `generated-by: icpa-agent` in the new note's properties. */
+	/** create_note records `generated-by: icap-agent` in the new note's properties. */
 	markGenerated: boolean;
 	/** Isolated mode: absolute folders outside the vault the agent may read. */
 	externalFolders: string[];
@@ -21,12 +26,18 @@ export interface IcpaSettings {
 	ink: "madder" | "accent";
 	veilByDefault: boolean;
 	maxConcurrent: number;
+	/**
+	 * Request blocks resume the Pi session of their last reply while it still matches the block
+	 * (agent/session-cache.ts). Off: every follow-up replays the block's turns to a fresh Pi.
+	 */
+	rememberContext: boolean;
+	/** Interactive visuals (```icap-ui) in replies and agent-created notes. */
+	visuals: Visuals;
 	/** The guide note is created (and opened) once, on first install. */
 	guideCreated: boolean;
 }
 
-export const DEFAULT_SETTINGS: IcpaSettings = {
-	piPath: "",
+export const DEFAULT_SETTINGS: IcapSettings = {
 	agentConfig: "mine",
 	model: "",
 	thinking: "low",
@@ -39,11 +50,13 @@ export const DEFAULT_SETTINGS: IcpaSettings = {
 	ink: "madder",
 	veilByDefault: true,
 	maxConcurrent: 3,
+	rememberContext: true,
+	visuals: "auto",
 	guideCreated: false,
 };
 
-export class IcpaSettingTab extends PluginSettingTab {
-	constructor(app: App, private plugin: IcpaPlugin) {
+export class IcapSettingTab extends PluginSettingTab {
+	constructor(app: App, private plugin: IcapPlugin) {
 		super(app, plugin);
 	}
 
@@ -123,7 +136,7 @@ export class IcpaSettingTab extends PluginSettingTab {
 					.addOption("accent", L("Theme accent", "主题强调色"))
 					.setValue(s.ink)
 					.onChange((v) => {
-						s.ink = v as IcpaSettings["ink"];
+						s.ink = v as IcapSettings["ink"];
 						this.plugin.applyInk();
 						void save();
 					}),
@@ -144,8 +157,8 @@ export class IcpaSettingTab extends PluginSettingTab {
 			.setName(L("Mark notes the agent creates", "标记 Agent 新建的笔记"))
 			.setDesc(
 				L(
-					"Notes created through ICPA get `generated-by: icpa-agent` in their properties, so later explanations don't mistake them for what you wrote yourself.",
-					"通过 ICPA 新建的笔记会在属性中记录 `generated-by: icpa-agent`，以后的解释就不会把它们当成你自己写的内容。",
+					"Notes created through ICAP get `generated-by: icap-agent` in their properties, so later explanations don't mistake them for what you wrote yourself.",
+					"通过 ICAP 新建的笔记会在属性中记录 `generated-by: icap-agent`，以后的解释就不会把它们当成你自己写的内容。",
 				),
 			)
 			.addToggle((t) =>
@@ -154,18 +167,47 @@ export class IcpaSettingTab extends PluginSettingTab {
 					void save();
 				}),
 			);
+		new Setting(containerEl)
+			.setName(L("Interactive visuals", "交互式图示"))
+			.setDesc(
+				L(
+					"The agent may put something you can try out — a chart with a slider, a process to step through, a quick check — into its replies and the notes it creates. It runs in a sandbox: no internet, no access to your notes or your computer.",
+					"Agent 可以在回复和它新建的笔记里放一个可以动手试的图示：带滑块的图表、可以一步步走的过程、一个小练习。它在沙箱里运行：不能联网，也碰不到你的笔记和电脑。",
+				),
+			)
+			.addDropdown((d) =>
+				d
+					.addOption("auto", L("When it helps", "有帮助时"))
+					.addOption("asked", L("Only when I ask", "只在我要求时"))
+					.addOption("off", L("Never", "不用"))
+					.setValue(s.visuals)
+					.onChange((v) => {
+						s.visuals = v as Visuals;
+						void save();
+					}),
+			);
 
 		/* ── Agent ── */
 		new Setting(containerEl).setName(L("Agent", "Agent")).setHeading();
 		const status = new Setting(containerEl).setName("Pi").setDesc(L("Checking…", "检查中…"));
-		new Setting(containerEl)
-			.setName(L("Providers and API keys", "服务商与 API Key"))
-			.setDesc(
-				L(
-					"Managed by Pi, not by ICPA: run `pi` in a terminal and use `/login` (saved in ~/.pi/agent/auth.json), or export the provider's key (e.g. ANTHROPIC_API_KEY) in your shell profile. ICPA never stores keys.",
-					"由 Pi 管理，而不是 ICPA：在终端运行 `pi` 并使用 `/login`（保存在 ~/.pi/agent/auth.json），或在 shell 配置文件里导出服务商的密钥（如 ANTHROPIC_API_KEY）。ICPA 从不保存密钥。",
-				),
-			);
+		const providers = new Setting(containerEl).setName(L("Model providers", "模型服务商"));
+		const providersHelp = L(
+			"Log in with an account or an API key. Credentials are Pi's own (~/.pi/agent/auth.json, or a key exported in your shell profile); ICAP never stores them.",
+			"用账号或 API Key 登录。凭证属于 Pi（~/.pi/agent/auth.json，或 shell 配置文件中导出的密钥），ICAP 从不保存。",
+		);
+		providers.setDesc(providersHelp);
+		providers.addButton((b) =>
+			b
+				.setButtonText(L("Log in…", "登录…"))
+				.setCta()
+				.onClick(async () => {
+					try {
+						new LoginModal(this.app, await this.plugin.pi(), check).open();
+					} catch (e) {
+						new Notice(L("Pi could not load: ", "Pi 无法加载：") + (e as Error).message);
+					}
+				}),
+		);
 		let modelDropdown: DropdownComponent | null = null;
 		const fillModels = (current: string | null, available: string[]) => {
 			if (!modelDropdown) return;
@@ -177,50 +219,33 @@ export class IcpaSettingTab extends PluginSettingTab {
 			d.setValue(s.model);
 		};
 		const check = () => {
-			resetPiEnvironment();
 			status.setDesc(L("Checking…", "检查中…"));
-			resolvePiEnvironment(s.piPath)
-				.then(async (env) => {
-					const found = L(`Found ${env.command}`, `已找到 ${env.command}`) + (env.version ? ` · ${env.version}` : "");
-					status.setDesc(found + " · " + L("asking for its models…", "正在询问可用模型…"));
-					try {
-						const m = await probeModels(env, s.agentConfig === "isolated", this.plugin.vaultPath());
-						fillModels(m.current, m.available);
-						if (!m.available.length)
-							status.setDesc(
-								found +
-									" · " +
-									L(
-										"⚠ no model has credentials yet. In a terminal run `pi`, then `/login` — or export your provider's API key in your shell profile and click ↻.",
-										"⚠ 还没有任何模型配置了凭证。请在终端运行 `pi` 后执行 `/login`，或在 shell 配置文件中导出服务商的 API Key，然后点 ↻。",
-									),
-							);
-						else
-							status.setDesc(
-								found +
-									" · " +
-									L(`uses ${s.model || m.current} · ${m.available.length} models available`, `使用 ${s.model || m.current} · 共 ${m.available.length} 个可用模型`),
-							);
-					} catch (e) {
-						status.setDesc(found + " · " + L("could not list its models: ", "无法列出模型：") + (e as Error).message);
-					}
-				})
-				.catch((e) => status.setDesc(String((e as Error).message)));
+			void (async () => {
+				let version = "";
+				try {
+					const pi = await this.plugin.pi();
+					version = `Pi ${pi.VERSION}`;
+					status.setDesc(version + " · " + L("asking for its models…", "正在询问可用模型…"));
+					const m = await probeModels(pi, this.plugin.vaultPath() ?? process.cwd(), s.agentConfig, true);
+					fillModels(m.current, m.available);
+					const ready = (await providerStates(pi)).filter((p) => p.configured).map((p) => p.name);
+					providers.setDesc(ready.length ? L(`Ready: ${ready.join(", ")}. `, `已就绪：${ready.join("、")}。`) + providersHelp : providersHelp);
+					if (!m.available.length)
+						status.setDesc(
+							version +
+								" · " +
+								L(
+									"⚠ no model has credentials yet — log in to a provider below.",
+									"⚠ 还没有任何模型配置了凭证——在下面登录一个服务商。",
+								),
+						);
+					else status.setDesc(version + " · " + L(`uses ${s.model || m.current} · ${m.available.length} models available`, `使用 ${s.model || m.current} · 共 ${m.available.length} 个可用模型`));
+				} catch (e) {
+					status.setDesc((version ? version + " · " : "") + L("could not load: ", "无法加载：") + (e as Error).message);
+				}
+			})();
 		};
 		status.addExtraButton((b) => b.setIcon("refresh-cw").setTooltip(L("Check again", "重新检查")).onClick(check));
-		new Setting(containerEl)
-			.setName(L("Pi executable", "Pi 可执行文件"))
-			.setDesc(L("Leave empty to find `pi` on your login shell PATH.", "留空则在登录 shell 的 PATH 中查找 `pi`。"))
-			.addText((t) =>
-				t
-					.setPlaceholder("/usr/local/bin/pi")
-					.setValue(s.piPath)
-					.onChange((v) => {
-						s.piPath = v.trim();
-						resetPiEnvironment();
-						void save();
-					}),
-			);
 		new Setting(containerEl)
 			.setName(L("Model", "模型"))
 			.setDesc(L("Models that have credentials in your Pi. “Pi default” follows your Pi settings.", "你的 Pi 中已有凭证的模型。“Pi 默认”跟随你的 Pi 设置。"))
@@ -246,14 +271,14 @@ export class IcpaSettingTab extends PluginSettingTab {
 			.setName(L("Agent setup", "Agent 配置"))
 			.setDesc(
 				L(
-					"Your Pi setup: the agent runs with your own skills, extensions, MCP servers, AGENTS.md and tools (including shell), plus ICPA's note tools — it may change files directly; every change is listed in the activity. ICPA only: just ICPA's tools, read-only, no shell — predictable, but your own setup is not used.",
-					"你的 Pi 配置：Agent 带着你自己的 skills、扩展、MCP、AGENTS.md 和工具（包括 shell）运行，再加上 ICPA 的笔记工具——它可以直接修改文件，每处修改都会列在活动中。仅 ICPA：只有 ICPA 的工具，只读、没有 shell——行为可预期，但不使用你自己的配置。",
+					"Your Pi setup: the agent runs with your own skills, extensions, MCP servers, AGENTS.md and tools (including shell), plus ICAP's note tools — it may change files directly; every change is listed in the activity. ICAP only: just ICAP's tools and this vault's conventions, read-only, no shell — predictable, but your own setup is not used.",
+					"你的 Pi 配置：Agent 带着你自己的 skills、扩展、MCP、AGENTS.md 和工具（包括 shell）运行，再加上 ICAP 的笔记工具——它可以直接修改文件，每处修改都会列在活动中。仅 ICAP：只有 ICAP 的工具和这个库的约定，只读、没有 shell——行为可预期，但不使用你自己的配置。",
 				),
 			)
 			.addDropdown((d) =>
 				d
-					.addOption("mine", L("Your Pi setup + ICPA", "你的 Pi 配置 + ICPA"))
-					.addOption("isolated", L("ICPA only (isolated)", "仅 ICPA（隔离）"))
+					.addOption("mine", L("Your Pi setup + ICAP", "你的 Pi 配置 + ICAP"))
+					.addOption("isolated", L("ICAP only (isolated)", "仅 ICAP（隔离）"))
 					.setValue(s.agentConfig)
 					.onChange((v) => {
 						s.agentConfig = v as AgentConfig;
@@ -261,13 +286,39 @@ export class IcpaSettingTab extends PluginSettingTab {
 						check();
 					}),
 			);
+		const rules = new Setting(containerEl).setName(L("This vault's conventions", "这个库的约定"));
+		const showRules = () => {
+			rules.controlEl.empty();
+			const exists = !!this.app.vault.getAbstractFileByPath(VAULT_RULES);
+			rules.setDesc(
+				exists
+					? L(
+							`What the agent should know about this vault — what you study here, how notes are organised, what it must leave alone — is in ${VAULT_RULES} at the vault's root. The agent reads it in every task; edit it like any note.`,
+							`Agent 需要知道的这个库的情况——你在这里学什么、笔记怎么组织、哪些地方不要动——写在库根目录的 ${VAULT_RULES} 里。Agent 每次任务都会读它，你可以像普通笔记一样修改。`,
+						)
+					: L(
+							`Tell the agent what you study here, how your notes are organised and what it must leave alone. A few questions, a ready-made starting point for your kind of study, and a note (${VAULT_RULES}) the agent reads in every task.`,
+							`告诉 Agent 你在这里学什么、笔记怎么组织、哪些地方不要动。回答几个问题，选一个适合你的学习方式的起点，就会生成一篇笔记（${VAULT_RULES}），Agent 每次任务都会读它。`,
+						),
+			);
+			if (exists)
+				rules.addButton((b) => b.setButtonText(L("Open", "打开")).onClick(() => void this.plugin.openVaultRules()));
+			else
+				rules.addButton((b) =>
+					b
+						.setButtonText(L("Set up…", "设置…"))
+						.setCta()
+						.onClick(() => new RulesModal(this.app, () => showRules()).open()),
+				);
+		};
+		showRules();
 		area(
 			new Setting(containerEl)
 				.setName(L("Folders outside the vault", "Vault 之外的文件夹"))
 				.setDesc(
 					L(
-						"ICPA only (isolated): absolute paths of folders the agent may also read, one per line. With your Pi setup, your Pi's own permissions apply.",
-						"仅 ICPA（隔离）模式：Agent 还可以读取的文件夹的绝对路径，每行一个。使用你的 Pi 配置时，按你的 Pi 自身的权限。",
+						"ICAP only (isolated): absolute paths of folders the agent may also read, one per line. With your Pi setup, your Pi's own permissions apply.",
+						"仅 ICAP（隔离）模式：Agent 还可以读取的文件夹的绝对路径，每行一个。使用你的 Pi 配置时，按你的 Pi 自身的权限。",
 					),
 				),
 			s.externalFolders.join("\n"),
@@ -281,6 +332,20 @@ export class IcpaSettingTab extends PluginSettingTab {
 			},
 			"/Users/me/Books",
 		);
+		new Setting(containerEl)
+			.setName(L("Remember a request's context", "记住请求的上下文"))
+			.setDesc(
+				L(
+					"A follow-up in a request block continues the agent's own session — what it already read and did — as long as it still matches what the block shows. Off: each follow-up starts a fresh agent from the block's text. Either way the note is the record; sessions are deleted when the block is kept or cleared.",
+					"在请求块里追问时，继续 Agent 自己的会话（它已经读过、做过的内容），前提是会话仍与块中显示的内容一致。关闭后，每次追问都由新的 Agent 从块中的文字重新开始。两种方式下笔记都是记录本身；块被保留或清除时会话会被删除。",
+				),
+			)
+			.addToggle((t) =>
+				t.setValue(s.rememberContext).onChange((v) => {
+					s.rememberContext = v;
+					void save();
+				}),
+			);
 		new Setting(containerEl)
 			.setName(L("Parallel tasks", "并行任务"))
 			.setDesc(L("How many agent tasks may run at once.", "最多同时运行几个 Agent 任务。"))

@@ -31,7 +31,7 @@ export function selectionMark(host: SelectionMarkHost) {
 
 			constructor(readonly view: EditorView) {
 				this.el = document.createElement("div");
-				this.el.className = "icpa-selmark";
+				this.el.className = "icap-selmark";
 				this.el.setAttribute("role", "toolbar");
 				this.el.setAttribute("aria-label", L("Learning actions for selection", "对选中内容的学习操作"));
 				const mk = (label: string, title: string, fn: () => void) => {
@@ -48,7 +48,7 @@ export function selectionMark(host: SelectionMarkHost) {
 					return b;
 				};
 				const sep = document.createElement("span");
-				sep.className = "icpa-selmark-sep";
+				sep.className = "icap-selmark-sep";
 				sep.textContent = "·";
 				this.el.append(
 					mk(L("explain", "解释"), L("Explain this in context", "在上下文中解释这段内容"), () => host.explain(this.view)),

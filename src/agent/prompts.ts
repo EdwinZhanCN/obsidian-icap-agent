@@ -1,5 +1,9 @@
 import type { NoteContext } from "../context";
+import { UI_LANG as VISUAL_FENCE } from "../genui/widget";
 import type { AgentConfig } from "./pi-session";
+
+/** ICAP's built-in skill for visuals (agent/icap-skills.ts). */
+export const VISUAL_SKILL = "icap-visual";
 
 const PRINCIPLES = `Principles (ICAP):
 - Make explanations easy to get, but leave the understanding to the learner. Do not do their recall, reasoning or summarising for them unless asked.
@@ -21,7 +25,7 @@ Prior knowledge, from weak to strong evidence:
 - how they reacted to earlier explanations: in a kept [!gloss] callout, a "**Plainly.**" section means it was too dense for them, "**Deeper.**" means they wanted more;
 - notes the learner wrote themself;
 - their completed recall or check: their own words with [!feedback] or [!practice] (the strongest evidence).
-Agent-written content is not evidence of what the learner knows: [!gloss] explanation text, [!request] replies, and notes whose properties say \`generated-by: icpa-agent\`.`;
+Agent-written content is not evidence of what the learner knows: [!gloss] explanation text, [!request] replies, and notes whose properties say \`generated-by: icap-agent\` (or, from before the plugin was renamed, \`icpa-agent\`).`;
 
 /** Isolated mode: this is the whole system prompt. */
 const ISOLATED_PROMPT = `You are the learning runtime inside a learner's Obsidian vault. You are not a chat assistant.
@@ -37,9 +41,9 @@ Tools:
 - create_note creates a new note. propose_edit proposes a reviewable change to an existing note; never change existing notes any other way.`;
 
 /** The learner's own Pi: appended to their system prompt, which stays in charge of everything else. */
-const APPENDED_PROMPT = `# Working inside the learner's Obsidian vault (ICPA)
+const APPENDED_PROMPT = `# Working inside the learner's Obsidian vault (ICAP)
 
-You are running inside the learner's Obsidian vault (the current folder) through the ICPA plugin. The learner sees your work inside their Markdown notes, not in a chat window. Their own instructions, skills and tools apply as usual; what follows adds how to work with the note.
+You are running inside the learner's Obsidian vault (the current folder) through the ICAP plugin. The learner sees your work inside their Markdown notes, not in a chat window. Their own instructions, skills and tools apply as usual; what follows adds how to work with the note.
 
 ${PRINCIPLES}
 
@@ -49,8 +53,29 @@ The note interface:
 - create_note creates a new note. propose_edit proposes a reviewable change to an existing note: prefer it for changes to existing notes, unless the learner asked you to change files directly.
 - Your final message is shown in the note as the result.`;
 
-export function systemPrompt(config: AgentConfig, preferences = ""): string {
-	const base = config === "isolated" ? ISOLATED_PROMPT : APPENDED_PROMPT;
+/**
+ * Interactive visuals (```icap-ui, genui/): "auto" — the agent decides when one helps; "asked" — only
+ * when the learner asks for one; "off" — never (the skill is not offered either).
+ */
+export type Visuals = "auto" | "asked" | "off";
+
+function visualsRule(visuals: Visuals): string {
+	if (visuals === "off") return "";
+	const when =
+		visuals === "auto"
+			? "Use one only when acting on it builds understanding better than prose — a parameter to vary, a process to step through, a structure to explore, a quick check — never for decoration."
+			: "Use one only when the learner asks for a visual, a diagram, a chart, a simulation or something to try out.";
+	return `
+
+Interactive visuals:
+- In your reply to a request, or in a note you create, you may include an interactive visual: a fenced ${VISUAL_FENCE} block (an HTML fragment with inline CSS and JavaScript) that the note renders in a sandbox. ${when}
+- Before writing your first ${VISUAL_FENCE} block in a task, read the ${VISUAL_SKILL} skill: it defines the format, the theme and the only two actions a visual can take.
+- Not in explanations, feedback, questions or edits to the learner's existing notes.`;
+}
+
+
+export function systemPrompt(config: AgentConfig, preferences = "", visuals: Visuals = "off"): string {
+	const base = (config === "isolated" ? ISOLATED_PROMPT : APPENDED_PROMPT).replace("No HTML.", visuals === "off" ? "No HTML." : `No HTML outside an ${VISUAL_FENCE} block.`) + visualsRule(visuals);
 	const prefs = preferences.trim();
 	return prefs ? `${base}\n\nHow the learner likes to learn (written by the learner; follow it unless a task says otherwise):\n${prefs}` : base;
 }
@@ -196,11 +221,58 @@ export function requestPrompt(
 	if (quote?.trim()) parts.push(`They had this text selected:\n${fence("selection", quote)}`);
 	if (history.trim()) parts.push(`Earlier in this request block (L = the learner, Q = your question, A = their answer, R = your reply):\n${fence("history", history)}`);
 	parts.push(fence("request", request));
-	if (pointed.length) {
-		const lines = pointed.map((p) => (p.path ? `- [[${p.link}]] → ${p.path}` : `- [[${p.link}]] → no such file (yet)`));
-		parts.push(`The request links these vault files; they are what the learner means. Read what you need with your tools (read_document for PDFs) — their content is not included here:\n${lines.join("\n")}`);
-	}
-	parts.push("Carry out the request. When you are done, reply with a short result for the note: what you did, and links to the notes you created or changed. Do not repeat their content.");
+	if (pointed.length) parts.push(pointedLines(pointed));
+	parts.push(RESULT_RULE);
+	return parts.join("\n\n");
+}
+
+const RESULT_RULE =
+	"Carry out the request. When you are done, reply with a short result for the note: what you did, and links to the notes you created or changed. Do not repeat their content.";
+
+function pointedLines(pointed: { link: string; path: string | null }[]): string {
+	const lines = pointed.map((p) => (p.path ? `- [[${p.link}]] → ${p.path}` : `- [[${p.link}]] → no such file (yet)`));
+	return `The request links these vault files; they are what the learner means. Read what you need with your tools (read_document for PDFs) — their content is not included here:\n${lines.join("\n")}`;
+}
+
+/**
+ * A follow-up in a request block whose Pi session was resumed: the earlier rounds are already in
+ * the session, so only the new request goes in.
+ */
+export function followUpPrompt(request: string, pointed: { link: string; path: string | null }[] = []): string {
+	const parts = ["The learner followed up in the same request block.", fence("request", request)];
+	if (pointed.length) parts.push(pointedLines(pointed));
+	parts.push(RESULT_RULE);
+	return parts.join("\n\n");
+}
+
+/**
+ * Where a slash command was typed. Pi expands a command only when the message *starts* with it,
+ * so the message is the learner's command, verbatim, and this goes into the system prompt instead.
+ * `history` is empty when the block's Pi session was resumed (it already holds the earlier rounds).
+ */
+export function commandContext(
+	ctx: NoteContext,
+	quote: string | undefined,
+	history: string,
+	pointed: { link: string; path: string | null }[] = [],
+): string {
+	const parts: string[] = [blockContext(ctx, quote, "The learner's next message is a command they typed")];
+	if (history.trim()) parts.push(`Earlier in this request block (L = the learner, Q = your question, A = their answer, R = your reply):\n${fence("history", history)}`);
+	if (pointed.length) parts.push(pointedLines(pointed));
+	parts.push("Your final message appears in the note below the command, as its result: keep it short and link the notes you created or changed instead of repeating them.");
+	return parts.join("\n\n");
+}
+
+/**
+ * Where a request block's conversation lives, for the system prompt. A resumed Pi session keeps
+ * messages but not the system prompt it ran under, so every resumed run is told this again.
+ */
+export function blockContext(ctx: NoteContext, quote: string | undefined, lead = "This conversation takes place"): string {
+	const parts = [
+		"# Where this request comes from",
+		`${lead} in a request block in the note "${ctx.title}" (${ctx.path})${ctx.headingTrail.length ? `, under: ${ctx.headingTrail.join(" › ")}` : ""}.`,
+	];
+	if (quote?.trim()) parts.push(`The learner had this text selected when they opened the block:\n${fence("selection", quote)}`);
 	return parts.join("\n\n");
 }
 

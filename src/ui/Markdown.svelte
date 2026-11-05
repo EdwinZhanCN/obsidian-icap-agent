@@ -2,6 +2,8 @@
 	import { Component, Keymap, MarkdownRenderer, type App } from "obsidian";
 	import { onDestroy } from "svelte";
 	import { balanceStreamingMarkdown } from "../dsl/text";
+	import { veilWidgets } from "../genui/widget";
+	import { L } from "../i18n";
 
 	interface Props {
 		app: App;
@@ -65,8 +67,11 @@
 		}
 	}
 
+	/** While streaming, an interactive visual is a placeholder: half a script would only flash errors. */
+	const streamed = (md: string) => veilWidgets(balanceStreamingMarkdown(md), L("Drawing a visual…", "正在画图示…"));
+
 	$effect(() => {
-		const md = streaming ? balanceStreamingMarkdown(markdown) : markdown;
+		const md = streaming ? streamed(markdown) : markdown;
 		if (md === lastRendered) return;
 		if (!streaming) {
 			if (timer) window.clearTimeout(timer);
@@ -77,7 +82,7 @@
 		if (timer) return;
 		timer = window.setTimeout(() => {
 			timer = null;
-			void render(streaming ? balanceStreamingMarkdown(markdown) : markdown);
+			void render(streaming ? streamed(markdown) : markdown);
 		}, 90);
 	});
 
@@ -109,7 +114,7 @@
 		if (!a || !a.classList.contains("internal-link")) return;
 		app.workspace.trigger("hover-link", {
 			event: e,
-			source: "icpa-agent",
+			source: "icap-agent",
 			hoverParent: { hoverPopover: null },
 			targetEl: a,
 			linktext: a.dataset.href || a.getAttribute("href") || "",
@@ -119,4 +124,4 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_mouse_events_have_key_events, a11y_no_static_element_interactions -->
-<div bind:this={el} class="icpa-md markdown-rendered {cls}" class:is-streaming={streaming} {onclick} {onmouseover}></div>
+<div bind:this={el} class="icap-md markdown-rendered {cls}" class:is-streaming={streaming} {onclick} {onmouseover}></div>

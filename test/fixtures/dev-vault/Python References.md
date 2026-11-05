@@ -4,7 +4,7 @@ In Python every variable is a name bound to an object. Assignment never copies t
 
 `a = [1, 2]; b = a; b.append(3)` → `a` is now `[1, 2, 3]`.
 
-```icpa-ask
+```icap-ask
 id: qsrvbhcov4
 kind: request
 ---

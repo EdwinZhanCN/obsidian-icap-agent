@@ -94,7 +94,7 @@
 	async function keep() {
 		if (leaving || busy || !hasText) return;
 		leaving = true;
-		const label = root.querySelector(".icpa-label") ?? root;
+		const label = root.querySelector(".icap-label") ?? root;
 		const from = label.getBoundingClientRect().top;
 		const scroller = frame.closest(".cm-scroller, .markdown-source-view") ?? document;
 		const title = gloss.term.replace(/…$/, "");
@@ -148,14 +148,14 @@
 	}
 </script>
 
-<div class="icpa-frame" bind:this={frame} use:fluid={`gh:${gloss.id}`}>
-<div class="icpa-gloss-pad">
+<div class="icap-frame" bind:this={frame} use:fluid={`gh:${gloss.id}`}>
+<div class="icap-gloss-pad">
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <section
 	bind:this={root}
 	use:inertToEditor
 	use:inkIn={`g:${gloss.id}`}
-	class="icpa-voice icpa-gloss"
+	class="icap-voice icap-gloss"
 	class:is-drawing={busy}
 	class:is-collapsed={gloss.collapsed}
 	aria-label={L(`Explanation of ${gloss.term}`, `“${gloss.term}”的解释`)}
@@ -163,56 +163,56 @@
 	tabindex="-1"
 	{onkeydown}
 >
-	<header class="icpa-label">
+	<header class="icap-label">
 		<button
 			type="button"
-			class="icpa-label-btn"
+			class="icap-label-btn"
 			aria-expanded={!wantFolded}
 			title={wantFolded ? L("Expand", "展开") : L("Fold", "折叠")}
 			onclick={toggleFold}
 		>
-			<span class="icpa-label-kind">{L("gloss", "释义")}</span>
-			<span class="icpa-label-term">{gloss.term}</span>
+			<span class="icap-label-kind">{L("gloss", "释义")}</span>
+			<span class="icap-label-term">{gloss.term}</span>
 		</button>
 	</header>
 
 	{#if !gloss.collapsed}
-		<div class="icpa-gloss-body" bind:this={body} use:holdHeight={busy}>
+		<div class="icap-gloss-body" bind:this={body} use:holdHeight={busy}>
 			{#each gloss.sections as s, i (s.id)}
-				<div class="icpa-gloss-part" class:is-follow={i > 0} data-mode={s.mode} use:settleIn={i > 0 ? `sec:${s.id}` : null}>
-					{#if i > 0}<div class="icpa-sublabel">{s.mode === "compare" ? glossLabelUI("compare", s.label.replace(/^Compared with /, "")) : glossLabelUI(s.mode)}</div>{/if}
+				<div class="icap-gloss-part" class:is-follow={i > 0} data-mode={s.mode} use:settleIn={i > 0 ? `sec:${s.id}` : null}>
+					{#if i > 0}<div class="icap-sublabel">{s.mode === "compare" ? glossLabelUI("compare", s.label.replace(/^Compared with /, "")) : glossLabelUI(s.mode)}</div>{/if}
 					{#if s.text.trim()}
 						<Markdown app={rt.app} markdown={s.text} sourcePath={gloss.notePath} streaming={s.status === "streaming"} />
 					{:else if s.status === "streaming"}
-						<p class="icpa-pending" aria-live="polite">{phaseLine(streamingTask?.phase, "explain")}</p>
+						<p class="icap-pending" aria-live="polite">{phaseLine(streamingTask?.phase, "explain")}</p>
 					{/if}
 					{#if s.status === "cancelled"}
-						<p class="icpa-stopped">
+						<p class="icap-stopped">
 							<span>{L("stopped here", "停在这里")}</span>
-							<span class="icpa-dot" aria-hidden="true">·</span>
-							<button type="button" class="icpa-link" onclick={() => (s.taskId ? rt.ledger.get(s.taskId)?.retry?.() : undefined)}>{L("write it again", "重新写")}</button>
+							<span class="icap-dot" aria-hidden="true">·</span>
+							<button type="button" class="icap-link" onclick={() => (s.taskId ? rt.ledger.get(s.taskId)?.retry?.() : undefined)}>{L("write it again", "重新写")}</button>
 						</p>
 					{/if}
 					{#if s.status === "failed"}
-						<p class="icpa-error" role="alert">
+						<p class="icap-error" role="alert">
 							{s.error ?? L("Something went wrong.", "出了点问题。")}
-							<button type="button" class="icpa-link" onclick={() => (s.taskId ? rt.ledger.get(s.taskId)?.retry?.() : undefined)}>{L("try again", "重试")}</button>
+							<button type="button" class="icap-link" onclick={() => (s.taskId ? rt.ledger.get(s.taskId)?.retry?.() : undefined)}>{L("try again", "重试")}</button>
 						</p>
 					{/if}
 				</div>
 			{/each}
 			{#if sources.length && !busy}
-				<p class="icpa-sources">{L("from", "来自")} {sources.join(", ")}</p>
+				<p class="icap-sources">{L("from", "来自")} {sources.join(", ")}</p>
 			{/if}
 		</div>
 	{/if}
 
-	<div class="icpa-actions" role="toolbar" aria-label={L("Explanation actions", "解释操作")} bind:this={actionsEl}>
+	<div class="icap-actions" role="toolbar" aria-label={L("Explanation actions", "解释操作")} bind:this={actionsEl}>
 		{#if busy}
-			{#if streamingSection?.text}<span class="icpa-caption" aria-live="polite">{L("writing…", "书写中…")}</span>{/if}
-			<button type="button" class="icpa-link" onclick={() => rt.stopGloss(gloss)}>{L("stop", "停止")}</button>
+			{#if streamingSection?.text}<span class="icap-caption" aria-live="polite">{L("writing…", "书写中…")}</span>{/if}
+			<button type="button" class="icap-link" onclick={() => rt.stopGloss(gloss)}>{L("stop", "停止")}</button>
 		{:else if comparing}
-			<form class="icpa-compare" use:keyGuard={{ app: rt.app, submit: submitCompare, escape: () => { comparing = false; root?.focus({ preventScroll: true }); } }} onsubmit={(e) => (e.preventDefault(), submitCompare())}>
+			<form class="icap-compare" use:keyGuard={{ app: rt.app, submit: submitCompare, escape: () => { comparing = false; root?.focus({ preventScroll: true }); } }} onsubmit={(e) => (e.preventDefault(), submitCompare())}>
 				<label for="cmp-{gloss.id}">{L("compare with", "对比")}</label>
 				<input
 					id="cmp-{gloss.id}"
@@ -222,20 +222,20 @@
 					autocomplete="off"
 					spellcheck="false"
 				/>
-				<button type="submit" class="icpa-link" disabled={!compareWith.trim()}>↵</button>
-				<button type="button" class="icpa-link is-quiet" onclick={() => (comparing = false)}>{L("cancel", "取消")}</button>
+				<button type="submit" class="icap-link" disabled={!compareWith.trim()}>↵</button>
+				<button type="button" class="icap-link is-quiet" onclick={() => (comparing = false)}>{L("cancel", "取消")}</button>
 			</form>
 		{:else}
 			{#if hasText}
-				<button type="button" class="icpa-link icpa-primary" onclick={keep} title={L("Write this explanation into the note as a callout", "把这段解释以 callout 形式写入笔记")}>{L("keep in note", "留在笔记里")}</button>
-				<span class="icpa-dot" aria-hidden="true">·</span>
-				<button type="button" class="icpa-link" onclick={() => follow("deeper")}>{L("deeper", "更深入")}</button>
-				<button type="button" class="icpa-link" onclick={() => follow("example")}>{L("example", "举个例子")}</button>
-				<button type="button" class="icpa-link" onclick={() => follow("simpler")}>{L("plainer", "说浅一点")}</button>
-				<button type="button" class="icpa-link" onclick={openCompare}>{L("compare…", "对比…")}</button>
-				<span class="icpa-dot" aria-hidden="true">·</span>
+				<button type="button" class="icap-link icap-primary" onclick={keep} title={L("Write this explanation into the note as a callout", "把这段解释以 callout 形式写入笔记")}>{L("keep in note", "留在笔记里")}</button>
+				<span class="icap-dot" aria-hidden="true">·</span>
+				<button type="button" class="icap-link" onclick={() => follow("deeper")}>{L("deeper", "更深入")}</button>
+				<button type="button" class="icap-link" onclick={() => follow("example")}>{L("example", "举个例子")}</button>
+				<button type="button" class="icap-link" onclick={() => follow("simpler")}>{L("plainer", "说浅一点")}</button>
+				<button type="button" class="icap-link" onclick={openCompare}>{L("compare…", "对比…")}</button>
+				<span class="icap-dot" aria-hidden="true">·</span>
 			{/if}
-			<button type="button" class="icpa-link is-quiet" onclick={dismiss} title={L("Remove — nothing is written to the note", "移除——不会在笔记中留下任何内容")}>{L("dismiss", "丢弃")}</button>
+			<button type="button" class="icap-link is-quiet" onclick={dismiss} title={L("Remove — nothing is written to the note", "移除——不会在笔记中留下任何内容")}>{L("dismiss", "丢弃")}</button>
 		{/if}
 	</div>
 </section>

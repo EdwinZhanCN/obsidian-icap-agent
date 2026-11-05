@@ -1,5 +1,5 @@
 /**
- * The read-only Obsidian tools behind the ICPA extension's `obsidian` and `read_document` tools.
+ * The read-only Obsidian tools behind the ICAP extension's `obsidian` and `read_document` tools.
  *
  * Command names, parameters and JSON output follow the Obsidian CLI (search, search:context, read,
  * links, backlinks, outline, properties, aliases, tags, files), but run in-process through the App

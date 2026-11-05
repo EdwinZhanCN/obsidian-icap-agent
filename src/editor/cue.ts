@@ -60,9 +60,9 @@ function show(view: EditorView, spec: CueSpec, dir: "up" | "down") {
 	const prev = live.get(view);
 	const el = prev?.el ?? document.createElement("button");
 	el.type = "button";
-	el.className = `icpa-cue is-${dir}`;
+	el.className = `icap-cue is-${dir}`;
 	el.replaceChildren();
-	const arrow = el.createSpan({ cls: "icpa-cue-arrow", text: dir === "down" ? "↓" : "↑" });
+	const arrow = el.createSpan({ cls: "icap-cue-arrow", text: dir === "down" ? "↓" : "↑" });
 	el.createSpan({ text: spec.label });
 	el.setAttribute("aria-label", `${spec.label} — go there`);
 	if (!prev) {
@@ -116,7 +116,7 @@ export function withdrawCue(owner: string) {
 /** Plugin unload: remove every cue without animation. */
 export function clearCues() {
 	for (const view of Array.from(live.keys())) dismissCue(view, false);
-	for (const el of Array.from(document.querySelectorAll(".icpa-cue"))) el.remove();
+	for (const el of Array.from(document.querySelectorAll(".icap-cue"))) el.remove();
 }
 
 export function dismissCue(view: EditorView, animated: boolean) {

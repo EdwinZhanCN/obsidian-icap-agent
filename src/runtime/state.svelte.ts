@@ -1,5 +1,6 @@
 import type { AgentPhase } from "../agent/pi-session";
 import type { GlossMode } from "../agent/prompts";
+import type { BlockSession } from "../agent/session-cache";
 
 /* ───────────────────────── Activity: tasks ───────────────────────── */
 
@@ -11,6 +12,15 @@ export interface Artifact {
 	path: string;
 	label: string;
 }
+
+/** One tool call of the task's agent, for the activity's expandable steps (never shown in the note). */
+export interface Step {
+	tool: string;
+	detail: string;
+}
+
+/** Steps kept per task; the earliest ones go first. */
+export const MAX_STEPS = 40;
 
 export interface TaskRecord {
 	id: string;
@@ -26,6 +36,9 @@ export interface TaskRecord {
 	blockId: string | null;
 	glossId: string | null;
 	interrupted?: boolean;
+	steps?: Step[];
+	/** Steps dropped because the task made more than MAX_STEPS tool calls. */
+	stepsDropped?: number;
 }
 
 export class Task {
@@ -40,6 +53,8 @@ export class Task {
 	phase = $state<AgentPhase>("starting");
 	outcome = $state("");
 	artifacts = $state<Artifact[]>([]);
+	steps = $state<Step[]>([]);
+	stepsDropped = $state(0);
 	error = $state<string | null>(null);
 	endedAt = $state<number | null>(null);
 	/** Was live when Obsidian (or the plugin) closed. */
@@ -60,6 +75,13 @@ export class Task {
 
 	get active() {
 		return this.status === "processing" || this.status === "waiting";
+	}
+
+	addStep(tool: string, detail: string) {
+		const next = [...this.steps, { tool, detail }];
+		const over = next.length - MAX_STEPS;
+		if (over > 0) this.stepsDropped += over;
+		this.steps = over > 0 ? next.slice(over) : next;
 	}
 
 	end(status: Exclude<TaskStatus, "processing" | "waiting">, outcome?: string, error?: string) {
@@ -85,6 +107,8 @@ export class Task {
 			blockId: this.blockId,
 			glossId: this.glossId,
 			interrupted: this.interrupted || undefined,
+			...(this.steps.length ? { steps: $state.snapshot(this.steps) } : {}),
+			...(this.stepsDropped ? { stepsDropped: this.stepsDropped } : {}),
 		};
 	}
 
@@ -96,6 +120,8 @@ export class Task {
 		t.interrupted = live || !!r.interrupted;
 		t.outcome = r.outcome === "Interrupted when Obsidian closed" ? "" : r.outcome;
 		t.artifacts = r.artifacts ?? [];
+		t.steps = r.steps ?? [];
+		t.stepsDropped = r.stepsDropped ?? 0;
 		t.error = r.error;
 		t.endedAt = r.endedAt ?? r.createdAt;
 		t.blockId = r.blockId;
@@ -227,6 +253,11 @@ export interface Turn {
 	reply?: string;
 	/** A dialog from one of the learner's own Pi extensions, not an ask_learner question. */
 	dialog?: boolean;
+	/**
+	 * Request block: an ICAP runtime command (/model, /thinking, /compact). It changes how the
+	 * block's agent runs; it is not part of the conversation and is not kept in the note.
+	 */
+	control?: boolean;
 	answer?: Answer;
 	feedback?: string;
 	verdict?: "holds" | "partly" | "reconsider";
@@ -253,6 +284,13 @@ export interface BlockRecord {
 	authored?: boolean;
 	/** Request block: the text that was selected when it was opened. */
 	quote?: string;
+	/** Request block: model / thinking for this block only (set with /model, /thinking). */
+	model?: string;
+	thinking?: string;
+	/** Request block: the Pi session that holds this conversation, as a cache (agent/session-cache.ts). */
+	session?: BlockSession | null;
+	/** Request block: how many Pi sessions this block has started (new ids for a fresh one). */
+	sessionSeq?: number;
 }
 
 export class AskBlock {
@@ -275,6 +313,12 @@ export class AskBlock {
 	authored = false;
 	/** Request block: the text that was selected when it was opened. */
 	quote = "";
+	/** Request block: model / thinking for this block only; empty = the plugin's settings. */
+	model = $state("");
+	thinking = $state("");
+	/** Request block: the Pi session that covers this conversation so far, if one can be resumed. */
+	session: BlockSession | null = null;
+	sessionSeq = 0;
 	/** Resolves the agent's pending ask_learner call; not persisted. */
 	resolver: ((answer: Record<string, unknown>) => void) | null = null;
 	/** Resolves a pending dialog from one of the learner's extensions; not persisted. */
@@ -313,6 +357,10 @@ export class AskBlock {
 			createdAt: this.createdAt,
 			...(this.authored ? { authored: true } : {}),
 			...(this.quote ? { quote: this.quote } : {}),
+			...(this.model ? { model: this.model } : {}),
+			...(this.thinking ? { thinking: this.thinking } : {}),
+			...(this.session ? { session: { ...this.session } } : {}),
+			...(this.sessionSeq ? { sessionSeq: this.sessionSeq } : {}),
 		};
 	}
 
@@ -322,6 +370,10 @@ export class AskBlock {
 		b.instructions = r.instructions ?? "";
 		b.authored = !!r.authored;
 		b.quote = r.quote ?? "";
+		b.model = r.model ?? "";
+		b.thinking = r.thinking ?? "";
+		b.session = r.session ?? null;
+		b.sessionSeq = r.sessionSeq ?? 0;
 		// A dialog from an extension belongs to the Pi process that asked; it is gone after a restart.
 		b.turns = (r.turns ?? []).filter((t) => !(t.dialog && !t.answer));
 		const live = r.phase === "preparing" || r.phase === "thinking" || r.phase === "waiting";

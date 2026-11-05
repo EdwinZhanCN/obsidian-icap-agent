@@ -6,7 +6,7 @@
 export function focusIfNear(el: HTMLElement | null | undefined): boolean {
 	if (!el) return false;
 	const scroller = el.closest<HTMLElement>(".cm-scroller, .markdown-preview-view");
-	const host = el.closest<HTMLElement>(".icpa-ask, .icpa-gloss, .cm-embed-block") ?? el;
+	const host = el.closest<HTMLElement>(".icap-ask, .icap-gloss, .cm-embed-block") ?? el;
 	if (scroller) {
 		const v = scroller.getBoundingClientRect();
 		const r = host.getBoundingClientRect();

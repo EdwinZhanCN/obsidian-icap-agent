@@ -54,12 +54,12 @@
 		void tick().then(() => panel?.focus());
 		const away = (e: MouseEvent) => {
 			const t = e.target as HTMLElement;
-			if (panel && !panel.contains(t) && !t.closest(".icpa-mark")) ledger.open = false;
+			if (panel && !panel.contains(t) && !t.closest(".icap-mark")) ledger.open = false;
 		};
 		const esc = (e: KeyboardEvent) => {
 			if (e.key === "Escape") {
 				ledger.open = false;
-				(document.querySelector(".icpa-mark") as HTMLElement | null)?.focus();
+				(document.querySelector(".icap-mark") as HTMLElement | null)?.focus();
 			}
 		};
 		document.addEventListener("mousedown", away, true);
@@ -88,17 +88,17 @@
 </script>
 
 {#if shown}
-	<div bind:this={panel} class="icpa-ledger" inert={!ledger.open} role="dialog" aria-label={L("Learning activity", "学习活动")} tabindex="-1">
-		<header class="icpa-ledger-head">
+	<div bind:this={panel} class="icap-ledger" inert={!ledger.open} role="dialog" aria-label={L("Learning activity", "学习活动")} tabindex="-1">
+		<header class="icap-ledger-head">
 			<h2>{L("Activity", "活动")}</h2>
 			{#if earlier.length}
-				<button type="button" class="icpa-link is-quiet" onclick={() => ledger.clearFinished()}>{L("clear finished", "清除已完成")}</button>
+				<button type="button" class="icap-link is-quiet" onclick={() => ledger.clearFinished()}>{L("clear finished", "清除已完成")}</button>
 			{/if}
-			<button type="button" class="icpa-icon-btn" aria-label={L("Close", "关闭")} onclick={() => (ledger.open = false)}><X size={14} /></button>
+			<button type="button" class="icap-icon-btn" aria-label={L("Close", "关闭")} onclick={() => (ledger.open = false)}><X size={14} /></button>
 		</header>
 
 		{#if !ledger.tasks.length}
-			<p class="icpa-ledger-empty">
+			<p class="icap-ledger-empty">
 				{#if isZh()}
 					还没有任何活动。选中一段文字后选择<em>解释</em>，或者读完一节后运行<em>凭记忆复述</em>。
 				{:else}
@@ -108,74 +108,85 @@
 		{/if}
 
 		{#snippet row(t: Task)}
-			<li class="icpa-row" data-status={t.status} use:rowIn={`row:${t.id}:${t.status}`}>
+			<li class="icap-row" data-status={t.status} use:rowIn={`row:${t.id}:${t.status}`}>
 				{#if t.status === "completed"}
-					<svg class="icpa-row-check" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.2 6.6 L5 9.4 L10.2 2.6" use:strokeIn={`done:${t.id}`} /></svg>
+					<svg class="icap-row-check" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.2 6.6 L5 9.4 L10.2 2.6" use:strokeIn={`done:${t.id}`} /></svg>
 				{:else}
-					<span class="icpa-row-glyph" aria-hidden="true"></span>
+					<span class="icap-row-glyph" aria-hidden="true"></span>
 				{/if}
-				<div class="icpa-row-main">
-					<p class="icpa-row-line">
+				<div class="icap-row-main">
+					<p class="icap-row-line">
 						{#if t.status === "waiting" || t.blockId || t.glossId}
-							<button type="button" class="icpa-row-title" onclick={() => go(t)}>{line(t)}</button>
+							<button type="button" class="icap-row-title" onclick={() => go(t)}>{line(t)}</button>
 						{:else}
-							<span class="icpa-row-title">{line(t)}</span>
+							<span class="icap-row-title">{line(t)}</span>
 						{/if}
 					</p>
-					<p class="icpa-row-meta">
+					<p class="icap-row-meta">
 						{#if t.status === "processing"}
 							<span>{phaseLine(t.phase, t.kind === "explain" || t.kind === "quiz" || t.kind === "note" || t.kind === "request" ? t.kind : "check")}</span>
 						{:else if t.status === "waiting"}
-							<span class="icpa-row-status">{statusWord(t.status)}</span>
+							<span class="icap-row-status">{statusWord(t.status)}</span>
 						{:else if t.status !== "completed"}
-							<span class="icpa-row-status" title={t.interrupted ? L("Obsidian closed while this was running", "运行时 Obsidian 被关闭") : undefined}>{t.interrupted ? L("interrupted", "已中断") : statusWord(t.status)}</span>
+							<span class="icap-row-status" title={t.interrupted ? L("Obsidian closed while this was running", "运行时 Obsidian 被关闭") : undefined}>{t.interrupted ? L("interrupted", "已中断") : statusWord(t.status)}</span>
 						{/if}
-						<span>{L("in", "于")} <button type="button" class="icpa-link" onclick={() => rt.openPath(t.notePath)}>{noteName(t.notePath)}</button></span>
-						<span class="icpa-row-time">{ago(t.endedAt ?? t.createdAt, now)}</span>
+						<span>{L("in", "于")} <button type="button" class="icap-link" onclick={() => rt.openPath(t.notePath)}>{noteName(t.notePath)}</button></span>
+						<span class="icap-row-time">{ago(t.endedAt ?? t.createdAt, now)}</span>
 					</p>
-					{#if t.error}<p class="icpa-row-error">{t.error}</p>{/if}
+					{#if t.error}<p class="icap-row-error">{t.error}</p>{/if}
 					{#if t.artifacts.some((a) => a.kind === "created" || a.kind === "edited" || a.kind === "deleted")}
-						<ul class="icpa-row-artifacts">
+						<ul class="icap-row-artifacts">
 							{#each t.artifacts.filter((a) => a.kind === "created" || a.kind === "edited" || a.kind === "deleted") as a (a.path + a.kind)}
 								<li use:settleIn={`art:${t.id}:${a.kind}:${a.path}`}>
-									<span class="icpa-artifact-kind">{a.kind === "created" ? L("new", "新建") : a.kind === "edited" ? L("changed", "修改") : L("deleted", "删除")}</span>
+									<span class="icap-artifact-kind">{a.kind === "created" ? L("new", "新建") : a.kind === "edited" ? L("changed", "修改") : L("deleted", "删除")}</span>
 									{#if a.kind === "deleted"}
 										<span>{a.label}</span>
 									{:else}
-										<button type="button" class="icpa-link" onclick={() => rt.openPath(a.path)}>{a.label}</button>
+										<button type="button" class="icap-link" onclick={() => rt.openPath(a.path)}>{a.label}</button>
 									{/if}
 								</li>
 							{/each}
 						</ul>
 					{/if}
+					<!-- The agent's tool calls: closed by default, here only — the note never shows them. -->
+					{#if t.steps.length}
+						<details class="icap-row-steps">
+							<summary>{L(`${t.steps.length + t.stepsDropped} steps`, `${t.steps.length + t.stepsDropped} 个步骤`)}</summary>
+							<ol start={t.stepsDropped + 1}>
+								{#each t.steps as s, i (i)}
+									<li><span class="icap-step-tool">{s.tool}</span>{#if s.detail}<span class="icap-step-detail">{s.detail}</span>{/if}</li>
+								{/each}
+							</ol>
+						</details>
+					{/if}
 				</div>
-				<div class="icpa-row-actions">
+				<div class="icap-row-actions">
 					{#if t.status === "waiting"}
-						<button type="button" class="icpa-link icpa-primary" onclick={() => go(t)}>{L("answer", "去回答")}</button>
+						<button type="button" class="icap-link icap-primary" onclick={() => go(t)}>{L("answer", "去回答")}</button>
 					{/if}
 					{#if t.active}
-						<button type="button" class="icpa-link is-quiet" onclick={() => rt.cancelTask(t)}>{L("stop", "停止")}</button>
+						<button type="button" class="icap-link is-quiet" onclick={() => rt.cancelTask(t)}>{L("stop", "停止")}</button>
 					{:else if t.status === "failed" && t.retry}
-						<button type="button" class="icpa-link" onclick={() => t.retry?.()}>{L("retry", "重试")}</button>
+						<button type="button" class="icap-link" onclick={() => t.retry?.()}>{L("retry", "重试")}</button>
 					{/if}
 				</div>
 			</li>
 		{/snippet}
 
 		{#if waiting.length}
-			<section class="icpa-ledger-group">
+			<section class="icap-ledger-group">
 				<h3>{L("Needs you", "等你回应")}</h3>
 				<ul>{#each waiting as t (t.id)}{@render row(t)}{/each}</ul>
 			</section>
 		{/if}
 		{#if working.length}
-			<section class="icpa-ledger-group">
+			<section class="icap-ledger-group">
 				<h3>{L("Now", "进行中")}</h3>
 				<ul>{#each working as t (t.id)}{@render row(t)}{/each}</ul>
 			</section>
 		{/if}
 		{#if earlier.length}
-			<section class="icpa-ledger-group">
+			<section class="icap-ledger-group">
 				<h3>{L("Earlier", "较早")}</h3>
 				<ul>{#each earlier.slice(0, 30) as t (t.id)}{@render row(t)}{/each}</ul>
 			</section>

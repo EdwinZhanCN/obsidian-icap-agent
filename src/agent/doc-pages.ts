@@ -1,5 +1,5 @@
 /**
- * Pure helpers for the ICPA vault tools (no Obsidian imports, so they can be unit tested).
+ * Pure helpers for the ICAP vault tools (no Obsidian imports, so they can be unit tested).
  */
 import { isAbsolute, relative, resolve } from "path";
 

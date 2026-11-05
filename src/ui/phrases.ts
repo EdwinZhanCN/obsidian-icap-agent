@@ -3,6 +3,10 @@ import type { BlockPhase, TaskStatus } from "../runtime/state.svelte";
 import type { GlossMode } from "../agent/prompts";
 import { L } from "../i18n";
 
+/** Where a caption shows the submit shortcut; the caption's view renders it as keycaps (Keys.svelte). */
+export const SUBMIT_KEYS = "{submit}";
+const K = SUBMIT_KEYS;
+
 /** Process as a sentence about the learner's material — never about tools or models. */
 export function phaseLine(phase: AgentPhase | null | undefined, kind: "explain" | "check" | "quiz" | "note" | "request"): string {
 	switch (phase) {
@@ -24,15 +28,15 @@ export function phaseLine(phase: AgentPhase | null | undefined, kind: "explain" 
 export function blockCaption(phase: BlockPhase, kind: string, hasDraft: boolean): string {
 	switch (phase) {
 		case "idle":
-			return kind === "recall" ? L("from memory — ⌘↵ when you're done", "凭记忆书写——写完按 ⌘↵") : kind === "request" ? L("⌘↵ to send", "⌘↵ 发送") : L("your turn — ⌘↵ to submit", "轮到你了——⌘↵ 提交");
+			return kind === "recall" ? L(`from memory — ${K} when you're done`, `凭记忆书写——写完按 ${K}`) : kind === "request" ? L(`${K} to send`, `${K} 发送`) : L(`your turn — ${K} to submit`, `轮到你了——${K} 提交`);
 		case "waiting":
-			return hasDraft ? L("⌘↵ to submit", "⌘↵ 提交") : L("your turn", "轮到你了");
+			return hasDraft ? L(`${K} to submit`, `${K} 提交`) : L("your turn", "轮到你了");
 		case "preparing":
 			return L("preparing questions…", "正在准备问题…");
 		case "completed":
 			return L("done", "完成");
 		case "finalizing":
-			return L("your final version — ⌘↵ to keep it", "你的最终版本——⌘↵ 保留");
+			return L(`your final version — ${K} to keep it`, `你的最终版本——${K} 保留`);
 		case "cancelled":
 			return L("stopped", "已停止");
 		case "interrupted":

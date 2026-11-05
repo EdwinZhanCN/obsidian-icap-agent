@@ -2,17 +2,24 @@ import { FileSystemAdapter, MarkdownView, Notice, TFile, type App, type Editor, 
 import { EditorView } from "@codemirror/view";
 import { mount, unmount } from "svelte";
 import { SvelteMap } from "svelte/reactivity";
-import type IcpaPlugin from "../main";
-import { PiSession, type AgentPhase, type DialogAnswer, type DialogRequest } from "../agent/pi-session";
-import { resolvePiEnvironment } from "../agent/pi-env";
+import type IcapPlugin from "../main";
+import { PiSession, probeCommands, probeModels, type AgentPhase, type Control, type DialogAnswer, type DialogRequest } from "../agent/pi-session";
+import { ensureDir, removeSessions, reusable, sessionExists, sessionId, sessionSig } from "../agent/session-cache";
+import { ensureSkills } from "../agent/icap-skills";
 import { extractLinks } from "../dsl/links";
+import { THINKING_LEVELS, isIcapCommand, parseCommand, type CommandProvider, type IcapCommandName, type SlashCommand } from "../dsl/commands";
 import { L } from "../i18n";
+import { GENERATED_BY } from "../settings";
 import { glossLabelUI } from "../ui/phrases";
 import { readDocument, vaultCommand } from "../agent/vault-tools";
 import { homedir } from "os";
+import { join } from "path";
 import {
+	blockContext,
+	commandContext,
 	continuationPrompt,
 	explainPrompt,
+	followUpPrompt,
 	notePrompt,
 	quizPrompt,
 	recallPrompt,
@@ -22,6 +29,7 @@ import {
 	type NoteTaskKind,
 } from "../agent/prompts";
 import { buildContext } from "../context";
+import { answerText, coveredTranscript, transcriptOf, withReply } from "./transcript";
 import { calloutBlock, findAskBlock, parseAskSource, parseAuthored, requestRecord, type AskSource, glossCallout, newId, serializeAsk, splitSources, tidyOptionLabel, tidyQuestion, verdictGlyph, dialogTitle } from "../dsl/blocks";
 import { askReplacement, blockInsertion, editorFor, spliceFile, uniqueNotePath, type Splice } from "../dsl/doc-ops";
 import { flashRange } from "../editor/fresh";
@@ -60,6 +68,21 @@ class Cancelled extends Error {
 
 type Json = Record<string, unknown>;
 
+/** How a request block's agent runs, beyond the task's prompt and tools. */
+interface RunExtras {
+	/** Added to the system prompt for this run (e.g. where a slash command was typed). */
+	systemExtra?: string;
+	/** This block's own model / thinking; empty = the plugin settings. */
+	model?: string;
+	thinking?: string;
+	session?: { id: string; dir: string };
+	/** A runtime control (compact) instead of a prompt. */
+	control?: Control;
+}
+
+/** The command catalog is asked of Pi at most this often (new skills show up without a restart). */
+const CATALOG_TTL_MS = 5 * 60 * 1000;
+
 export interface PersistedRuntime {
 	tasks: TaskRecord[];
 	blocks: BlockRecord[];
@@ -77,7 +100,7 @@ export class LearningRuntime {
 	/** Blocks that should take focus the first time they render. */
 	focusOnMount = new Set<string>();
 
-	constructor(private plugin: IcpaPlugin) {
+	constructor(private plugin: IcapPlugin) {
 		const host: GlossHost = {
 			restore: (path, doc) => this.restoreGlosses(path, doc),
 			track: (a) => {
@@ -191,7 +214,7 @@ export class LearningRuntime {
 			onText?: (t: string) => void;
 			onBridge?: (op: string, p: Json) => Promise<Json>;
 			onPhase?: (p: AgentPhase) => void;
-		},
+		} & RunExtras,
 	): Promise<string> {
 		let cancelledEarly = false;
 		task.cancel = () => {
@@ -200,22 +223,29 @@ export class LearningRuntime {
 		const release = await this.slot();
 		try {
 			if (cancelledEarly) throw new Cancelled();
-			const env = await resolvePiEnvironment(this.settings.piPath);
+			const pi = await this.plugin.pi();
 			if (cancelledEarly) throw new Cancelled();
 			const config = this.settings.agentConfig;
 			const roots = this.allowedRoots();
+			const visuals = this.settings.visuals;
 			const session = new PiSession({
-				env,
-				extensionPath: this.plugin.extensionPath,
+				pi,
 				cwd: this.vaultRoot(),
 				config,
 				allowedRoots: roots,
-				systemPrompt: systemPrompt(config, this.settings.preferences),
+				skillPaths: visuals !== "off" ? this.icapSkills() : [],
+				systemPrompt: systemPrompt(config, this.settings.preferences, visuals) + (opts.systemExtra ? `\n\n${opts.systemExtra}` : ""),
 				prompt: opts.prompt,
 				tools: opts.tools,
-				model: this.settings.model,
-				thinking: this.settings.thinking,
+				model: opts.model || this.settings.model,
+				thinking: opts.thinking || this.settings.thinking,
+				session: opts.session,
+				control: opts.control,
 				onText: opts.onText,
+				onStep: (tool, detail) => {
+					task.addStep(tool, detail);
+					this.persist();
+				},
 				onTool: (running) => {
 					task.toolsRunning = Math.max(0, task.toolsRunning + (running ? 1 : -1));
 					if (!running) task.toolEndedAt = Date.now();
@@ -257,6 +287,126 @@ export class LearningRuntime {
 
 	cancelTask(task: Task) {
 		task.cancel?.();
+	}
+
+	/* ───────────── The `/` catalog: Pi's commands + ICAP's runtime commands ───────────── */
+
+	private commandCache: { key: string; at: number; list: Promise<SlashCommand[]> } | null = null;
+	private modelCache: { key: string; at: number; list: Promise<string[]> } | null = null;
+
+	/** Settings changed (agent setup): ask Pi again next time. */
+	invalidateCatalog() {
+		this.commandCache = null;
+		this.modelCache = null;
+	}
+
+	private catalogKey() {
+		return this.settings.agentConfig;
+	}
+
+	private icapCommands(): SlashCommand[] {
+		return [
+			{ name: "model", source: "icap", description: L("Model for this block only (/model default goes back)", "仅用于这个块的模型（/model default 恢复默认）") },
+			{ name: "thinking", source: "icap", description: L("Thinking level for this block only", "仅用于这个块的思考强度") },
+			{ name: "compact", source: "icap", description: L("Summarize the earlier rounds for the agent; the note stays as it is", "为 Agent 压缩前面的轮次；笔记保持不变") },
+		];
+	}
+
+	/** Every command a request block offers. The learner's own come from their Pi (cached). */
+	async slashCommands(): Promise<SlashCommand[]> {
+		const own = this.icapCommands();
+		// "ICAP only" runs Pi without extensions, skills and prompt templates: there is nothing to ask.
+		if (this.settings.agentConfig === "isolated") return own;
+		const key = this.catalogKey();
+		const c = this.commandCache;
+		if (!c || c.key !== key || Date.now() - c.at > CATALOG_TTL_MS) {
+			const list = (async () => {
+				const found = await probeCommands(await this.plugin.pi(), this.vaultRoot());
+				return found.map((x): SlashCommand => ({ name: x.name, description: x.description, source: x.source }));
+			})();
+			const entry = { key, at: Date.now(), list };
+			this.commandCache = entry;
+			// A failed probe is not remembered: the next "/" asks again.
+			list.catch(() => {
+				if (this.commandCache === entry) this.commandCache = null;
+			});
+		}
+		const theirs = await this.commandCache!.list.catch(() => [] as SlashCommand[]);
+		// ICAP's runtime commands take their names; one of the learner's with the same name is shadowed.
+		return [...own, ...theirs.filter((x) => !isIcapCommand(x.name))];
+	}
+
+	/** Models with credentials in the learner's Pi (for /model). */
+	async modelChoices(): Promise<string[]> {
+		const key = this.catalogKey();
+		const c = this.modelCache;
+		if (!c || c.key !== key || Date.now() - c.at > CATALOG_TTL_MS) {
+			const list = (async () => {
+				return (await probeModels(await this.plugin.pi(), this.vaultRoot(), this.settings.agentConfig)).available;
+			})();
+			const entry = { key, at: Date.now(), list };
+			this.modelCache = entry;
+			list.catch(() => {
+				if (this.modelCache === entry) this.modelCache = null;
+			});
+		}
+		return this.modelCache!.list.catch(() => [] as string[]);
+	}
+
+	/** What a request block's writing line offers after "/". Learning blocks get none: see AskView. */
+	commandProvider(): CommandProvider {
+		const settings = this.settings;
+		return {
+			list: () => this.slashCommands(),
+			args: (name) =>
+				name === "model" ? this.modelChoices().then((m) => ["default", ...m]) : name === "thinking" ? Promise.resolve(["default", ...THINKING_LEVELS]) : null,
+			// Read when shown, so a change of agent setup is reflected without re-rendering the block.
+			get note() {
+				return settings.agentConfig === "isolated"
+					? L("Your own Pi skills and commands are off in “ICAP only” mode (settings → Agent setup).", "“仅 ICAP”模式下不加载你自己的 Pi skills 和命令（设置 → Agent 配置）。")
+					: undefined;
+			},
+		};
+	}
+
+	/* ───────────── Request blocks' Pi sessions (a cache of the conversation, agent/session-cache.ts) ───────────── */
+
+	/** Where request blocks' Pi sessions live: next to the plugin, out of the vault's notes. */
+	private sessionDir(): string | null {
+		const dir = this.plugin.pluginPath();
+		if (!dir) return null;
+		try {
+			return ensureDir(join(dir, "sessions"));
+		} catch {
+			return null;
+		}
+	}
+
+	/** ICAP's own skills, written into the plugin folder (inside the vault, readable in isolated mode). */
+	private icapSkills(): string[] {
+		const dir = this.plugin.pluginPath();
+		if (!dir) return [];
+		try {
+			return ensureSkills(dir);
+		} catch {
+			return [];
+		}
+	}
+
+	/** What a session was made under; a session made under another setup is not resumed. */
+	private sessionSetup(): string {
+		return `${this.settings.agentConfig}|${this.vaultRoot()}`;
+	}
+
+	private dropSessions(blockId: string) {
+		const dir = this.sessionDir();
+		if (dir) removeSessions(dir, { block: blockId });
+	}
+
+	/** Remove the sessions of blocks that are no longer open (kept, cleared, or gone with their note). */
+	pruneSessions() {
+		const dir = this.sessionDir();
+		if (dir) removeSessions(dir, { keep: new Set(this.blocks.keys()) });
 	}
 
 	/* ───────────────────────── helpers ───────────────────────── */
@@ -471,7 +621,12 @@ export class LearningRuntime {
 		if (editor) {
 			const text = editor.getValue();
 			const s = blockInsertion(text, Math.min(offset, text.length), src);
-			editor.replaceRange(s.insert, editor.offsetToPos(s.from), editor.offsetToPos(s.to));
+			// Not editor.replaceRange (nor editor.transaction): Obsidian's scroll the cursor into view, so a
+			// block inserted away from the cursor — under a visual whose button was clicked — would jerk the
+			// note to wherever the cursor was. The block brings itself into view when it mounts (AskView).
+			const cm = cmOf(editor);
+			if (cm) cm.dispatch({ changes: { from: s.from, to: s.to, insert: s.insert } });
+			else editor.replaceRange(s.insert, editor.offsetToPos(s.from), editor.offsetToPos(s.to));
 			ok = true;
 		} else {
 			ok = await spliceFile(this.app, path, (text) => blockInsertion(text, Math.min(offset, text.length), src));
@@ -513,7 +668,7 @@ export class LearningRuntime {
 		const at = glossAnchor(text, editor.posToOffset(editor.getCursor("to")));
 		const block = new AskBlock(newId("q"), "request", "", file.path);
 		block.quote = quote;
-		block.turns = [{ id: newId("u"), kind: "text", question: "", placeholder: L("Ask your agent anything… ([[ to link a file)", "向你的 Agent 提任何请求…（输入 [[ 链接文件）"), local: true, request: true }];
+		block.turns = [{ id: newId("u"), kind: "text", question: "", placeholder: L("Ask your agent anything… ([[ to link a file, / for commands)", "向你的 Agent 提任何请求…（[[ 链接文件，/ 使用命令）"), local: true, request: true }];
 		block.phase = "idle";
 		await this.insertBlock(editor, file.path, at, block, L("Request to the agent", "向 Agent 的请求")).catch((e) => new Notice(humanError(e)));
 	}
@@ -522,9 +677,9 @@ export class LearningRuntime {
 	async followUp(block: AskBlock, text: string) {
 		if (block.kind !== "request" || !text.trim() || this.ledger.get(block.taskId ?? "")?.active) return;
 		withdrawCue(block.id);
-		// The reply so far moves into the history, right after the turn it answered.
-		const last = block.current;
-		if (last && block.summary.trim()) last.reply = block.summary.trim();
+		// The reply so far moves into the history, right after the turn it answered. (The same move
+		// that coveredTranscript fingerprints a resumable session with.)
+		block.turns = withReply(block.turns, block.summary);
 		block.summary = "";
 		block.error = null;
 		block.turns.push({ id: newId("u"), kind: "text", question: "", local: true, request: true, answer: { text: text.trim() } });
@@ -532,13 +687,57 @@ export class LearningRuntime {
 		await this.startRequest(block);
 	}
 
-	/** Run (or, after an interruption, continue) the block's latest request. */
+	/**
+	 * A visual's icap.ask inside a request block: a follow-up there. False when the block is not a
+	 * request block (the visual then has nowhere to send it).
+	 */
+	visualFollowUp(blockId: string, text: string): boolean {
+		const block = this.blocks.get(blockId);
+		if (!block || block.kind !== "request") return false;
+		if (this.ledger.get(block.taskId ?? "")?.active) new Notice(L("The agent is still working on this request.", "Agent 还在处理这个请求。"));
+		else void this.followUp(block, text);
+		return true;
+	}
+
+	/** A visual's icap.ask in a note: a new request block just below it (after `line`), sent at once. */
+	async requestBelow(path: string, line: number, request: string) {
+		if (!this.fileOf(path)) return;
+		const text = await this.textOf(path);
+		const lines = text.split("\n");
+		const n = Math.max(0, Math.min(line, lines.length - 1));
+		const at = lines.slice(0, n + 1).join("\n").length;
+		const block = new AskBlock(newId("q"), "request", "", path);
+		block.turns = [{ id: newId("u"), kind: "text", question: "", local: true, request: true, answer: { text: request } }];
+		block.phase = "thinking";
+		try {
+			await this.insertBlock(editorFor(this.app, path), path, at, block, L("Request to the agent", "向 Agent 的请求"));
+		} catch (e) {
+			return void new Notice(humanError(e));
+		}
+		await this.startRequest(block);
+	}
+
+	/**
+	 * Run (or, after an interruption, continue) the block's latest request.
+	 *
+	 * The block's visible turns are the conversation. If the Pi session that produced the last reply
+	 * still covers exactly those turns, it is resumed and only the new request is sent; otherwise a
+	 * fresh session starts from a replay of the turns (see agent/session-cache.ts).
+	 *
+	 * A request starting with "/" is a command. ICAP's own (/model, /thinking, /compact) are handled
+	 * here; any other is sent to Pi verbatim — Pi expands prompt templates and skills, and runs
+	 * extension commands, only when the message starts with the command — with the note context in
+	 * the system prompt instead of around the message.
+	 */
 	private async startRequest(block: AskBlock) {
 		const file = this.fileOf(block.notePath);
 		if (!file) return;
 		const i = block.turns.map((t) => !!t.request).lastIndexOf(true);
-		const request = block.turns[i]?.answer?.text?.trim();
-		if (!request) return;
+		const turn = block.turns[i];
+		const request = turn?.answer?.text?.trim();
+		if (!turn || !request) return;
+		const cmd = parseCommand(request);
+		if (cmd && isIcapCommand(cmd.name)) return this.runControl(block, turn, cmd.name, cmd.args);
 		if (!block.topic) block.topic = short(request);
 		// An unanswered question from an interrupted run is asked again by the agent.
 		if (block.current && !block.current.answer && !block.current.local) block.turns.pop();
@@ -549,14 +748,131 @@ export class LearningRuntime {
 		const sofar = transcriptOf(block, block.turns.slice(i + 1));
 		// [[links]] in the request: the files the learner pointed to, resolved like Obsidian does.
 		const pointed = extractLinks(request).map((link) => ({ link, path: this.app.metadataCache.getFirstLinkpathDest(link, block.notePath)?.path ?? null }));
-		let prompt = requestPrompt(ctx, block.quote, history, request, pointed);
-		if (sofar.trim()) prompt += `\n\nYou were interrupted while carrying out this request. What happened so far:\n<so_far>\n${sofar}\n</so_far>\nContinue from there.`;
-		// One request block = one ledger line, which keeps the files of every round.
+
+		// The session: resumed only if it covers exactly the history; an interrupted round never is.
+		const dir = this.settings.rememberContext ? this.sessionDir() : null;
+		const setup = this.sessionSetup();
+		const resumed = !!dir && !sofar.trim() && reusable(block.session, setup, history) && sessionExists(dir, block.session.id) ? block.session : null;
+		let session: { id: string; dir: string } | undefined;
+		if (dir) {
+			if (resumed) session = { id: resumed.id, dir };
+			else {
+				removeSessions(dir, { block: block.id });
+				block.sessionSeq++;
+				session = { id: sessionId(block.id, block.sessionSeq), dir };
+			}
+		}
+		// From here on the old session no longer matches the block — until this round succeeds.
+		block.session = null;
+
+		const interrupted = sofar.trim() ? `\n\nYou were interrupted while carrying out this request. What happened so far:\n<so_far>\n${sofar}\n</so_far>\nContinue from there.` : "";
+		let prompt: string;
+		let systemExtra: string | undefined;
+		if (cmd) {
+			prompt = request;
+			systemExtra = commandContext(ctx, block.quote, resumed ? "" : history, pointed) + interrupted;
+		} else if (resumed) {
+			prompt = followUpPrompt(request, pointed);
+			systemExtra = blockContext(ctx, block.quote);
+		} else {
+			prompt = requestPrompt(ctx, block.quote, history, request, pointed) + interrupted;
+		}
+		// One request block = one ledger line, which keeps the files (and steps) of every round.
 		const prev = block.taskId ? this.ledger.get(block.taskId) : undefined;
 		if (prev && !prev.active) this.ledger.remove(prev.id);
 		const task = this.ledger.add(new Task(newId("t"), "request", `“${short(request)}”`, block.notePath));
 		task.artifacts = prev ? [...prev.artifacts] : [];
-		await this.runBlockTask(block, task, prompt, REQUEST_TOOLS, L(`Done — “${short(request)}”`, `完成——“${short(request)}”`));
+		task.steps = prev ? [...prev.steps] : [];
+		task.stepsDropped = prev?.stepsDropped ?? 0;
+		// The session is resumable only if its own messages hold the whole conversation. A command in a
+		// fresh session got the earlier turns through the system prompt, which Pi does not store.
+		const selfContained = !cmd || !!resumed || (!history.trim() && !sofar.trim());
+		await this.runBlockTask(block, task, prompt, REQUEST_TOOLS, L(`Done — “${short(request)}”`, `完成——“${short(request)}”`), {
+			extras: { session, systemExtra, model: block.model, thinking: block.thinking },
+			onSuccess: () => {
+				if (session && selfContained) block.session = { id: session.id, sig: sessionSig(setup, coveredTranscript(block)) };
+			},
+		});
+	}
+
+	/**
+	 * ICAP's runtime commands: they change how this block's agent runs and stay out of the
+	 * conversation (transcriptOf and the kept record skip them).
+	 */
+	private async runControl(block: AskBlock, turn: Turn, name: IcapCommandName, args: string) {
+		turn.control = true;
+		block.error = null;
+		const done = (reply: string) => {
+			turn.reply = reply;
+			block.phase = "completed";
+			this.persist();
+		};
+		const reset = /^(default|reset|-)$/i.test(args);
+		switch (name) {
+			case "model": {
+				if (!args) {
+					const shown = block.model || this.settings.model || L("Pi's default", "Pi 默认");
+					return done(L(`This block uses **${shown}**. Type \`/model\` and a name to change it here; \`/model default\` follows the settings again.`, `这个块使用 **${shown}**。输入 \`/model\` 加模型名即可只在这里更换；\`/model default\` 恢复为设置中的模型。`));
+				}
+				block.model = reset ? "" : args;
+				if (reset) return done(L("Back to the model in the settings.", "已恢复为设置中的模型。"));
+				// Pi also accepts patterns ("sonnet"), so an unknown name is a warning, not a refusal.
+				const known = await this.modelChoices();
+				const q = args.toLowerCase();
+				const warn =
+					known.length && !known.some((m) => m.toLowerCase().includes(q))
+						? L(" It is not among the models with credentials in your Pi, so the next request may fail.", "它不在你的 Pi 中已有凭证的模型里，下一个请求可能会失败。")
+						: "";
+				return done(L(`From the next request on, this block uses **${args}**.`, `从下一个请求起，这个块使用 **${args}**。`) + warn);
+			}
+			case "thinking": {
+				if (!args) {
+					const shown = block.thinking || this.settings.thinking || "default";
+					return done(L(`Thinking in this block: **${shown}**. Levels: ${THINKING_LEVELS.join(", ")}.`, `这个块的思考强度：**${shown}**。可选：${THINKING_LEVELS.join("、")}。`));
+				}
+				if (!reset && !THINKING_LEVELS.includes(args.toLowerCase())) return done(L(`Unknown level “${args}”. Levels: ${THINKING_LEVELS.join(", ")}.`, `没有“${args}”这个级别。可选：${THINKING_LEVELS.join("、")}。`));
+				block.thinking = reset ? "" : args.toLowerCase();
+				return done(reset ? L("Back to the thinking level in the settings.", "已恢复为设置中的思考强度。") : L(`From the next request on, thinking here is **${block.thinking}**.`, `从下一个请求起，这里的思考强度为 **${block.thinking}**。`));
+			}
+			case "compact": {
+				const dir = this.sessionDir();
+				const s = block.session;
+				if (!dir || !s || !sessionExists(dir, s.id))
+					return done(L("Nothing to compact: this block's conversation is read from the note itself each time.", "没有可压缩的内容：这个块的对话每次都直接从笔记中读取。"));
+				const prev = block.taskId ? this.ledger.get(block.taskId) : undefined;
+				if (prev && !prev.active) this.ledger.remove(prev.id);
+				const task = this.ledger.add(new Task(newId("t"), "request", L(`Compacting “${block.topic}”`, `正在压缩“${block.topic}”`), block.notePath));
+				task.artifacts = prev ? [...prev.artifacts] : [];
+				task.steps = prev ? [...prev.steps] : [];
+				task.blockId = block.id;
+				block.taskId = task.id;
+				block.phase = "thinking";
+				// The compacted session still stands for the same visible turns: its fingerprint is kept.
+				block.session = null;
+				this.persist();
+				try {
+					await this.runAgent(task, {
+						prompt: "",
+						tools: REQUEST_TOOLS,
+						control: { type: "compact", ...(args ? { customInstructions: args } : {}) },
+						session: { id: s.id, dir },
+						model: block.model,
+						thinking: block.thinking,
+						onPhase: (p) => (block.agentPhase = p),
+					});
+					block.session = s;
+					block.agentPhase = null;
+					task.end("completed", L(`Compacted “${block.topic}”`, `已压缩“${block.topic}”`));
+					return done(L("Compacted: the agent now carries a summary of the earlier rounds. The note is unchanged.", "已压缩：Agent 现在带着前面各轮的摘要继续。笔记没有改动。"));
+				} catch (e) {
+					const r = this.finishWithError(task, e, L(`Could not compact “${block.topic}”`, `无法压缩“${block.topic}”`));
+					block.agentPhase = null;
+					// A failed compaction leaves the session as it was; a stopped one may not have.
+					block.session = r === "failed" ? s : null;
+					return done(r === "failed" ? L(`Could not compact: ${task.error ?? ""}`, `无法压缩：${task.error ?? ""}`) : L("Stopped.", "已停止。"));
+				}
+			}
+		}
 	}
 
 	/* ───────────── Transparency: what the agent changed in the vault ───────────── */
@@ -670,6 +986,7 @@ export class LearningRuntime {
 			if (!b) continue;
 			this.stopBlock(b);
 			this.blocks.delete(id);
+			this.dropSessions(id);
 		}
 		this.persist();
 	}
@@ -703,7 +1020,7 @@ export class LearningRuntime {
 		}
 		// quiz: the authored question is the first one; the agent responds to the answer and goes on.
 		const ctx = buildContext(this.app, file, text, pos, pos, this.settings.background);
-		const material = stripFrontmatter(text).body.replace(/^(`{3,}|~{3,})icpa-ask[\s\S]*?^\1\s*$/gm, "").slice(0, 12000);
+		const material = stripFrontmatter(text).body.replace(/^(`{3,}|~{3,})(?:icap|icpa)-ask[\s\S]*?^\1\s*$/gm, "").slice(0, 12000);
 		block.instructions =
 			quizPrompt(ctx, material, `the note "${file.basename}"`) +
 			"\n- The first question was written by the note's author and has already been asked and answered (see the transcript). Respond to that answer, then ask at most two more questions.";
@@ -782,7 +1099,14 @@ export class LearningRuntime {
 		await this.runBlockTask(block, task, prompt, ASK_TOOLS, L(`Feedback on your explanation of “${block.topic}”`, `对你“${block.topic}”的解释的反馈`));
 	}
 
-	private async runBlockTask(block: AskBlock, task: Task, prompt: string, tools: string[], outcome: string) {
+	private async runBlockTask(
+		block: AskBlock,
+		task: Task,
+		prompt: string,
+		tools: string[],
+		outcome: string,
+		run: { extras?: RunExtras; onSuccess?: () => void } = {},
+	) {
 		task.blockId = block.id;
 		block.taskId = task.id;
 		block.instructions = prompt;
@@ -794,12 +1118,15 @@ export class LearningRuntime {
 			const out = await this.runAgent(task, {
 				prompt,
 				tools,
+				...run.extras,
 				onText: (t) => (block.summary = t),
 				onPhase: (p) => (block.agentPhase = p),
 				onBridge: (op, p) => this.bridge(task, op, p, block),
 			});
-			block.summary = out.trim();
+			// An extension command may do its work without a word; the round still needs a result.
+			block.summary = out.trim() || (block.kind === "request" ? L("Done.", "完成。") : "");
 			block.phase = "completed";
+			run.onSuccess?.();
 			block.agentPhase = null;
 			this.cueBlock(block, block.kind === "quiz" ? L("results ready", "结果出来了") : block.kind === "request" ? L("done", "完成") : L("feedback ready", "反馈好了"), 20000);
 			// A request's files (created, changed, deleted) are its result; keep them.
@@ -955,6 +1282,7 @@ export class LearningRuntime {
 		block.settled = "cleared";
 		await spliceFile(this.app, block.notePath, (text) => askReplacement(text, block.id, ""));
 		this.blocks.delete(block.id);
+		this.dropSessions(block.id);
 		this.persist();
 	}
 
@@ -998,6 +1326,8 @@ export class LearningRuntime {
 		if (!ok) return void new Notice(L("Could not find this interaction in the note.", "在笔记中找不到这段交互。"));
 		block.settled = "kept";
 		this.blocks.delete(block.id);
+		// What the learner kept is in the note now; the agent's working context is not needed any more.
+		this.dropSessions(block.id);
 		const t = block.taskId ? this.ledger.get(block.taskId) : undefined;
 		if (t) {
 			t.outcome = `${t.outcome || block.topic} · ` + L("kept in note", "已留在笔记里");
@@ -1097,7 +1427,7 @@ export class LearningRuntime {
 		const path = await uniqueNotePath(this.app, folder === "/" ? "" : folder, title);
 		const created = await this.app.vault.create(path, content.trimEnd() + "\n");
 		// Tool-level metadata only: later explanations must not take this note for the learner's own words.
-		if (this.settings.markGenerated) await this.app.fileManager.processFrontMatter(created, (fm) => void (fm["generated-by"] = "icpa-agent")).catch(() => undefined);
+		if (this.settings.markGenerated) await this.app.fileManager.processFrontMatter(created, (fm) => void (fm["generated-by"] = GENERATED_BY)).catch(() => undefined);
 		addArtifact(task, { kind: "created", path, label: basename(path) });
 		this.persist();
 		return { status: "created", path, link: `[[${basename(path)}]]` };
@@ -1226,13 +1556,13 @@ export class LearningRuntime {
 	focusNearestInteraction(view: MarkdownView) {
 		const cm = cmOf(view.editor);
 		const root = view.containerEl;
-		const items = [...root.querySelectorAll<HTMLElement>(".icpa-gloss, .icpa-ask:not(.is-orphan)")].filter((el) => el.offsetParent !== null);
+		const items = [...root.querySelectorAll<HTMLElement>(".icap-gloss, .icap-ask:not(.is-orphan)")].filter((el) => el.offsetParent !== null);
 		if (!items.length) return void new Notice(L("No explanation or question in this note yet.", "这篇笔记里还没有解释或问题。"));
 		const y = cm ? (cm.coordsAtPos(cm.state.selection.main.head)?.top ?? 0) : 0;
 		const target = items.find((el) => el.getBoundingClientRect().bottom > y) ?? items[items.length - 1];
 		target.scrollIntoView({ block: "nearest" });
-		const input = target.matches(".icpa-ask")
-			? target.querySelector<HTMLElement>("textarea, [role=radio][tabindex='0'], [role=checkbox][tabindex='0'], .icpa-confirm button, .icpa-actions .icpa-primary")
+		const input = target.matches(".icap-ask")
+			? target.querySelector<HTMLElement>("textarea, [role=radio][tabindex='0'], [role=checkbox][tabindex='0'], .icap-confirm button, .icap-actions .icap-primary")
 			: null;
 		(input ?? target).focus();
 	}
@@ -1330,8 +1660,8 @@ export class LearningRuntime {
 		if (blockId) {
 			window.setTimeout(() => {
 				const el = view!.containerEl.querySelector<HTMLElement>(`[data-ask="${blockId}"]`);
-				el?.querySelector<HTMLElement>("textarea, [role=radio], [role=checkbox], button.icpa-primary")?.focus();
-				el?.dispatchEvent(new CustomEvent("icpa-arrive")); // the view marks where to look
+				el?.querySelector<HTMLElement>("textarea, [role=radio], [role=checkbox], button.icap-primary")?.focus();
+				el?.dispatchEvent(new CustomEvent("icap-arrive")); // the view marks where to look
 			}, 120);
 		}
 		if (g) g.focusToken++;
@@ -1371,30 +1701,6 @@ export function humanError(e: unknown): string {
 	return msg.replace(/\s+/g, " ").slice(0, 220);
 }
 
-function answerText(t: Turn): string {
-	const a = t.answer;
-	if (!a) return "(no answer yet)";
-	if (t.kind === "confirm" || t.kind === "review") return a.confirmed ? t.confirmLabel ?? "Yes" : t.cancelLabel ?? "No";
-	if (a.choices) return a.choices.map((id) => `(${id}) ${t.options?.find((o) => o.id === id)?.label ?? ""}`.trim()).join("; ");
-	return a.text ?? "";
-}
-
-export function transcriptOf(block: AskBlock, turns: Turn[] = block.turns): string {
-	const out: string[] = [];
-	for (const t of turns) {
-		if (t.inNote) out.push(`Learner's explanation:\n${t.answer?.text ?? ""}`);
-		else if (t.request) out.push(`L: ${t.answer?.text ?? ""}`);
-		else {
-			out.push(`Q: ${t.question}`);
-			if (t.options?.length) out.push(t.options.map((o) => `  (${o.id}) ${o.label}`).join("\n"));
-			out.push(`A: ${answerText(t)}`);
-		}
-		if (t.feedback) out.push(`F${t.verdict ? ` [${t.verdict}]` : ""}: ${t.feedback}`);
-		if (t.reply) out.push(`R: ${t.reply}`);
-	}
-	return out.join("\n");
-}
-
 /** Set a task's own result (explanation, feedback, kept), keeping the files its agent touched. */
 function setResult(task: Task, a: Artifact) {
 	task.artifacts = [a, ...task.artifacts.filter((x) => FILE_KINDS.has(x.kind))];
@@ -1415,6 +1721,7 @@ function addArtifact(task: Task, a: Artifact) {
 function requestMarkdown(block: AskBlock, artifacts: Artifact[]): string {
 	const rounds: { request: string; reply: string }[] = [];
 	for (const t of block.turns) {
+		if (t.control) continue;
 		if (t.request) rounds.push({ request: t.answer?.text ?? "", reply: "" });
 		if (t.reply && rounds.length) rounds[rounds.length - 1].reply = t.reply;
 	}

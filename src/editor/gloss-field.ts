@@ -37,7 +37,7 @@ class GlossWidget extends WidgetType {
 	}
 	toDOM() {
 		const el = document.createElement("div");
-		el.className = "icpa-gloss-host";
+		el.className = "icap-gloss-host";
 		el.dataset.gloss = this.id;
 		this.unmount = this.host.mount(this.id, el);
 		return el;
@@ -58,7 +58,7 @@ class GlossWidget extends WidgetType {
 function build(anchors: GlossAnchor[], host: GlossHost): DecorationSet {
 	const ranges: Range<Decoration>[] = [];
 	for (const a of anchors) {
-		if (a.to > a.from) ranges.push(Decoration.mark({ class: "icpa-term", attributes: { "data-gloss": a.id } }).range(a.from, a.to));
+		if (a.to > a.from) ranges.push(Decoration.mark({ class: "icap-term", attributes: { "data-gloss": a.id } }).range(a.from, a.to));
 		ranges.push(Decoration.widget({ widget: new GlossWidget(a.id, host), block: true, side: 1 }).range(a.anchor));
 	}
 	return Decoration.set(ranges, true);

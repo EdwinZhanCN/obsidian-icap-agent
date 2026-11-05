@@ -1,19 +1,21 @@
-import { MarkdownRenderChild, MarkdownView, Menu, Modal, Notice, Plugin, Setting, TFile, getLanguage, type Editor, type MarkdownFileInfo } from "obsidian";
+import { MarkdownRenderChild, MarkdownView, Menu, Modal, Notice, Platform, Plugin, Setting, TFile, getLanguage, type Editor, type MarkdownFileInfo } from "obsidian";
 import { guideNote } from "./guide/guide";
 import { L, setLocale } from "./i18n";
 import { mount, unmount } from "svelte";
-import bridgeSource from "../pi/icpa-bridge.ts?text";
-import { ASK_LANG, parseAskSource } from "./dsl/blocks";
+import { ASK_LANG, LEGACY_ASK_LANG, parseAskSource } from "./dsl/blocks";
 import { selectionMark } from "./editor/selection-mark";
 import { freshField } from "./editor/fresh";
 import { LearningRuntime, cmOf, type PersistedRuntime } from "./runtime/runtime";
-import { DEFAULT_SETTINGS, IcpaSettingTab, type IcpaSettings } from "./settings";
+import { DEFAULT_SETTINGS, IcapSettingTab, type IcapSettings } from "./settings";
+import { loadPi, type PiSdk } from "./agent/pi-host";
+import { UiHost } from "./genui/host";
+import { RulesModal, VAULT_RULES } from "./ui/rules-modal";
 import AskView from "./ui/AskView.svelte";
 import Ledger from "./ui/Ledger.svelte";
 import LedgerMark from "./ui/LedgerMark.svelte";
 
 interface StoredData extends Partial<PersistedRuntime> {
-	settings?: Partial<IcpaSettings>;
+	settings?: Partial<IcapSettings>;
 }
 
 class SvelteChild extends MarkdownRenderChild {
@@ -33,19 +35,17 @@ class SvelteChild extends MarkdownRenderChild {
 	}
 }
 
-export default class IcpaPlugin extends Plugin {
-	settings: IcpaSettings = { ...DEFAULT_SETTINGS };
+export default class IcapPlugin extends Plugin {
+	settings: IcapSettings = { ...DEFAULT_SETTINGS };
 	runtime!: LearningRuntime;
-	extensionPath = "";
 	private mounted: Record<string, unknown>[] = [];
 
 	async onload() {
 		setLocale(this.language());
-		const data = ((await this.loadData()) ?? {}) as StoredData;
+		const data = ((await this.loadData()) ?? (await this.legacyData()) ?? {}) as StoredData;
 		this.settings = { ...DEFAULT_SETTINGS, ...(data.settings ?? {}) };
 		this.runtime = new LearningRuntime(this);
 		this.runtime.load(data);
-		this.extensionPath = await this.writeBridge();
 		this.applyInk();
 
 		const rt = this.runtime;
@@ -62,9 +62,10 @@ export default class IcpaPlugin extends Plugin {
 		]);
 
 		// Markdown DSL: Interactive Blocks.
-		this.registerMarkdownCodeBlockProcessor(ASK_LANG, (source, el, ctx) => {
+		// LEGACY_ASK_LANG: blocks in notes written before the rename keep working; rewriting one upgrades its fence.
+		for (const lang of [ASK_LANG, LEGACY_ASK_LANG]) this.registerMarkdownCodeBlockProcessor(lang, (source, el, ctx) => {
 			const src = parseAskSource(source);
-			el.addClass("icpa-ask-host");
+			el.addClass("icap-ask-host");
 			ctx.addChild(
 				new SvelteChild(el, (target) =>
 					mount(AskView, {
@@ -82,13 +83,20 @@ export default class IcpaPlugin extends Plugin {
 			);
 		});
 
-		this.registerHoverLinkSource("icpa-agent", { display: "ICAP Learning Agent", defaultMod: true });
+		// Interactive visuals (```icap-ui) in notes, replies and kept records: sandboxed frames whose
+		// icap.ask continues the conversation they appear in.
+		new UiHost(this, {
+			followUp: (blockId, text) => rt.visualFollowUp(blockId, text),
+			requestBelow: (path, line, text) => rt.requestBelow(path, line, text),
+		}).register();
+
+		this.registerHoverLinkSource("icap-agent", { display: "ICAP Learning Agent", defaultMod: true });
 
 		// Activity: a mark in the status bar that unfolds into the ledger.
 		const bar = this.addStatusBarItem();
-		bar.addClass("icpa-statusbar");
+		bar.addClass("icap-statusbar");
 		this.mounted.push(mount(LedgerMark, { target: bar, props: { rt } }));
-		const ledgerHost = document.body.createDiv({ cls: "icpa-ledger-host" });
+		const ledgerHost = document.body.createDiv({ cls: "icap-ledger-host" });
 		this.register(() => ledgerHost.remove());
 		this.mounted.push(mount(Ledger, { target: ledgerHost, props: { rt } }));
 
@@ -96,6 +104,8 @@ export default class IcpaPlugin extends Plugin {
 		// First install: the guide is the first thing the learner sees — a note to learn in, not a welcome page.
 		this.app.workspace.onLayoutReady(() => {
 			void this.firstRun();
+			// Pi sessions of request blocks that were kept or cleared elsewhere (another device, a crash).
+			rt.pruneSessions();
 			// What the learner's agent changes in the vault is recorded (after load: startup fires "create" for every file).
 			this.registerEvent(this.app.vault.on("create", (f) => rt.onVaultChange("created", f)));
 			this.registerEvent(this.app.vault.on("modify", (f) => rt.onVaultChange("edited", f)));
@@ -103,7 +113,7 @@ export default class IcpaPlugin extends Plugin {
 			this.registerEvent(this.app.vault.on("rename", (f, old) => rt.onVaultChange("edited", f, old)));
 		});
 		this.registerEvent(this.app.workspace.on("editor-menu", (menu, editor, info) => this.editorMenu(menu, editor, info)));
-		this.addSettingTab(new IcpaSettingTab(this.app, this));
+		this.addSettingTab(new IcapSettingTab(this.app, this));
 	}
 
 	private async firstRun() {
@@ -127,9 +137,22 @@ export default class IcpaPlugin extends Plugin {
 		return (this.app.vault.adapter as unknown as { getBasePath?: () => string }).getBasePath?.();
 	}
 
+	/** This plugin's folder on disk (its data, and request blocks' Pi sessions). */
+	pluginPath(): string | undefined {
+		const base = this.vaultPath();
+		if (!base) return undefined;
+		return `${base}/${this.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.manifest.id}`}`;
+	}
+
+	/** Pi's SDK, bundled into main.js and loaded on first use (agent/pi-host.ts). */
+	pi(): Promise<PiSdk> {
+		const dir = this.pluginPath();
+		return loadPi(dir ? `${dir}/main.js` : undefined);
+	}
+
 	/** Open the guide note; recreate it if it was deleted. */
 	async openGuide() {
-		const g = guideNote(this.language());
+		const g = guideNote(this.language(), Platform.isMacOS);
 		let file = this.app.vault.getAbstractFileByPath(g.path);
 		if (!(file instanceof TFile)) {
 			this.runtime.forgetBlocks(g.blockIds);
@@ -146,11 +169,13 @@ export default class IcpaPlugin extends Plugin {
 		this.runtime?.dispose();
 		for (const m of this.mounted) void unmount(m);
 		this.mounted = [];
-		document.body.removeClass("icpa-ink-accent");
-		document.querySelectorAll(".icpa-veiled").forEach((e) => e.classList.remove("icpa-veiled"));
+		document.body.removeClass("icap-ink-accent");
+		document.querySelectorAll(".icap-veiled").forEach((e) => e.classList.remove("icap-veiled"));
 	}
 
 	async saveSettings() {
+		// The `/` catalog depends on the agent setup.
+		this.runtime.invalidateCatalog();
 		await this.saveState();
 	}
 
@@ -160,17 +185,40 @@ export default class IcpaPlugin extends Plugin {
 	}
 
 	applyInk() {
-		document.body.toggleClass("icpa-ink-accent", this.settings.ink === "accent");
+		document.body.toggleClass("icap-ink-accent", this.settings.ink === "accent");
 	}
 
-	private async writeBridge(): Promise<string> {
-		const dir = this.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.manifest.id}`;
-		const rel = `${dir}/icpa-bridge.ts`;
+	/**
+	 * The plugin was renamed ICPA → ICAP, and its id with it (icpa-agent → icap-agent), so Obsidian gives
+	 * it a fresh folder. On the first start under the new id, carry over the old folder's settings,
+	 * activity and Pi sessions. The old folder is left untouched.
+	 */
+	private async legacyData(): Promise<StoredData | null> {
 		const adapter = this.app.vault.adapter;
-		const existing = (await adapter.exists(rel)) ? await adapter.read(rel) : null;
-		if (existing !== bridgeSource) await adapter.write(rel, bridgeSource);
-		const base = this.vaultPath() ?? "";
-		return `${base}/${rel}`;
+		const old = `${this.app.vault.configDir}/plugins/icpa-agent`;
+		const dir = this.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.manifest.id}`;
+		try {
+			if (!(await adapter.exists(`${old}/data.json`))) return null;
+			const data = JSON.parse(await adapter.read(`${old}/data.json`)) as StoredData;
+			if (await adapter.exists(`${old}/sessions`)) {
+				if (!(await adapter.exists(`${dir}/sessions`))) await adapter.mkdir(`${dir}/sessions`);
+				for (const f of (await adapter.list(`${old}/sessions`)).files) {
+					const to = `${dir}/sessions/${f.split("/").pop()}`;
+					if (!(await adapter.exists(to))) await adapter.copy(f, to);
+				}
+			}
+			await this.saveData(data);
+			new Notice(
+				L(
+					`ICAP Learning Agent: settings and activity carried over from the earlier “icpa-agent” install. You can turn that one off and delete ${old}.`,
+					`ICAP Learning Agent：已从旧的“icpa-agent”安装中迁移设置和活动记录。可以停用旧插件并删除 ${old}。`,
+				),
+				12000,
+			);
+			return data;
+		} catch {
+			return null;
+		}
 	}
 
 	private withEditor(fn: (editor: Editor, file: TFile) => void) {
@@ -252,6 +300,18 @@ export default class IcpaPlugin extends Plugin {
 			name: L("Open the guide", "打开指南"),
 			callback: () => void this.openGuide(),
 		});
+		this.addCommand({
+			id: "vault-conventions",
+			name: L("This vault's conventions (AGENTS.md)", "这个库的约定（AGENTS.md）"),
+			callback: () => void this.openVaultRules(),
+		});
+	}
+
+	/** Open the vault's AGENTS.md, or set it up when there is none. */
+	async openVaultRules() {
+		const f = this.app.vault.getAbstractFileByPath(VAULT_RULES);
+		if (f instanceof TFile) await this.app.workspace.getLeaf("tab").openFile(f);
+		else new RulesModal(this.app, () => undefined).open();
 	}
 
 	private editorMenu(menu: Menu, editor: Editor, info: MarkdownView | MarkdownFileInfo) {
@@ -273,7 +333,7 @@ export default class IcpaPlugin extends Plugin {
 
 class CompareModal extends Modal {
 	constructor(
-		plugin: IcpaPlugin,
+		plugin: IcapPlugin,
 		private initial: string,
 		private done: (v: string) => void,
 	) {

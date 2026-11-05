@@ -5,7 +5,7 @@ import { L } from "../i18n";
  * Interactive Block — a fenced block whose source stays small and human readable; the
  * live state (answers, feedback) is held by the Block Runtime and persisted in plugin data.
  *
- *     ```icpa-ask
+ *     ```icap-ask
  *     id: q7f3a2
  *     kind: recall
  *     ---
@@ -20,7 +20,11 @@ import { L } from "../i18n";
  */
 import { splitLines } from "./text";
 
-export const ASK_LANG = "icpa-ask";
+export const ASK_LANG = "icap-ask";
+/** The fence language before the plugin was renamed ICPA → ICAP. Still read (and rendered), never written. */
+export const LEGACY_ASK_LANG = "icpa-ask";
+/** Either fence language, for matching notes written before or after the rename. */
+export const ASK_LANG_RE = "(?:icap|icpa)-ask";
 
 export interface AskSource {
 	id: string;
@@ -31,7 +35,7 @@ export interface AskSource {
 }
 
 /**
- * An authored block: an ```icpa-ask fence written by a person (e.g. in the guide) rather than
+ * An authored block: an ```icap-ask fence written by a person (e.g. in the guide) rather than
  * inserted by the runtime. It starts with its first question already on the page.
  *
  *   kind: quiz    body = question, then `- [ ] option` lines   (`choose: many` for multi-select)
@@ -104,11 +108,11 @@ export function parseAskSource(source: string): AskSource {
 	return { id: header.id ?? "", kind: header.kind ?? "agent", body: lines.slice(i).join("\n").trim(), header };
 }
 
-/** Locate a whole ```icpa-ask fence with the given id. Range covers the fence lines only. */
+/** Locate a whole ```icap-ask fence with the given id. Range covers the fence lines only. */
 export function findAskBlock(text: string, id: string): { from: number; to: number } | null {
 	const lines = splitLines(text);
 	for (let i = 0; i < lines.length; i++) {
-		const open = lines[i].text.match(/^(`{3,}|~{3,})\s*icpa-ask\s*$/);
+		const open = lines[i].text.match(new RegExp(`^(\`{3,}|~{3,})\\s*${ASK_LANG_RE}\\s*$`));
 		if (!open) continue;
 		const fence = open[1];
 		let j = i + 1;
@@ -219,7 +223,7 @@ export function tidyQuestion(question: string, optionCount: number): string {
 	return lines.slice(0, i).join("\n").trim() || question.trim();
 }
 
-/** Replace an ```icpa-ask block; with an empty insert, remove it and close the gap. */
+/** Replace an ```icap-ask block; with an empty insert, remove it and close the gap. */
 export function askReplacement(text: string, id: string, insert: string): { from: number; to: number; insert: string } | null {
 	const r = findAskBlock(text, id);
 	if (!r) return null;

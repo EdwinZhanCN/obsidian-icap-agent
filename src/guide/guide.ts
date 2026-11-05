@@ -3,7 +3,7 @@
  * demonstration and the learner's first study note at the same time — its subject is ICAP itself,
  * and every interaction in it is one the learner actually performs on that subject.
  *
- * Steps ②–④ are authored ```icpa-ask fences (see parseAuthored): they come alive the first time
+ * Steps ②–④ are authored ```icap-ask fences (see parseAuthored): they come alive the first time
  * they render, and "start over" resets them instead of deleting them.
  */
 
@@ -16,9 +16,9 @@ export interface GuideNote {
 
 const IDS = ["guide-quiz", "guide-recall", "guide-agent"];
 
-const fence = (header: string, body: string) => "```icpa-ask\n" + header.trim() + "\n---\n" + body.trim() + "\n```";
+const fence = (header: string, body: string) => "```icap-ask\n" + header.trim() + "\n---\n" + body.trim() + "\n```";
 
-function zh(): GuideNote {
+function zh(mac: boolean): GuideNote {
 	const content = `---
 tags: [learning, icap]
 ---
@@ -90,30 +90,33 @@ start: 开始`,
 
 ### ⑤ 请求：直接对 Agent 说话
 
-上面这些都是预先设计好的动作。其余的事，直接说：把光标放在任意位置，在命令面板里运行 *在这里向 Agent 提问*（或者右键菜单），就地出现一个请求块。写下你想要的，按 ⌘↵ 发送。
+上面这些都是预先设计好的动作。其余的事，直接说：把光标放在任意位置，在命令面板里运行 *在这里向 Agent 提问*（或者右键菜单），就地出现一个请求块。写下你想要的，按 ${submitKbd(mac)} 发送。
 
 - 输入 \`[[\`（或 \`@\`）可以从库里挑文件——笔记、PDF 都行——告诉 Agent “就用这几份”。插入的是普通的链接。
 - 例如：\`根据 [[某本书.pdf]] 帮我做一条学习路线，再为每一章建一篇资料笔记。\`路线和笔记的形式，由你的请求和你自己的 Agent 配置决定。
-- 结果、追问、以及 Agent 改动过的文件都留在块里。完成后选 **保留记录**，它会变成一段普通的 Markdown 记录。
+- 以 \`/\` 开头可以使用命令：你的 Pi 里的技能（\`/skill:…\`）、提示模板和扩展命令，以及 ICAP 的 \`/model\`、\`/thinking\`（只改变这一个块）和 \`/compact\`。
+- 结果、追问、以及 Agent 改动过的文件都留在块里。追问时 Agent 记得这个块里已经做过的事。完成后选 **保留记录**，它会变成一段普通的 Markdown 记录。
+- 有时动手试比读一段话更容易懂，Agent 就会在回复（或它新建的笔记）里放一个**交互式图示**：拖动滑块看变化、一步步走一个过程、先预测再揭晓。也可以直接要：\`画一个能调学习率的梯度下降图\`。图示里的按钮会把问题发回给 Agent，接着聊。它在沙箱里运行，不能联网，也碰不到你的笔记；不想要可以在设置里关掉。
 
 ## 你的 Agent
 
-ICPA 不自带模型，用的是你自己的 [Pi](https://github.com/earendil-works/pi)。
+ICAP 不自带模型。它内置了 [Pi](https://github.com/earendil-works/pi)，不需要另外安装任何东西，用的是你自己的模型服务商。
 
-- **服务商与 API Key 由 Pi 管理**：在终端运行 \`pi\`，用 \`/login\` 登录（保存在 ~/.pi/agent/auth.json）；或者在 shell 配置文件里导出密钥，例如 \`export DEEPSEEK_API_KEY=…\`。ICPA 不保存任何密钥。设置页会显示 Pi 正在用哪个模型、哪些模型可用。
-- **Agent 配置**（设置 → Agent）：默认是 *你的 Pi 配置 + ICPA*——你的 skills、扩展、AGENTS.md 和工具照常可用，它可以直接改文件，每处改动都会列在活动里。想要更可预期，就选 *仅 ICPA（隔离）*：只读、没有 shell，只能访问这个库和你授权的文件夹。
+- **登录服务商**（设置 → Agent → 模型服务商 → **登录…**）：用已有的订阅**账号登录**（例如 Claude Pro/Max、ChatGPT、GitHub Copilot），或者粘贴一个 **API Key**（例如 DeepSeek）。凭证由 Pi 保存在 ~/.pi/agent/auth.json，和 Pi 命令行（如果你装了）共用，ICAP 自己不留副本；退出登录也在同一个窗口里。在 shell 配置文件里导出的密钥（例如 \`export DEEPSEEK_API_KEY=…\`）也能直接用。设置页会显示正在用哪个模型、哪些模型可用。
+- **Agent 配置**（设置 → Agent）：默认是 *你的 Pi 配置 + ICAP*——你的 skills、扩展、AGENTS.md 和工具照常可用，它可以直接改文件，每处改动都会列在活动里。想要更可预期，就选 *仅 ICAP（隔离）*：只读、没有 shell，只能访问这个库和你授权的文件夹。
+- **这个库的约定**（设置 → Agent → 这个库的约定 → **设置…**，或命令 *这个库的约定（AGENTS.md）*）：告诉 Agent 你在这里学什么、笔记怎么组织、哪些地方不要动。选一种学习方式（课程、读书、论文、语言、编程），回答两三个问题，就会在库根目录生成一篇笔记 AGENTS.md，Agent 每次任务都会读它，你可以像普通笔记一样修改。到哪儿都适用的规矩可以写进 Pi 的 ~/.pi/agent/AGENTS.md（隔离模式不读这一份）。库所在目录之上的 AGENTS.md（比如 ~/AGENTS.md）是写给别的工作的，ICAP 不读。
 - **你喜欢怎样学**（设置 → 你已经知道的）：语言、风格、深浅，每次解释和请求都会遵循。
 
 ## 之后
 
 - 在任何笔记里选中文字 → **解释**；或者在命令面板里运行 *凭记忆复述（本节）*、*检验我对本节的理解*、*检查我写的内容*。
-- 保留下来的内容都是普通 Markdown，卸载插件也不会丢失。Agent 新建的笔记会在属性里带上 \`generated-by: icpa-agent\`，以免以后被当成你自己写的。
+- 保留下来的内容都是普通 Markdown，卸载插件也不会丢失。Agent 新建的笔记会在属性里带上 \`generated-by: icap-agent\`，以免以后被当成你自己写的。
 - 这篇笔记归你了。命令 *打开指南* 可以随时把它找回来（如果删了，会重新生成一份）。
 `;
 	return { path: "用 ICAP 学习.md", content, blockIds: IDS };
 }
 
-function en(): GuideNote {
+function en(mac: boolean): GuideNote {
 	const content = `---
 tags: [learning, icap]
 ---
@@ -185,29 +188,41 @@ While a task runs, a small dot appears at the right of the status bar. Click it 
 
 ### ⑤ Request — just tell the agent
 
-Everything above is a ready-made action. For anything else, just ask: put the cursor anywhere and run *Ask the agent here* from the command palette (or the context menu). A request block appears in place; write what you want and press ⌘↵.
+Everything above is a ready-made action. For anything else, just ask: put the cursor anywhere and run *Ask the agent here* from the command palette (or the context menu). A request block appears in place; write what you want and press ${submitKbd(mac)}.
 
 - Type \`[[\` (or \`@\`) to pick files from your vault — notes, PDFs, anything — and tell the agent "use these". What gets inserted is an ordinary link.
 - For example: \`From [[Some Book.pdf]], make me a learning path and a note for each chapter.\` The shape of the path and the notes is up to your request and your own agent setup.
-- The result, follow-ups and the files the agent touched stay in the block. When you're done, **keep a record** turns it into plain Markdown.
+- Start with \`/\` for commands: your Pi's skills (\`/skill:…\`), prompt templates and extension commands, and ICAP's \`/model\`, \`/thinking\` (for this block only) and \`/compact\`.
+- The result, follow-ups and the files the agent touched stay in the block; in a follow-up the agent remembers what it already did here. When you're done, **keep a record** turns it into plain Markdown.
+- When trying something out beats reading about it, the agent puts an **interactive visual** into its reply (or a note it creates): drag a slider and watch, step through a process, predict and then reveal. You can also just ask: \`draw gradient descent with an adjustable learning rate\`. Its buttons send questions back to the agent, so the conversation goes on. It runs in a sandbox — no internet, no access to your notes — and you can turn it off in the settings.
 
 ## Your agent
 
-ICPA has no model of its own; it uses your own [Pi](https://github.com/earendil-works/pi).
+ICAP has no model of its own. [Pi](https://github.com/earendil-works/pi) is built in — nothing else to install — and it uses your own model provider.
 
-- **Providers and API keys are managed by Pi**: run \`pi\` in a terminal and use \`/login\` (saved in ~/.pi/agent/auth.json), or export the key in your shell profile, e.g. \`export ANTHROPIC_API_KEY=…\`. ICPA never stores keys. The settings show which model Pi uses and which are available.
-- **Agent setup** (Settings → Agent): by default *Your Pi setup + ICPA* — your skills, extensions, AGENTS.md and tools work as usual; it may change files directly, and every change is listed in Activity. For something more predictable choose *ICPA only (isolated)*: read-only, no shell, only this vault and the folders you allow.
+- **Log in to a provider** (Settings → Agent → Model providers → **Log in…**): sign in with a subscription you already have (**Account**: e.g. Claude Pro/Max, ChatGPT, GitHub Copilot) or paste an **API key** (e.g. DeepSeek). Pi saves the credential in ~/.pi/agent/auth.json, shared with the Pi command line if you have it; ICAP keeps no copy, and you log out in the same window. A key exported in your shell profile (e.g. \`export ANTHROPIC_API_KEY=…\`) works too. The settings show which model is used and which are available.
+- **Agent setup** (Settings → Agent): by default *Your Pi setup + ICAP* — your skills, extensions, AGENTS.md and tools work as usual; it may change files directly, and every change is listed in Activity. For something more predictable choose *ICAP only (isolated)*: read-only, no shell, only this vault and the folders you allow.
+- **This vault's conventions** (Settings → Agent → This vault's conventions → **Set up…**, or the command *This vault's conventions (AGENTS.md)*): tell the agent what you study here, how your notes are organised and what it must leave alone. Pick a kind of study (a course, a book, papers, a language, programming), answer two or three questions, and a note, AGENTS.md, appears at the vault's root: the agent reads it in every task, and you edit it like any note. Rules for everywhere can go into Pi's ~/.pi/agent/AGENTS.md (isolated mode skips that one). An AGENTS.md above the vault's folder (like ~/AGENTS.md) is written for other work, so ICAP does not read it.
 - **How you like to learn** (Settings → What you already know): language, style, depth — followed in every explanation and request.
 
 ## Afterwards
 
 - In any note, select text → **explain**; or run *Recall from memory (this section)*, *Check my understanding of this section* or *Check what I wrote* from the command palette.
-- Everything you keep is plain Markdown; it stays readable without the plugin. Notes the agent creates carry \`generated-by: icpa-agent\` in their properties, so they are never taken for your own writing.
+- Everything you keep is plain Markdown; it stays readable without the plugin. Notes the agent creates carry \`generated-by: icap-agent\` in their properties, so they are never taken for your own writing.
 - This note is yours now. The command *Open the guide* brings it back at any time (and recreates it if you deleted it).
 `;
 	return { path: "Learning with ICAP.md", content, blockIds: IDS };
 }
 
-export function guideNote(language: string): GuideNote {
-	return language.toLowerCase().startsWith("zh") ? zh() : en();
+/**
+ * The writing line's submit chord as keycaps (Obsidian styles <kbd> in notes): ⌘ ↵ on macOS, Ctrl ↵
+ * elsewhere, like the interface's own hints (ui/Keys.svelte).
+ */
+export function submitKbd(mac: boolean): string {
+	return `<kbd>${mac ? "⌘" : "Ctrl"}</kbd> <kbd>↵</kbd>`;
+}
+
+/** The guide note in the interface language; `mac` picks the shortcut shown in it (Platform.isMacOS). */
+export function guideNote(language: string, mac = true): GuideNote {
+	return language.toLowerCase().startsWith("zh") ? zh(mac) : en(mac);
 }

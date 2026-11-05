@@ -1,5 +1,5 @@
 {
-  "name": "icpa-agent",
+  "name": "icap-agent",
   "version": "0.1.0",
   "private": true,
   "description": "ICAP-based learning agent for Obsidian: explanations, recall and interaction inside your Markdown notes.",
@@ -9,6 +9,7 @@
     "build": "npm run build:css && node esbuild.config.mjs --production",
     "build:css": "tailwindcss -i src/styles/main.css -o styles.css --minify",
     "check": "tsc --noEmit && svelte-check --tsconfig ./tsconfig.json",
+    "vault": "node scripts/dev-vault.mjs",
     "test": "vitest --run"
   },
   "license": "MIT",
@@ -28,6 +29,8 @@
     "vitest": "^5.1.0"
   },
   "dependencies": {
+    "@earendil-works/pi-ai": "1.5.0",
+    "@earendil-works/pi-coding-agent": "1.5.0",
     "@lucide/svelte": "^1.67.0",
     "motion": "^14.9.0"
   }

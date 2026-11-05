@@ -4,6 +4,7 @@
 	import { onMount } from "svelte";
 	import type { App } from "obsidian";
 	import Markdown from "./Markdown.svelte";
+	import Keys from "./Keys.svelte";
 	import { keyGuard } from "./keys";
 	import { drawn, play, spring } from "./motion";
 	import { press } from "motion";
@@ -104,13 +105,13 @@
 	}
 </script>
 
-<div class="icpa-choices" class:is-locked={locked} class:is-multi={multi} role={multi ? "group" : "radiogroup"} aria-label={label} use:keyGuard={{ app, submit: () => selected.length && onsubmit?.(selected) }}>
+<div class="icap-choices" class:is-locked={locked} class:is-multi={multi} role={multi ? "group" : "radiogroup"} aria-label={label} use:keyGuard={{ app, submit: () => selected.length && onsubmit?.(selected) }}>
 	{#each options as o, i (o.id)}
 		{@const on = selected.includes(o.id)}
 		<!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_interactive_supports_focus -->
 		<div
 			bind:this={items[i]}
-			class="icpa-choice"
+			class="icap-choice"
 			class:is-on={on}
 			use:recede={locked && !on}
 			use:pressable
@@ -124,8 +125,8 @@
 			}}
 			onkeydown={(e) => onkeydown(e, i)}
 		>
-			<span class="icpa-choice-mark" aria-hidden="true">
-				<svg class="icpa-ink-svg" viewBox="0 0 44 40" preserveAspectRatio="none">
+			<span class="icap-choice-mark" aria-hidden="true">
+				<svg class="icap-ink-svg" viewBox="0 0 44 40" preserveAspectRatio="none">
 					{#if multi}
 						<path d={BOX} use:drawn={on} />
 						<path d={TICK} class="is-tick" use:drawn={on} />
@@ -133,15 +134,15 @@
 						<path d={RING} use:drawn={on} />
 					{/if}
 				</svg>
-				<span class="icpa-choice-letter">{letter(i)}</span>
+				<span class="icap-choice-letter">{letter(i)}</span>
 			</span>
-			<Markdown {app} markdown={o.label} {sourcePath} class="icpa-choice-label" />
+			<Markdown {app} markdown={o.label} {sourcePath} class="icap-choice-label" />
 		</div>
 	{/each}
 	{#if !locked}
-		<div class="icpa-writing-foot">
-			<span class="icpa-hint" aria-hidden="true">{multi ? L("space to mark · ↵ to submit", "空格标记 · ↵ 提交") : `a–${letter(options.length - 1)} · ` + L("↵ to submit", "↵ 提交")}</span>
-			<button type="button" class="icpa-link icpa-primary" disabled={!selected.length} onclick={() => onsubmit?.(selected)}>{L("submit", "提交")}</button>
+		<div class="icap-writing-foot">
+			<span class="icap-hint" aria-hidden="true">{multi ? L("space to mark", "空格标记") : `a–${letter(options.length - 1)}`} · <Keys mod={false} /> {L("to submit", "提交")}</span>
+			<button type="button" class="icap-link icap-primary" disabled={!selected.length} onclick={() => onsubmit?.(selected)}>{L("submit", "提交")}</button>
 		</div>
 	{/if}
 </div>

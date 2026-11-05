@@ -23,7 +23,7 @@ export const freshField = StateField.define<DecorationSet>({
 				for (const line of tr.state.doc.sliceString(e.value.from, e.value.to).split("\n")) {
 					const start = pos + (line.length - line.trimStart().length);
 					const end = pos + line.trimEnd().length;
-					if (end > start) ranges.push(Decoration.mark({ class: "icpa-fresh", id: e.value.id }).range(start, end));
+					if (end > start) ranges.push(Decoration.mark({ class: "icap-fresh", id: e.value.id }).range(start, end));
 					pos += line.length + 1;
 				}
 				deco = deco.update({ add: ranges, sort: true });
@@ -55,10 +55,10 @@ export function flashRange(view: EditorView, from: number, to: number) {
 					continue;
 				}
 				if (pos < from || pos > to) continue;
-				el.classList.remove("icpa-fresh-block");
+				el.classList.remove("icap-fresh-block");
 				void el.offsetWidth; // restart the fade
-				el.classList.add("icpa-fresh-block");
-				window.setTimeout(() => el.classList.remove("icpa-fresh-block"), HOLD);
+				el.classList.add("icap-fresh-block");
+				window.setTimeout(() => el.classList.remove("icap-fresh-block"), HOLD);
 			}
 		}),
 	);

@@ -1,5 +1,5 @@
 /*
- * icpa-agent design system
+ * icap-agent design system
  * ────────────────────────
  * Tailwind v4 provides tokens + utilities (no preflight: Obsidian owns the base layer,
  * and output is unlayered so it can hold its own against theme CSS). Everything else is
@@ -14,10 +14,10 @@
 @source "../";
 
 @theme inline {
-	--color-ink: var(--icpa-ink);
-	--color-ink-soft: var(--icpa-ink-soft);
-	--color-ink-faint: var(--icpa-ink-faint);
-	--color-ink-wash: var(--icpa-ink-wash);
+	--color-ink: var(--icap-ink);
+	--color-ink-soft: var(--icap-ink-soft);
+	--color-ink-faint: var(--icap-ink-faint);
+	--color-ink-wash: var(--icap-ink-wash);
 	--color-normal: var(--text-normal);
 	--color-muted: var(--text-muted);
 	--color-faint: var(--text-faint);
@@ -36,24 +36,24 @@
 body {
 	/* Madder: a warm tutor's-pencil red-brown. Distinct from Obsidian's default violet accent,
 	   so the agent's marks never read as app chrome. */
-	--icpa-ink: oklch(0.53 0.13 38);
-	--icpa-ink-soft: color-mix(in oklab, var(--icpa-ink) 62%, transparent);
-	--icpa-ink-faint: color-mix(in oklab, var(--icpa-ink) 24%, transparent);
-	--icpa-ink-wash: color-mix(in oklab, var(--icpa-ink) 7%, transparent);
-	--icpa-rule: 1.5px;
-	--icpa-gutter: 1.05rem;
-	--icpa-voice: 0.95em;
+	--icap-ink: oklch(0.53 0.13 38);
+	--icap-ink-soft: color-mix(in oklab, var(--icap-ink) 62%, transparent);
+	--icap-ink-faint: color-mix(in oklab, var(--icap-ink) 24%, transparent);
+	--icap-ink-wash: color-mix(in oklab, var(--icap-ink) 7%, transparent);
+	--icap-rule: 1.5px;
+	--icap-gutter: 1.05rem;
+	--icap-voice: 0.95em;
 }
 .theme-dark {
-	--icpa-ink: oklch(0.75 0.1 48);
-	--icpa-ink-wash: color-mix(in oklab, var(--icpa-ink) 9%, transparent);
+	--icap-ink: oklch(0.75 0.1 48);
+	--icap-ink-wash: color-mix(in oklab, var(--icap-ink) 9%, transparent);
 }
-body.icpa-ink-accent {
-	--icpa-ink: var(--text-accent);
+body.icap-ink-accent {
+	--icap-ink: var(--text-accent);
 }
 @media (max-width: 640px) {
 	body {
-		--icpa-gutter: 0.6rem;
+		--icap-gutter: 0.6rem;
 	}
 }
 
@@ -61,51 +61,51 @@ body.icpa-ink-accent {
 
 /* The ink rule is drawn and retracted by animating this (see src/ui/motion.ts). Registered so it
    interpolates as a number; inherited so the ::before rule picks it up from its element. */
-@property --icpa-rule-scale {
+@property --icap-rule-scale {
 	syntax: "<number>";
 	inherits: true;
 	initial-value: 1;
 }
 
-.icpa-voice {
+.icap-voice {
 	@apply tw:relative;
-	--icpa-rule-scale: 1;
+	--icap-rule-scale: 1;
 }
-.icpa-voice::before {
+.icap-voice::before {
 	content: "";
 	position: absolute;
-	left: calc(-1 * var(--icpa-gutter));
+	left: calc(-1 * var(--icap-gutter));
 	top: 0.3em;
 	bottom: 0.3em;
-	width: var(--icpa-rule);
+	width: var(--icap-rule);
 	border-radius: 1px;
-	background: var(--icpa-ink-soft);
-	transform: scaleY(var(--icpa-rule-scale));
+	background: var(--icap-ink-soft);
+	transform: scaleY(var(--icap-rule-scale));
 	transform-origin: top;
 }
 
 /* Frames: the only boxes whose height animates. They contain their children's margins so the
    measured height is the rendered height. */
-.icpa-frame,
-.icpa-frame > * {
+.icap-frame,
+.icap-frame > * {
 	display: flow-root;
 }
 /* Waiting is the ink being drawn: a short stroke travels down a faint rule. */
-.icpa-voice.is-drawing::before {
-	background: var(--icpa-ink-faint);
+.icap-voice.is-drawing::before {
+	background: var(--icap-ink-faint);
 }
-.icpa-voice.is-drawing::after {
+.icap-voice.is-drawing::after {
 	content: "";
 	position: absolute;
-	left: calc(-1 * var(--icpa-gutter));
+	left: calc(-1 * var(--icap-gutter));
 	top: 0.3em;
-	width: var(--icpa-rule);
+	width: var(--icap-rule);
 	height: 1.4em;
 	border-radius: 1px;
-	background: var(--icpa-ink);
-	animation: icpa-draw 1.5s var(--tw-ease-ink, ease-in-out) infinite;
+	background: var(--icap-ink);
+	animation: icap-draw 1.5s var(--tw-ease-ink, ease-in-out) infinite;
 }
-@keyframes icpa-draw {
+@keyframes icap-draw {
 	0% {
 		transform: translateY(-0.2em) scaleY(0.2);
 		opacity: 0;
@@ -115,20 +115,20 @@ body.icpa-ink-accent {
 		opacity: 1;
 	}
 	100% {
-		transform: translateY(calc(var(--icpa-draw-span, 2.6em))) scaleY(1);
+		transform: translateY(calc(var(--icap-draw-span, 2.6em))) scaleY(1);
 		opacity: 0;
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.icpa-voice.is-drawing::after {
+	.icap-voice.is-drawing::after {
 		display: none;
 	}
-	.icpa-voice.is-drawing::before {
-		background: repeating-linear-gradient(to bottom, var(--icpa-ink-soft) 0 4px, transparent 4px 8px);
+	.icap-voice.is-drawing::before {
+		background: repeating-linear-gradient(to bottom, var(--icap-ink-soft) 0 4px, transparent 4px 8px);
 	}
 }
 
-.icpa-label {
+.icap-label {
 	@apply tw:flex tw:flex-wrap tw:items-baseline tw:gap-x-2 tw:font-ui tw:text-faint;
 	font-size: var(--tw-text-label, 0.68rem);
 	letter-spacing: 0.09em;
@@ -136,10 +136,10 @@ body.icpa-ink-accent {
 	line-height: 1.5;
 	margin: 0 0 0.3em;
 }
-.icpa-label-kind {
+.icap-label-kind {
 	@apply tw:font-semibold tw:text-ink;
 }
-.icpa-label-term {
+.icap-label-term {
 	@apply tw:font-prose tw:text-muted;
 	font-size: 0.86rem;
 	letter-spacing: 0;
@@ -147,7 +147,7 @@ body.icpa-ink-accent {
 	font-style: italic;
 	overflow-wrap: anywhere;
 }
-.icpa-sublabel {
+.icap-sublabel {
 	@apply tw:font-ui tw:text-ink;
 	font-size: var(--tw-text-label, 0.68rem);
 	letter-spacing: 0.09em;
@@ -155,182 +155,226 @@ body.icpa-ink-accent {
 	margin: 0.9em 0 0.2em;
 }
 
-.icpa-md {
+.icap-md {
 	white-space: normal;
 }
-.icpa-md > :first-child {
+.icap-md > :first-child {
 	margin-top: 0;
 }
-.icpa-md > :last-child {
+.icap-md > :last-child {
 	margin-bottom: 0;
 }
-.icpa-md p {
+.icap-md p {
 	margin-block: 0.45em;
 }
-.icpa-md pre {
+.icap-md pre {
 	margin-block: 0.6em;
 }
-.icpa-md table {
+.icap-md table {
 	font-size: 0.95em;
 	margin-block: 0.5em;
 }
 
 /* Button reset — doubled class to outrank `.markdown-rendered button` and theme rules. */
-.icpa-link.icpa-link,
-.icpa-icon-btn.icpa-icon-btn,
-.icpa-label-btn.icpa-label-btn,
-.icpa-row-title.icpa-row-title,
-.icpa-mark.icpa-mark,
-.icpa-selmark button {
+.icap-link.icap-link,
+.icap-icon-btn.icap-icon-btn,
+.icap-label-btn.icap-label-btn,
+.icap-row-title.icap-row-title,
+.icap-mark.icap-mark,
+.icap-selmark button {
 	all: unset;
 	box-sizing: border-box;
 	cursor: pointer;
 	font: inherit;
 	color: inherit;
 }
-.icpa-link.icpa-link {
+.icap-link.icap-link {
 	@apply tw:inline-flex tw:items-center tw:gap-1 tw:text-muted;
 	text-decoration: underline;
-	text-decoration-color: var(--icpa-ink-faint);
+	text-decoration-color: var(--icap-ink-faint);
 	text-decoration-thickness: 1px;
 	text-underline-offset: 3px;
 	transition:
 		color 120ms ease,
 		text-decoration-color 120ms ease;
 }
-.icpa-link.icpa-link:hover {
+.icap-link.icap-link:hover {
 	@apply tw:text-normal;
-	text-decoration-color: var(--icpa-ink);
+	text-decoration-color: var(--icap-ink);
 }
-.icpa-link.icpa-link.icpa-primary {
+.icap-link.icap-link.icap-primary {
 	@apply tw:font-semibold tw:text-ink;
-	text-decoration-color: var(--icpa-ink-soft);
+	text-decoration-color: var(--icap-ink-soft);
 }
-.icpa-link.icpa-link.is-quiet {
+.icap-link.icap-link.is-quiet {
 	@apply tw:text-faint;
 	text-decoration-color: transparent;
 }
-.icpa-link.icpa-link.is-quiet:hover {
+.icap-link.icap-link.is-quiet:hover {
 	@apply tw:text-muted;
-	text-decoration-color: var(--icpa-ink-faint);
+	text-decoration-color: var(--icap-ink-faint);
 }
-.icpa-link.icpa-link:disabled {
+.icap-link.icap-link:disabled {
 	opacity: 0.38;
 	cursor: default;
 	text-decoration-color: transparent;
 }
-:is(.icpa-link, .icpa-icon-btn, .icpa-label-btn, .icpa-row-title, .icpa-mark, .icpa-selmark button):focus-visible {
-	outline: 2px solid var(--icpa-ink-soft);
+:is(.icap-link, .icap-icon-btn, .icap-label-btn, .icap-row-title, .icap-mark, .icap-selmark button):focus-visible {
+	outline: 2px solid var(--icap-ink-soft);
 	outline-offset: 2px;
 	border-radius: 3px;
 }
 
-.icpa-actions {
+.icap-actions {
 	@apply tw:flex tw:flex-wrap tw:items-baseline tw:font-ui tw:text-muted;
 	gap: 0.15em 0.85em;
 	font-size: var(--tw-text-caption, 0.76rem);
 	margin-top: 0.6em;
 	line-height: 1.6;
 }
-.icpa-dot {
+.icap-dot {
 	@apply tw:text-faint;
 	margin-inline: -0.35em;
 }
-.icpa-caption {
+.icap-caption {
 	@apply tw:font-ui tw:text-faint;
 	font-size: var(--tw-text-caption, 0.76rem);
 }
-.icpa-pending {
+.icap-pending {
 	@apply tw:text-faint;
 	font-style: italic;
 	margin: 0.15em 0;
 }
-.icpa-error {
+.icap-error {
 	@apply tw:font-ui;
 	color: var(--text-error);
 	font-size: var(--tw-text-caption, 0.76rem);
 	margin: 0.4em 0 0;
 }
-.icpa-hint {
+.icap-hint {
 	@apply tw:font-code tw:text-faint;
 	font-size: 0.72rem;
 }
 
+/* Shortcuts as keycaps (Keys.svelte): Obsidian's <kbd> look (code background, small radius), sized to the
+   line they sit in. ⌘ and ↵ are Lucide icons, "Ctrl" is text. */
+.icap-keys {
+	display: inline-flex;
+	gap: 0.2em;
+	vertical-align: middle;
+	margin-inline: 0.15em;
+}
+.icap-keys:first-child {
+	margin-inline-start: 0;
+}
+.icap-keys:last-child {
+	margin-inline-end: 0;
+}
+.icap-keys kbd {
+	@apply tw:font-ui;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+	min-width: 1.6em;
+	height: 1.6em;
+	padding: 0 0.35em;
+	border-radius: var(--code-radius, 4px);
+	background: var(--code-background);
+	box-shadow: inset 0 -1px 0 var(--background-modifier-border);
+	color: var(--text-muted);
+	font-size: 0.9em;
+	line-height: 1;
+}
+.icap-keys svg {
+	width: 1em;
+	height: 1em;
+	stroke-width: 2.25;
+}
+.icap-sr {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+}
+
 /* ───────────── Explanation: the gloss ───────────── */
 
-.icpa-term {
-	text-decoration: underline dotted var(--icpa-ink);
+.icap-term {
+	text-decoration: underline dotted var(--icap-ink);
 	text-decoration-thickness: 1.5px;
 	text-underline-offset: 4px;
-	background: var(--icpa-ink-wash);
+	background: var(--icap-ink-wash);
 	border-radius: 2px;
 }
 
 /* Live Preview paints-contains widgets; the ink rule lives in the gutter, so let it out. */
-.markdown-source-view.mod-cm6 .cm-content > .icpa-gloss-host,
-.markdown-source-view.mod-cm6 .cm-content > .cm-embed-block:has(.icpa-ask-host),
-.icpa-gloss-host,
-.cm-embed-block:has(.icpa-ask-host),
+.markdown-source-view.mod-cm6 .cm-content > .icap-gloss-host,
+.markdown-source-view.mod-cm6 .cm-content > .cm-embed-block:has(.icap-ask-host),
+.icap-gloss-host,
+.cm-embed-block:has(.icap-ask-host),
 .cm-embed-block.cm-callout:has(.callout:is([data-callout="gloss"], [data-callout="feedback"], [data-callout="practice"])) {
 	contain: none !important;
 	overflow: visible !important;
 }
-.icpa-gloss-host {
+.icap-gloss-host {
 	white-space: normal;
 	cursor: auto;
 	caret-color: auto;
 }
-.icpa-gloss-pad {
+.icap-gloss-pad {
 	padding: 0.65em 0 0.85em;
 }
-.icpa-gloss {
-	font-size: var(--icpa-voice);
+.icap-gloss {
+	font-size: var(--icap-voice);
 	line-height: var(--line-height-normal);
 	color: var(--text-normal);
 	outline: none;
 }
-.icpa-gloss.is-collapsed .icpa-label {
+.icap-gloss.is-collapsed .icap-label {
 	margin-bottom: 0;
 }
-.icpa-label-btn.icpa-label-btn {
+.icap-label-btn.icap-label-btn {
 	@apply tw:inline-flex tw:items-baseline tw:gap-2;
 	text-transform: inherit;
 	letter-spacing: inherit;
 }
-.icpa-label-btn.icpa-label-btn:hover .icpa-label-term {
+.icap-label-btn.icap-label-btn:hover .icap-label-term {
 	@apply tw:text-normal;
 }
-.icpa-gloss-part.is-follow {
-	border-top: 1px solid var(--icpa-ink-faint);
+.icap-gloss-part.is-follow {
+	border-top: 1px solid var(--icap-ink-faint);
 	margin-top: 0.8em;
 }
-.icpa-gloss-part.is-follow .icpa-sublabel {
+.icap-gloss-part.is-follow .icap-sublabel {
 	margin-top: 0.55em;
 }
-.icpa-sources {
+.icap-sources {
 	@apply tw:font-ui tw:text-faint;
 	font-size: var(--tw-text-caption, 0.76rem);
 	margin: 0.6em 0 0;
 }
-.icpa-compare {
+.icap-compare {
 	@apply tw:flex tw:flex-wrap tw:items-baseline tw:gap-2;
 	flex: 1 1 100%;
 }
-.icpa-compare label {
+.icap-compare label {
 	@apply tw:text-ink tw:font-semibold;
 }
-.icpa-compare input.icpa-compare-input,
-.icpa-compare input {
+.icap-compare input.icap-compare-input,
+.icap-compare input {
 	all: unset;
 	@apply tw:font-prose tw:text-normal;
 	flex: 1 1 12em;
 	min-width: 8em;
 	font-size: 0.95rem;
-	border-bottom: 1px solid var(--icpa-ink-soft);
+	border-bottom: 1px solid var(--icap-ink-soft);
 	padding: 0.05em 0.1em;
-	caret-color: var(--icpa-ink);
+	caret-color: var(--icap-ink);
 }
-.icpa-compare input::placeholder {
+.icap-compare input::placeholder {
 	@apply tw:text-faint;
 	font-style: italic;
 }
@@ -339,103 +383,105 @@ body.icpa-ink-accent {
 /* ───────────── Interactive Block ───────────── */
 
 /* Live Preview wraps processors in an embed block; make it part of the page, not a widget. */
+.cm-embed-block.cm-preview-code-block:has(> .block-language-icap-ask),
 .cm-embed-block.cm-preview-code-block:has(> .block-language-icpa-ask),
-.cm-embed-block:has(.icpa-ask-host) {
+.cm-embed-block:has(.icap-ask-host) {
 	box-shadow: none !important;
 	background: transparent !important;
 	border-radius: 0;
 	cursor: auto;
 }
-.cm-embed-block:has(.icpa-ask-host) .edit-block-button {
+.cm-embed-block:has(.icap-ask-host) .edit-block-button {
 	opacity: 0;
 }
-.cm-embed-block:has(.icpa-ask-host):hover .edit-block-button {
+.cm-embed-block:has(.icap-ask-host):hover .edit-block-button {
 	opacity: 0.45;
 }
+.block-language-icap-ask,
 .block-language-icpa-ask {
 	white-space: normal;
 }
 
-.icpa-ask {
+.icap-ask {
 	margin: 0.35em 0 0.6em;
 	line-height: var(--line-height-normal);
 	color: var(--text-normal);
 }
-.icpa-turn + .icpa-turn {
+.icap-turn + .icap-turn {
 	margin-top: 1.1em;
 }
-.icpa-question {
-	font-size: var(--icpa-voice);
+.icap-question {
+	font-size: var(--icap-voice);
 	margin: 0 0 0.45em;
 }
-.icpa-question .icpa-md strong {
+.icap-question .icap-md strong {
 	color: var(--text-normal);
 }
-.icpa-ref {
+.icap-ref {
 	@apply tw:font-ui tw:text-faint;
 	font-size: var(--tw-text-caption, 0.76rem);
 	margin: 0 0 0.3em;
 }
 
 /* The learner's words: body text, no ink. */
-.icpa-learner {
+.icap-learner {
 	margin: 0.35em 0 0.55em;
 	font-size: 1em;
 }
-.icpa-decision {
+.icap-decision {
 	@apply tw:text-muted;
 	font-style: italic;
 }
 
-.icpa-feedback {
-	font-size: var(--icpa-voice);
+.icap-feedback {
+	font-size: var(--icap-voice);
 	margin: 0.5em 0 0.2em;
 }
-.icpa-verdict {
+.icap-verdict {
 	position: absolute;
-	left: calc(-1 * var(--icpa-gutter) - 1.35em);
+	left: calc(-1 * var(--icap-gutter) - 1.35em);
 	top: 0.05em;
 	width: 1.1em;
 	text-align: center;
-	color: var(--icpa-ink);
+	color: var(--icap-ink);
 	font-weight: 700;
 	font-family: var(--font-interface);
 }
-.icpa-verdict-word {
+.icap-verdict-word {
 	position: absolute;
 	width: 1px;
 	height: 1px;
 	overflow: hidden;
 	clip: rect(0 0 0 0);
 }
-.icpa-feedback[data-verdict="holds"]::before {
-	background: var(--icpa-ink-faint);
+.icap-feedback[data-verdict="holds"]::before {
+	background: var(--icap-ink-faint);
 }
 @media (max-width: 640px) {
-	.icpa-verdict {
+	.icap-verdict {
 		position: static;
 		display: inline;
 		margin-right: 0.35em;
 	}
 }
 
-.icpa-summary {
-	font-size: var(--icpa-voice);
+.icap-summary {
+	font-size: var(--icap-voice);
 	margin: 1em 0 0.2em;
 	min-height: 1.6em;
-	--icpa-draw-span: 1.4em;
+	--icap-draw-span: 1.4em;
 }
-.icpa-summary.is-final::before {
-	width: calc(var(--icpa-rule) + 1.5px);
-	background: var(--icpa-ink);
+.icap-summary.is-final::before {
+	width: calc(var(--icap-rule) + 1.5px);
+	background: var(--icap-ink);
 }
 
 /* Writing line: lined paper for your own words. */
-.icpa-writing {
+.icap-writing {
 	margin: 0.3em 0 0.4em;
 }
-.icpa-writing textarea.icpa-writing-ta,
-.icpa-writing textarea {
+.icap-writing textarea.icap-writing-ta,
+.icap-writing textarea {
 	all: unset;
 	box-sizing: border-box;
 	display: block;
@@ -445,52 +491,52 @@ body.icpa-ink-accent {
 	font-size: 1em;
 	line-height: var(--line-height-normal);
 	color: var(--text-normal);
-	caret-color: var(--icpa-ink);
+	caret-color: var(--icap-ink);
 	white-space: pre-wrap;
 	overflow: hidden;
 	resize: none;
 	padding: 0 0 2px;
-	background-image: linear-gradient(to bottom, transparent calc(100% - 1px), var(--icpa-ink-faint) calc(100% - 1px));
+	background-image: linear-gradient(to bottom, transparent calc(100% - 1px), var(--icap-ink-faint) calc(100% - 1px));
 	background-size: 100% calc(var(--line-height-normal) * 1em);
 	background-attachment: local;
 	transition: background-image 150ms ease;
 }
-.icpa-writing textarea:focus {
-	--icpa-ink-faint: color-mix(in oklab, var(--icpa-ink) 38%, transparent);
+.icap-writing textarea:focus {
+	--icap-ink-faint: color-mix(in oklab, var(--icap-ink) 38%, transparent);
 }
-.icpa-writing textarea::placeholder {
+.icap-writing textarea::placeholder {
 	@apply tw:text-faint;
 	font-style: italic;
 }
-.icpa-writing-foot {
+.icap-writing-foot {
 	@apply tw:flex tw:items-baseline tw:justify-end tw:gap-3 tw:font-ui;
 	font-size: var(--tw-text-caption, 0.76rem);
 	margin-top: 0.35em;
 }
-.icpa-writing:not(:focus-within) .icpa-hint {
+.icap-writing:not(:focus-within) .icap-hint {
 	visibility: hidden;
 }
 
 /* [[ link suggestions under a writing line: quiet, like a margin index. */
-.icpa-writing {
+.icap-writing {
 	position: relative;
 }
-.icpa-link-suggest {
+.icap-link-suggest {
 	@apply tw:font-ui;
 	list-style: none;
 	margin: 0.2em 0 0;
 	padding: 0.25em 0;
 	padding-inline-start: 0;
 	margin-inline-start: 0;
-	max-width: 32em;
-	border-left: 2px solid var(--icpa-ink-faint);
+	max-width: 40em;
+	border-left: 2px solid var(--icap-ink-faint);
 	font-size: var(--font-ui-small);
 }
-.icpa-link-suggest li {
+.icap-link-suggest li {
 	margin: 0;
 	padding: 0;
 }
-.icpa-link-suggest button {
+.icap-link-suggest button {
 	all: unset;
 	box-sizing: border-box;
 	display: flex;
@@ -501,30 +547,62 @@ body.icpa-ink-accent {
 	cursor: pointer;
 	color: var(--text-muted);
 }
-.icpa-link-suggest button.is-active {
+.icap-link-suggest button.is-active {
 	color: var(--text-normal);
-	background: color-mix(in oklab, var(--icpa-ink) 10%, transparent);
+	background: color-mix(in oklab, var(--icap-ink) 10%, transparent);
 }
-.icpa-link-name {
+/* The name is what is chosen: it keeps its width; the path / description gives way. */
+.icap-link-name {
+	flex: 0 0 auto;
+	max-width: 65%;
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
 }
-.icpa-link-path {
+.icap-link-path {
 	@apply tw:text-faint;
+	flex: 1 1 auto;
+	min-width: 0;
 	font-size: 0.92em;
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
 }
+/* Where a command comes from (skill · prompt · extension · ICAP): a small-caps word, not a chip. */
+.icap-suggest-badge {
+	@apply tw:text-faint;
+	flex: none;
+	font-size: 0.8em;
+	font-variant: all-small-caps;
+	letter-spacing: 0.04em;
+}
+.icap-suggest-note {
+	@apply tw:font-ui tw:text-faint;
+	margin: 0.15em 0 0;
+	padding-inline-start: calc(0.7em + 2px);
+	font-size: var(--font-ui-smaller);
+}
+/* A runtime command's answer (/model, /thinking, /compact): a quiet line, not a reply. */
+.icap-control-note {
+	@apply tw:font-ui tw:text-muted;
+	margin: 0.1em 0 0.4em;
+	font-size: var(--font-ui-small);
+}
+/* A request block's own model / thinking, at the end of its label. */
+.icap-label-meta {
+	margin-inline-start: auto;
+	letter-spacing: 0.02em;
+	text-transform: none;
+	font-size: 0.74rem;
+}
 
 /* Choices: lettered, marked like paper. */
-.icpa-choices {
+.icap-choices {
 	@apply tw:grid;
 	gap: 0.1em;
 	margin: 0.35em 0 0.45em;
 }
-.icpa-choice {
+.icap-choice {
 	@apply tw:grid tw:items-baseline;
 	grid-template-columns: 2em 1fr;
 	padding: 0.18em 0.4em 0.18em 0;
@@ -533,30 +611,30 @@ body.icpa-ink-accent {
 	cursor: pointer;
 	transition: background-color 100ms ease;
 }
-.icpa-choices:not(.is-locked) .icpa-choice:hover {
-	background: var(--icpa-ink-wash);
+.icap-choices:not(.is-locked) .icap-choice:hover {
+	background: var(--icap-ink-wash);
 }
-.is-locked .icpa-choice {
+.is-locked .icap-choice {
 	cursor: default;
 }
 /* Keyboard focus on an option: a wash and an ink caret in the letter column, not a box. */
-.icpa-choice:focus-visible {
+.icap-choice:focus-visible {
 	outline: none;
-	background: var(--icpa-ink-wash);
-	box-shadow: inset 2px 0 0 var(--icpa-ink);
+	background: var(--icap-ink-wash);
+	box-shadow: inset 2px 0 0 var(--icap-ink);
 }
-.icpa-choice-mark {
+.icap-choice-mark {
 	@apply tw:relative tw:inline-grid tw:place-items-center tw:font-ui tw:text-muted;
 	width: 1.45em;
 	height: 1.45em;
 	font-size: 0.86em;
 	justify-self: center;
 }
-.icpa-choice.is-on .icpa-choice-mark {
+.icap-choice.is-on .icap-choice-mark {
 	@apply tw:text-ink tw:font-semibold;
 }
 /* A hand-drawn ring (or box + tick) around the chosen letter, stroked on by Motion. */
-.icpa-ink-svg {
+.icap-ink-svg {
 	position: absolute;
 	inset: -0.32em -0.42em;
 	width: calc(100% + 0.84em);
@@ -564,90 +642,90 @@ body.icpa-ink-accent {
 	overflow: visible;
 	pointer-events: none;
 }
-.icpa-ink-svg path {
+.icap-ink-svg path {
 	fill: none;
-	stroke: var(--icpa-ink);
+	stroke: var(--icap-ink);
 	stroke-width: 1.7;
 	stroke-linecap: round;
 	stroke-linejoin: round;
 }
-.icpa-ink-svg .is-tick {
+.icap-ink-svg .is-tick {
 	stroke-width: 2.1;
 }
-.icpa-choices:not(.is-multi) .icpa-ink-svg {
+.icap-choices:not(.is-multi) .icap-ink-svg {
 	transform: rotate(-8deg);
 }
-.icpa-choice-letter {
+.icap-choice-letter {
 	position: relative;
 }
-.icpa-choice-label > p,
-.icpa-choice-label p {
+.icap-choice-label > p,
+.icap-choice-label p {
 	margin: 0;
 }
 
-.icpa-confirm {
+.icap-confirm {
 	@apply tw:flex tw:flex-wrap tw:items-baseline tw:gap-x-3 tw:font-ui;
 	font-size: 0.86rem;
 	margin: 0.3em 0 0.4em;
 }
 
-.icpa-review-title {
+.icap-review-title {
 	@apply tw:font-ui tw:text-faint;
 	font-size: var(--tw-text-caption, 0.76rem);
 	margin: 0 0 0.2em;
 }
-.icpa-diff {
+.icap-diff {
 	@apply tw:font-code;
 	font-size: 0.8rem;
 	line-height: 1.55;
 	margin: 0.4em 0;
 	overflow-wrap: anywhere;
 }
-.icpa-diff > div {
+.icap-diff > div {
 	white-space: pre-wrap;
 	padding: 0 0.5em 0 1.6em;
 	text-indent: -1.1em;
 }
-.icpa-diff span {
+.icap-diff span {
 	display: inline-block;
 	width: 1.1em;
 	text-indent: 0;
 }
-.icpa-diff-del {
+.icap-diff-del {
 	@apply tw:text-faint;
 	text-decoration: line-through;
-	text-decoration-color: var(--icpa-ink-faint);
+	text-decoration-color: var(--icap-ink-faint);
 }
-.icpa-diff-add {
-	background: var(--icpa-ink-wash);
+.icap-diff-add {
+	background: var(--icap-ink-wash);
 }
-.icpa-diff-add span {
-	color: var(--icpa-ink);
+.icap-diff-add span {
+	color: var(--icap-ink);
 }
 /* Decided: an applied change is simply the note now; a declined one recedes. */
-.icpa-diff.is-applied .icpa-diff-del {
+.icap-diff.is-applied .icap-diff-del {
 	display: none;
 }
-.icpa-diff.is-applied .icpa-diff-add {
+.icap-diff.is-applied .icap-diff-add {
 	background: none;
 }
-.icpa-diff.is-declined .icpa-diff-add {
+.icap-diff.is-declined .icap-diff-add {
 	opacity: 0.45;
 }
 
-.icpa-veil-toggle.icpa-veil-toggle {
+.icap-veil-toggle.icap-veil-toggle {
 	margin-left: auto;
 	letter-spacing: 0.02em;
 	text-transform: none;
 	font-size: 0.74rem;
 }
-.icpa-ask.is-orphan .icpa-caption {
+.icap-ask.is-orphan .icap-caption {
 	margin: 0;
 }
 
 /* The recall veil: everything but the block goes soft. */
-.icpa-veiled :is(.cm-content > *, .markdown-preview-sizer > *):not(.icpa-unveiled),
-.icpa-veiled :is(.inline-title, .metadata-container, .mod-header, .embedded-backlinks) {
+.icap-veiled :is(.cm-content > *, .markdown-preview-sizer > *):not(.icap-unveiled),
+.icap-veiled :is(.inline-title, .metadata-container, .mod-header, .embedded-backlinks) {
 	filter: blur(5px) saturate(0.4);
 	opacity: 0.42;
 	transition:
@@ -656,7 +734,7 @@ body.icpa-ink-accent {
 	user-select: none;
 }
 @media (prefers-reduced-motion: reduce) {
-	.icpa-veiled :is(.cm-content > *, .markdown-preview-sizer > *):not(.icpa-unveiled) {
+	.icap-veiled :is(.cm-content > *, .markdown-preview-sizer > *):not(.icap-unveiled) {
 		transition: none;
 	}
 }
@@ -674,20 +752,20 @@ body.icpa-ink-accent {
 	padding: 0;
 	margin: 0.25em 0 1em;
 	mix-blend-mode: normal;
-	font-size: var(--icpa-voice);
+	font-size: var(--icap-voice);
 	overflow: visible;
 }
 .callout:is([data-callout="gloss"], [data-callout="feedback"], [data-callout="practice"])::before {
-	transform: scaleY(var(--icpa-rule-scale, 1));
+	transform: scaleY(var(--icap-rule-scale, 1));
 	transform-origin: top;
 	content: "";
 	position: absolute;
-	left: calc(-1 * var(--icpa-gutter));
+	left: calc(-1 * var(--icap-gutter));
 	top: 0.3em;
 	bottom: 0.3em;
-	width: var(--icpa-rule);
+	width: var(--icap-rule);
 	border-radius: 1px;
-	background: var(--icpa-ink-soft);
+	background: var(--icap-ink-soft);
 }
 .callout:is([data-callout="gloss"], [data-callout="feedback"], [data-callout="practice"]) .callout-title {
 	@apply tw:font-ui tw:items-baseline tw:gap-2;
@@ -702,7 +780,7 @@ body.icpa-ink-accent {
 	display: none;
 }
 .callout:is([data-callout="gloss"], [data-callout="feedback"], [data-callout="practice"]) .callout-title::before {
-	color: var(--icpa-ink);
+	color: var(--icap-ink);
 	font-weight: 600;
 }
 .callout[data-callout="gloss"] .callout-title::before {
@@ -733,7 +811,7 @@ body.icpa-ink-accent {
 
 /* ───────────── Selection mark ───────────── */
 
-.icpa-selmark {
+.icap-selmark {
 	position: absolute;
 	z-index: 30;
 	display: none;
@@ -750,36 +828,36 @@ body.icpa-ink-accent {
 	color: var(--text-muted);
 	white-space: nowrap;
 }
-.icpa-selmark.is-shown {
+.icap-selmark.is-shown {
 	display: inline-flex;
 }
-.icpa-selmark::before {
+.icap-selmark::before {
 	content: "";
 	align-self: center;
 	width: 5px;
 	height: 5px;
 	border-radius: 50%;
-	background: var(--icpa-ink);
+	background: var(--icap-ink);
 }
-.icpa-selmark button {
+.icap-selmark button {
 	text-decoration: underline;
 	text-decoration-color: transparent;
 	text-underline-offset: 3px;
 }
-.icpa-selmark button:hover {
-	color: var(--icpa-ink);
-	text-decoration-color: var(--icpa-ink-soft);
+.icap-selmark button:hover {
+	color: var(--icap-ink);
+	text-decoration-color: var(--icap-ink-soft);
 }
-.icpa-selmark-sep {
+.icap-selmark-sep {
 	color: var(--text-faint);
 }
 
 /* ───────────── Activity: mark + ledger ───────────── */
 
-.icpa-statusbar {
+.icap-statusbar {
 	padding: 0 2px;
 }
-.icpa-mark.icpa-mark {
+.icap-mark.icap-mark {
 	@apply tw:inline-flex tw:items-center tw:gap-1.5;
 	padding: 0 4px;
 	height: 100%;
@@ -787,11 +865,11 @@ body.icpa-ink-accent {
 	font-size: var(--status-bar-font-size, 12px);
 	border-radius: 4px;
 }
-.icpa-mark.icpa-mark:hover {
+.icap-mark.icap-mark:hover {
 	color: var(--text-normal);
 	background: var(--background-modifier-hover);
 }
-.icpa-mark-glyph {
+.icap-mark-glyph {
 	position: relative;
 	width: 8px;
 	height: 8px;
@@ -799,40 +877,40 @@ body.icpa-ink-accent {
 	border: 1.25px solid var(--text-faint);
 	flex: none;
 }
-.icpa-mark[data-state="working"] .icpa-mark-glyph {
-	border-color: var(--icpa-ink-faint);
-	border-top-color: var(--icpa-ink);
-	animation: icpa-spin 1.4s linear infinite;
+.icap-mark[data-state="working"] .icap-mark-glyph {
+	border-color: var(--icap-ink-faint);
+	border-top-color: var(--icap-ink);
+	animation: icap-spin 1.4s linear infinite;
 }
-.icpa-mark[data-state="waiting"] .icpa-mark-glyph {
-	border-color: var(--icpa-ink);
-	background: var(--icpa-ink);
+.icap-mark[data-state="waiting"] .icap-mark-glyph {
+	border-color: var(--icap-ink);
+	background: var(--icap-ink);
 }
-.icpa-mark[data-state="waiting"] {
-	color: var(--icpa-ink);
+.icap-mark[data-state="waiting"] {
+	color: var(--icap-ink);
 }
-.icpa-mark[data-state="completed"] .icpa-mark-glyph {
-	border-color: var(--icpa-ink);
+.icap-mark[data-state="completed"] .icap-mark-glyph {
+	border-color: var(--icap-ink);
 }
-.icpa-mark[data-state="failed"] .icpa-mark-glyph {
+.icap-mark[data-state="failed"] .icap-mark-glyph {
 	border-color: var(--text-error);
 	background: var(--text-error);
 }
-.icpa-mark-label {
+.icap-mark-label {
 	display: inline-block;
 }
-@keyframes icpa-spin {
+@keyframes icap-spin {
 	to {
 		transform: rotate(360deg);
 	}
 }
 @media (prefers-reduced-motion: reduce) {
-	.icpa-mark-glyph {
+	.icap-mark-glyph {
 		animation: none !important;
 	}
 }
 
-.icpa-ledger {
+.icap-ledger {
 	position: fixed;
 	right: 12px;
 	bottom: calc(var(--status-bar-height, 26px) + 12px);
@@ -852,38 +930,38 @@ body.icpa-ink-accent {
 	outline: none;
 	transform-origin: 100% 100%;
 }
-.icpa-ledger-head {
+.icap-ledger-head {
 	@apply tw:flex tw:items-center tw:gap-3;
 	margin-bottom: 4px;
 }
-.icpa-ledger-head h2 {
+.icap-ledger-head h2 {
 	margin: 0;
 	margin-right: auto;
 	font-size: 0.7rem;
 	font-weight: 600;
 	letter-spacing: 0.1em;
 	text-transform: uppercase;
-	color: var(--icpa-ink);
+	color: var(--icap-ink);
 }
-.icpa-ledger-head .icpa-link {
+.icap-ledger-head .icap-link {
 	font-size: 0.74rem;
 }
-.icpa-icon-btn.icpa-icon-btn {
+.icap-icon-btn.icap-icon-btn {
 	@apply tw:inline-grid tw:place-items-center tw:text-faint;
 	width: 22px;
 	height: 22px;
 	border-radius: 4px;
 }
-.icpa-icon-btn.icpa-icon-btn:hover {
+.icap-icon-btn.icap-icon-btn:hover {
 	color: var(--text-normal);
 	background: var(--background-modifier-hover);
 }
-.icpa-ledger-empty {
+.icap-ledger-empty {
 	color: var(--text-muted);
 	line-height: 1.5;
 	margin: 6px 0 2px;
 }
-.icpa-ledger-group h3 {
+.icap-ledger-group h3 {
 	margin: 12px 0 2px;
 	font-size: 0.66rem;
 	font-weight: 500;
@@ -891,22 +969,22 @@ body.icpa-ink-accent {
 	text-transform: uppercase;
 	color: var(--text-faint);
 }
-.icpa-ledger-group ul {
+.icap-ledger-group ul {
 	list-style: none;
 	margin: 0;
 	padding: 0;
 }
-.icpa-row {
+.icap-row {
 	display: grid;
 	grid-template-columns: 14px 1fr auto;
 	gap: 0 8px;
 	padding: 6px 0;
 	border-top: 1px solid var(--background-modifier-border);
 }
-.icpa-ledger-group li:first-child {
+.icap-ledger-group li:first-child {
 	border-top: 0;
 }
-.icpa-row-glyph {
+.icap-row-glyph {
 	position: relative;
 	width: 7px;
 	height: 7px;
@@ -915,107 +993,137 @@ body.icpa-ink-accent {
 	border: 1.25px solid var(--text-faint);
 	justify-self: center;
 }
-.icpa-row[data-status="processing"] .icpa-row-glyph {
-	border-color: var(--icpa-ink-faint);
-	border-top-color: var(--icpa-ink);
-	animation: icpa-spin 1.4s linear infinite;
+.icap-row[data-status="processing"] .icap-row-glyph {
+	border-color: var(--icap-ink-faint);
+	border-top-color: var(--icap-ink);
+	animation: icap-spin 1.4s linear infinite;
 }
-.icpa-row[data-status="waiting"] .icpa-row-glyph {
-	background: var(--icpa-ink);
-	border-color: var(--icpa-ink);
+.icap-row[data-status="waiting"] .icap-row-glyph {
+	background: var(--icap-ink);
+	border-color: var(--icap-ink);
 }
-.icpa-row-check {
+.icap-row-check {
 	width: 11px;
 	height: 11px;
 	margin-top: 4px;
 	margin-left: -2px;
 	overflow: visible;
 }
-.icpa-row-check path {
+.icap-row-check path {
 	fill: none;
 	stroke: var(--text-muted);
 	stroke-width: 1.5;
 	stroke-linecap: round;
 	stroke-linejoin: round;
 }
-.icpa-row[data-status="failed"] .icpa-row-glyph {
+.icap-row[data-status="failed"] .icap-row-glyph {
 	background: var(--text-error);
 	border-color: var(--text-error);
 }
-.icpa-row[data-status="cancelled"] .icpa-row-glyph {
+.icap-row[data-status="cancelled"] .icap-row-glyph {
 	border-style: dashed;
 }
-.icpa-row-main {
+.icap-row-main {
 	min-width: 0;
 }
-.icpa-row-line {
+.icap-row-line {
 	margin: 0;
 	line-height: 1.45;
 }
-.icpa-row-title.icpa-row-title {
+.icap-row-title.icap-row-title {
 	color: var(--text-normal);
 	overflow-wrap: anywhere;
 }
-button.icpa-row-title.icpa-row-title:hover {
+button.icap-row-title.icap-row-title:hover {
 	text-decoration: underline;
-	text-decoration-color: var(--icpa-ink-soft);
+	text-decoration-color: var(--icap-ink-soft);
 	text-underline-offset: 3px;
 }
-.icpa-row[data-status="cancelled"] .icpa-row-title,
-.icpa-row[data-status="completed"] .icpa-row-title {
+.icap-row[data-status="cancelled"] .icap-row-title,
+.icap-row[data-status="completed"] .icap-row-title {
 	color: var(--text-muted);
 }
-.icpa-row-meta {
+.icap-row-meta {
 	@apply tw:flex tw:flex-wrap tw:items-baseline;
 	gap: 0 0.7em;
 	margin: 1px 0 0;
 	font-size: 0.74rem;
 	color: var(--text-faint);
 }
-.icpa-row-meta .icpa-link.icpa-link {
+.icap-row-meta .icap-link.icap-link {
 	color: var(--text-faint);
 }
-.icpa-row-status {
-	color: var(--icpa-ink);
+/* The agent's steps: for whoever wants to know how, folded away by default. */
+.icap-row-steps {
+	margin: 3px 0 0;
+	font-size: 0.72rem;
+	color: var(--text-faint);
 }
-.icpa-row[data-status="failed"] .icpa-row-status {
+.icap-row-steps summary {
+	cursor: pointer;
+	width: fit-content;
+}
+.icap-row-steps summary:hover {
+	color: var(--text-muted);
+}
+.icap-row-steps ol {
+	margin: 2px 0 0;
+	padding-inline-start: 2.2em;
+	max-height: 14em;
+	overflow-y: auto;
+}
+.icap-row-steps li {
+	margin: 0;
+	overflow-wrap: anywhere;
+}
+.icap-step-tool {
+	@apply tw:font-code;
+	color: var(--text-muted);
+}
+.icap-step-detail {
+	margin-inline-start: 0.6em;
+}
+.icap-row-status {
+	color: var(--icap-ink);
+}
+.icap-row[data-status="failed"] .icap-row-status {
 	color: var(--text-error);
 }
-.icpa-row-error {
+.icap-row-error {
 	margin: 2px 0 0;
 	font-size: 0.74rem;
 	color: var(--text-error);
 	overflow-wrap: anywhere;
 }
-.icpa-row-artifacts {
+.icap-row-artifacts {
 	margin: 3px 0 0 !important;
 	font-size: 0.78rem;
 }
-.icpa-row-artifacts li {
+.icap-row-artifacts li {
 	display: flex;
 	gap: 0.5em;
 	align-items: baseline;
 }
-.icpa-artifact-kind {
+.icap-artifact-kind {
 	font-size: 0.64rem;
 	letter-spacing: 0.08em;
 	text-transform: uppercase;
-	color: var(--icpa-ink);
+	color: var(--icap-ink);
 }
-.icpa-row-actions {
+.icap-row-actions {
 	@apply tw:flex tw:items-baseline tw:gap-2;
 	font-size: 0.76rem;
 	padding-top: 1px;
 }
 
 /* The learner's final version stands apart from the dialogue above it. */
-.icpa-turn.is-final {
+.icap-turn.is-final {
   @apply tw:mt-6 tw:pt-4;
-  border-top: 1px dashed var(--icpa-rule-soft, var(--background-modifier-border));
+  border-top: 1px dashed var(--icap-rule-soft, var(--background-modifier-border));
 }
 
 /* An explanation the learner stopped: the text simply ends, with a quiet note where it ends. */
-.icpa-stopped {
+.icap-stopped {
 	@apply tw:font-ui tw:text-faint tw:flex tw:items-baseline tw:gap-2;
 	font-size: var(--tw-text-caption, 0.76rem);
 	margin: 0.1em 0 0;
@@ -1023,55 +1131,55 @@ button.icpa-row-title.icpa-row-title:hover {
 
 /* Keyboard arrival in a gloss or block (via the "move into" command, Ledger, or Esc-return):
    underline the label in ink instead of drawing a box around the passage. */
-.icpa-gloss:focus,
-.icpa-ask:focus {
+.icap-gloss:focus,
+.icap-ask:focus {
 	outline: none;
 }
-.icpa-gloss:focus-visible .icpa-label-kind,
-.icpa-ask:focus-visible .icpa-label-kind {
-	text-decoration: underline 1.5px var(--icpa-ink);
+.icap-gloss:focus-visible .icap-label-kind,
+.icap-ask:focus-visible .icap-label-kind {
+	text-decoration: underline 1.5px var(--icap-ink);
 	text-underline-offset: 4px;
 }
 
 /* ───────────── Guidance: completion, what changed, where to look ───────────── */
 
 /* The rule is pressed once when a passage is complete (motion.ts → seal). */
-@property --icpa-press {
+@property --icap-press {
 	syntax: "<number>";
 	inherits: true;
 	initial-value: 0;
 }
 /* A second, wider stroke of full ink laid over the rule; invisible at rest, so every rule keeps
    its own resting colour (faint for "holds", solid for a final summary). */
-.icpa-voice:not(.is-drawing)::after,
+.icap-voice:not(.is-drawing)::after,
 .callout:is([data-callout="gloss"], [data-callout="feedback"], [data-callout="practice"])::after {
 	content: "";
 	position: absolute;
-	left: calc(-1 * var(--icpa-gutter) - 0.75px);
+	left: calc(-1 * var(--icap-gutter) - 0.75px);
 	top: 0.3em;
 	bottom: 0.3em;
-	width: calc(var(--icpa-rule) + 1.5px);
+	width: calc(var(--icap-rule) + 1.5px);
 	border-radius: 1px;
-	background: var(--icpa-ink);
-	opacity: var(--icpa-press, 0);
-	transform: scaleY(var(--icpa-rule-scale, 1));
+	background: var(--icap-ink);
+	opacity: var(--icap-press, 0);
+	transform: scaleY(var(--icap-rule-scale, 1));
 	transform-origin: top;
 	pointer-events: none;
 }
 
 /* The next step's underline is drawn under it (motion.ts → beckon). */
-@property --icpa-underline {
+@property --icap-underline {
 	syntax: "<number>";
 	inherits: false;
 	initial-value: 1;
 }
-.icpa-link.icpa-link.icpa-primary {
+.icap-link.icap-link.icap-primary {
 	position: relative;
 }
-.icpa-link.icpa-link.icpa-primary.is-beckoning {
+.icap-link.icap-link.icap-primary.is-beckoning {
 	text-decoration-color: transparent;
 }
-.icpa-link.icpa-link.icpa-primary.is-beckoning::after {
+.icap-link.icap-link.icap-primary.is-beckoning::after {
 	content: "";
 	position: absolute;
 	left: 0;
@@ -1079,38 +1187,38 @@ button.icpa-row-title.icpa-row-title:hover {
 	bottom: -2px;
 	height: 1.5px;
 	border-radius: 1px;
-	background: var(--icpa-ink);
-	transform: scaleX(var(--icpa-underline));
+	background: var(--icap-ink);
+	transform: scaleX(var(--icap-underline));
 	transform-origin: left;
 	pointer-events: none;
 }
 
 /* What just changed in the note: a highlighter pass that fades (editor/fresh.ts). */
 body {
-	--icpa-ink-highlight: color-mix(in oklab, var(--icpa-ink) 18%, transparent);
-	--icpa-ink-highlight-soft: color-mix(in oklab, var(--icpa-ink) 9%, transparent);
+	--icap-ink-highlight: color-mix(in oklab, var(--icap-ink) 18%, transparent);
+	--icap-ink-highlight-soft: color-mix(in oklab, var(--icap-ink) 9%, transparent);
 }
-.icpa-fresh {
+.icap-fresh {
 	border-radius: 2px;
-	animation: icpa-fresh 3.2s ease-out forwards;
+	animation: icap-fresh 3.2s ease-out forwards;
 }
-.icpa-fresh-block .callout {
-	animation: icpa-fresh-block 3.2s ease-out forwards;
+.icap-fresh-block .callout {
+	animation: icap-fresh-block 3.2s ease-out forwards;
 }
-@keyframes icpa-fresh {
+@keyframes icap-fresh {
 	0%,
 	35% {
-		background-color: var(--icpa-ink-highlight);
+		background-color: var(--icap-ink-highlight);
 	}
 	100% {
 		background-color: transparent;
 	}
 }
-@keyframes icpa-fresh-block {
+@keyframes icap-fresh-block {
 	0%,
 	35% {
-		background-color: var(--icpa-ink-highlight-soft);
-		box-shadow: 0 0 0 0.4em var(--icpa-ink-highlight-soft);
+		background-color: var(--icap-ink-highlight-soft);
+		box-shadow: 0 0 0 0.4em var(--icap-ink-highlight-soft);
 	}
 	100% {
 		background-color: transparent;
@@ -1119,7 +1227,7 @@ body {
 }
 
 /* Edge cue: a small note at the editor's edge pointing at what needs you (editor/cue.ts). */
-.icpa-cue.icpa-cue {
+.icap-cue.icap-cue {
 	position: absolute;
 	left: 50%;
 	translate: -50% 0;
@@ -1129,26 +1237,122 @@ body {
 	gap: 0.4em;
 	height: auto;
 	padding: 4px 12px 4px 10px;
-	border: 1px solid var(--icpa-ink-faint);
+	border: 1px solid var(--icap-ink-faint);
 	border-radius: 999px;
 	background: var(--background-primary);
 	box-shadow: var(--shadow-s);
-	color: var(--icpa-ink);
+	color: var(--icap-ink);
 	font-family: var(--font-interface);
 	font-size: var(--font-ui-small, 13px);
 	font-weight: 600;
 	cursor: pointer;
 }
-.icpa-cue.is-down {
+.icap-cue.is-down {
 	bottom: 18px;
 }
-.icpa-cue.is-up {
+.icap-cue.is-up {
 	top: 14px;
 }
-.icpa-cue:hover {
-	border-color: var(--icpa-ink-soft);
+.icap-cue:hover {
+	border-color: var(--icap-ink-soft);
 }
-.icpa-cue-arrow {
+.icap-cue-arrow {
 	display: inline-block;
 	font-weight: 700;
+}
+
+/* ── Login (settings → Model providers) ── */
+.icap-login .icap-login-search {
+	width: 100%;
+	margin-bottom: var(--size-4-2);
+}
+.icap-login .icap-login-list {
+	max-height: 55vh;
+	overflow-y: auto;
+}
+.icap-login .icap-login-list .setting-item {
+	padding: var(--size-4-2) 0;
+}
+.icap-login .icap-login-event {
+	margin: var(--size-4-3) 0;
+}
+.icap-login .icap-login-url {
+	display: block;
+	margin-top: var(--size-4-2);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	word-break: break-all;
+}
+.icap-login .icap-login-code {
+	font-family: var(--font-monospace);
+	font-size: 1.6em;
+	letter-spacing: 0.12em;
+	margin: var(--size-4-2) 0 var(--size-4-3);
+	user-select: all;
+}
+.icap-login .icap-login-input {
+	width: 100%;
+	margin-bottom: var(--size-4-2);
+}
+.icap-login .icap-login-options,
+.icap-login .icap-login-buttons {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--size-4-2);
+}
+.icap-login .icap-login-status.mod-warning {
+	color: var(--text-error);
+}
+
+/* ── Interactive visuals (```icap-ui, genui/) ── */
+.icap-ui {
+	margin: var(--size-4-2) 0;
+}
+.icap-ui .icap-ui-frame {
+	display: block;
+	width: 100%;
+	height: 60px;
+	border: 0;
+	background: transparent;
+}
+.icap-ui .icap-ui-note {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+.icap-ui .icap-ui-note.mod-warning {
+	color: var(--text-error);
+}
+
+/* ── This vault's conventions (AGENTS.md wizard) ── */
+.icap-rules .icap-rules-presets {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+	gap: var(--size-4-2);
+	margin-top: var(--size-4-3);
+}
+.icap-rules .icap-rules-preset {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	gap: 2px;
+	height: auto;
+	padding: var(--size-4-3);
+	text-align: left;
+	white-space: normal;
+}
+.icap-rules .icap-rules-preset-name {
+	font-weight: var(--font-semibold);
+}
+.icap-rules .icap-rules-preset-hint {
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+.icap-rules .icap-rules-subject {
+	width: 100%;
+	min-width: 260px;
+}
+.icap-rules .icap-rules-preview {
+	width: 100%;
+	font-family: var(--font-monospace);
+	font-size: var(--font-ui-smaller);
 }

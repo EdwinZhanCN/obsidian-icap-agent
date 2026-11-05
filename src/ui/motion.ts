@@ -167,7 +167,7 @@ export async function closeFrame(frame: HTMLElement | null | undefined, voice?: 
 	frame.style.clipPath = CLIP;
 	const kids = voice ? (Array.from(voice.children) as HTMLElement[]) : [];
 	play(kids, { opacity: 0 }, spring.fade);
-	if (voice) play(voice, { "--icpa-rule-scale": 0 } as DOMKeyframesDefinition, spring.leave);
+	if (voice) play(voice, { "--icap-rule-scale": 0 } as DOMKeyframesDefinition, spring.leave);
 	await play(frame, { height: [h, 0] }, { ...spring.leave, delay: 0.06 }).finished;
 }
 
@@ -181,18 +181,18 @@ export function inkIn(node: HTMLElement, opts: string | { key: string; delay?: n
 	const key = typeof opts === "string" ? opts : opts?.key;
 	const delay = typeof opts === "object" && opts ? (opts.delay ?? 0) : 0;
 	if (!introduce(key)) return {};
-	const kids = (Array.from(node.children) as HTMLElement[]).filter((k) => !k.classList.contains("icpa-verdict"));
-	const verdict = node.querySelector<HTMLElement>(":scope > .icpa-verdict");
+	const kids = (Array.from(node.children) as HTMLElement[]).filter((k) => !k.classList.contains("icap-verdict"));
+	const verdict = node.querySelector<HTMLElement>(":scope > .icap-verdict");
 	if (reducedMotion()) {
 		play(node, { opacity: [0, 1] });
 		return {};
 	}
-	node.style.setProperty("--icpa-rule-scale", "0");
+	node.style.setProperty("--icap-rule-scale", "0");
 	for (const k of kids) k.style.opacity = "0";
 	if (verdict) verdict.style.opacity = "0";
 	whenAttached(node, () => {
-		const rule = play(node, { "--icpa-rule-scale": [0, 1] } as DOMKeyframesDefinition, { ...spring.settle, delay });
-		void rule.finished.then(() => node.style.removeProperty("--icpa-rule-scale"));
+		const rule = play(node, { "--icap-rule-scale": [0, 1] } as DOMKeyframesDefinition, { ...spring.settle, delay });
+		void rule.finished.then(() => node.style.removeProperty("--icap-rule-scale"));
 		play(kids, { opacity: [0, 1], y: [5, 0] }, { ...spring.settle, delay: stagger(0.05, { startDelay: delay + 0.08 }) });
 		if (verdict) play(verdict, { opacity: [0, 1], scale: [0.35, 1], rotate: [-18, 0] }, { ...spring.hand, delay: delay + 0.2 });
 	});
@@ -252,13 +252,13 @@ export function strokeIn(path: SVGPathElement, key: string) {
  */
 export function seal(voice: HTMLElement | null | undefined, delay = 0): Playback {
 	if (!voice || reducedMotion()) return NONE;
-	const a = animate(voice, { "--icpa-press": [0, 1, 0] } as DOMKeyframesDefinition, {
+	const a = animate(voice, { "--icap-press": [0, 1, 0] } as DOMKeyframesDefinition, {
 		duration: 1.1,
 		delay,
 		times: [0, 0.22, 1],
 		ease: ["easeOut", "easeInOut"],
 	}) as unknown as Playback;
-	void a.finished.then(() => voice.style.removeProperty("--icpa-press"));
+	void a.finished.then(() => voice.style.removeProperty("--icap-press"));
 	return a;
 }
 
@@ -270,15 +270,15 @@ export function beckon(actions: HTMLElement | null | undefined, delay = 0.15) {
 	if (!actions) return;
 	const kids = Array.from(actions.children) as HTMLElement[];
 	play(kids, { opacity: [0, 1], y: [6, 0] }, { ...spring.settle, delay: stagger(0.045, { startDelay: delay }) });
-	const primary = actions.querySelector<HTMLElement>(".icpa-primary");
+	const primary = actions.querySelector<HTMLElement>(".icap-primary");
 	if (!primary || reducedMotion()) return;
 	primary.classList.add("is-beckoning");
-	primary.style.setProperty("--icpa-underline", "0");
-	const draw = play(primary, { "--icpa-underline": [0, 1] } as DOMKeyframesDefinition, { ...spring.hand, delay: delay + 0.25 });
+	primary.style.setProperty("--icap-underline", "0");
+	const draw = play(primary, { "--icap-underline": [0, 1] } as DOMKeyframesDefinition, { ...spring.hand, delay: delay + 0.25 });
 	void draw.finished.then(() => {
 		window.setTimeout(() => {
 			primary.classList.remove("is-beckoning");
-			primary.style.removeProperty("--icpa-underline");
+			primary.style.removeProperty("--icap-underline");
 		}, 1600);
 	});
 }
