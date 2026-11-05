@@ -148,6 +148,23 @@ describe("PiSession on the SDK", () => {
 		expect(r.text).toBe("thanks");
 	});
 
+	it("an answer holding a reactive proxy still reaches the model (Pi structured-clones the context)", async () => {
+		// The choices list arrives from Svelte state, which is a Proxy: structuredClone rejects it.
+		const choices = new Proxy(["c"], {});
+		let toolResult = "";
+		faux.setResponses([
+			fauxAssistantMessage(fauxToolCall("ask_learner", { kind: "single", question: "Which?", options: [{ id: "a", label: "A" }, { id: "c", label: "C" }] }), { stopReason: "toolUse" }),
+			(ctx) => {
+				const last = ctx.messages.at(-1) as { content?: { type: string; text?: string }[] };
+				toolResult = last?.content?.map((c) => c.text ?? "").join("") ?? "";
+				return fauxAssistantMessage("right");
+			},
+		]);
+		const r = await run("quiz me", { onBridge: async () => ({ status: "answered", choices, chosen: ["C"] }) }).run();
+		expect(toolResult).toContain('"c"');
+		expect(r.text).toBe("right");
+	});
+
 	it("isolated: file tools cannot leave the vault and the allowed folders", async () => {
 		let toolResult = "";
 		faux.setResponses([

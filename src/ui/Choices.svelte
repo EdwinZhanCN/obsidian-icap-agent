@@ -30,6 +30,8 @@
 	let items: HTMLElement[] = $state([]);
 
 	const letter = (i: number) => String.fromCharCode(97 + i);
+	/** What leaves the component is a plain array, never this component's state proxy. */
+	const submit = () => selected.length && onsubmit?.($state.snapshot(selected));
 
 	/* Once the answer is in, the options not chosen recede — in place, so the list the learner
 	   answered on is the list that stays. Already-answered lists start receded. */
@@ -65,7 +67,7 @@
 		if (locked) return;
 		if (multi) selected = selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id];
 		else selected = [id];
-		onchange?.(selected);
+		onchange?.($state.snapshot(selected));
 	}
 
 	function move(to: number) {
@@ -90,7 +92,7 @@
 		} else if (k === "Enter") {
 			e.preventDefault();
 			if (!multi && !selected.length) toggle(options[i].id);
-			if (selected.length) onsubmit?.(selected);
+			submit();
 		} else if (/^[a-h]$/i.test(k) && !e.metaKey && !e.ctrlKey && !e.altKey) {
 			const j = k.toLowerCase().charCodeAt(0) - 97;
 			if (j < options.length) {
@@ -105,7 +107,7 @@
 	}
 </script>
 
-<div class="icap-choices" class:is-locked={locked} class:is-multi={multi} role={multi ? "group" : "radiogroup"} aria-label={label} use:keyGuard={{ app, submit: () => selected.length && onsubmit?.(selected) }}>
+<div class="icap-choices" class:is-locked={locked} class:is-multi={multi} role={multi ? "group" : "radiogroup"} aria-label={label} use:keyGuard={{ app, submit }}>
 	{#each options as o, i (o.id)}
 		{@const on = selected.includes(o.id)}
 		<!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_interactive_supports_focus -->
@@ -142,7 +144,7 @@
 	{#if !locked}
 		<div class="icap-writing-foot">
 			<span class="icap-hint" aria-hidden="true">{multi ? L("space to mark", "空格标记") : `a–${letter(options.length - 1)}`} · <Keys mod={false} /> {L("to submit", "提交")}</span>
-			<button type="button" class="icap-link icap-primary" disabled={!selected.length} onclick={() => onsubmit?.(selected)}>{L("submit", "提交")}</button>
+			<button type="button" class="icap-link icap-primary" disabled={!selected.length} onclick={submit}>{L("submit", "提交")}</button>
 		</div>
 	{/if}
 </div>

@@ -56,7 +56,9 @@ export function icapExtension(pi: PiSdk, bridge: BridgeHandler, roots?: string[]
 	const { Type } = pi;
 	const call = async (op: string, payload: Json): Promise<Json> => {
 		try {
-			return await bridge(op, payload);
+			// A plain copy: the answer can come from Svelte state (a Proxy), and Pi structured-clones
+			// every message, tool results included, before each request.
+			return JSON.parse(JSON.stringify(await bridge(op, payload))) as Json;
 		} catch (e) {
 			return { status: "error", message: (e as Error).message };
 		}
