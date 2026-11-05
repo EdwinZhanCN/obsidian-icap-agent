@@ -6,7 +6,7 @@ ICAP 是一个 Obsidian 插件。它的 Agent 是 [Pi](https://pi.dev)，内置�
 
 **[English](README.md)**
 
-- 需要桌面版 Obsidian 1.7 或更高版本
+- 需要桌面版 Obsidian 1.8.7 或更高版本
 - 界面为中文或英文，跟随 Obsidian 的语言
 - 没有聊天面板：一切都发生在你正在读的笔记里
 

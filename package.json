@@ -1,6 +1,6 @@
 {
   "name": "icap-agent",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "ICAP-based learning agent for Obsidian: explanations, recall and interaction inside your Markdown notes.",
   "type": "module",

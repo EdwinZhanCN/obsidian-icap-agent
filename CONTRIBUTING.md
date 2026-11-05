@@ -5,7 +5,7 @@ Thanks for helping. This file covers setting up, the checks a change must pass, 
 ## Requirements
 
 - Node.js 20 or later (macOS, Windows and Linux all work; every script is Node)
-- Desktop Obsidian 1.7 or later, to run the plugin
+- Desktop Obsidian 1.8.7 or later, to run the plugin
 - Obsidian 1.12 or later with **Settings → General → Command line interface** turned on, only if you use `scripts/drive.mjs`
 - A model credential only for trying the agent by hand. The tests need none and spend nothing.
 

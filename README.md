@@ -6,7 +6,7 @@ ICAP is an Obsidian plugin. Its agent is [Pi](https://pi.dev), which ships insid
 
 **[中文说明](README.zh-CN.md)**
 
-- Desktop Obsidian 1.7 or later
+- Desktop Obsidian 1.8.7 or later
 - Interface in English or Chinese, following Obsidian's language
 - No chat panel: everything happens in the note you are reading
 
