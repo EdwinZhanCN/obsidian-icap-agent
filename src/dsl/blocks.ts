@@ -172,12 +172,23 @@ function quote(md: string): string {
 		.join("\n");
 }
 
-export function glossCallout(term: string, body: string, sources: string[]): string {
-	const title = term.replace(/\s+/g, " ").trim();
+/** Whitespace collapsed to single spaces: how a topic is written in a title and in a comment. */
+function oneLine(s: string): string {
+	return s.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * A kept explanation. `record` (format 2) puts a `<!-- icap gloss … -->` comment above the callout:
+ * the day it was kept, the full term, and which follow-ups about depth the learner asked for.
+ */
+export function glossCallout(term: string, body: string, sources: string[], record?: { id: string; date: string; depth?: Depth[] }): string {
+	const title = oneLine(term);
 	const short = title.length > 60 ? title.slice(0, 57) + "…" : title;
 	let md = body.trim();
 	if (sources.length) md += `\n\n*${L("Sources", "来源")}: ${sources.join(", ")}*`;
-	return `> [!gloss] ${short}\n${quote(md)}`;
+	const callout = `> [!gloss] ${short}\n${quote(md)}`;
+	if (!record) return callout;
+	return `${evidenceComment({ kind: "gloss", id: record.id, date: record.date, topic: title, depth: record.depth?.length ? record.depth : undefined })}\n${callout}`;
 }
 
 export function calloutBlock(type: string, title: string, body: string): string {
@@ -185,21 +196,31 @@ export function calloutBlock(type: string, title: string, body: string): string 
 }
 
 export type Verdict = "holds" | "partly" | "reconsider";
+/** A gloss follow-up about depth: *Plainly.* (plainer) or *Deeper.* (deeper). */
+export type Depth = "plainer" | "deeper";
 
 /**
- * What a kept recall, check or quiz records about itself, so that the note stays the learning
- * record (FORMAT.md, "Evidence"): when it was kept and how it went. Written twice — in the callout
- * title for the reader (`· 2026-11-06 · ✓`) and in an HTML comment on the line above for tools
- * (`<!-- icap recall id=q7f3a2 date=2026-11-06 verdict=holds -->`).
+ * What a kept record says about itself, so that the note stays the learning record (FORMAT.md):
+ * what it was about, when it was kept and, for a recall, check or quiz, how it went. Recalls,
+ * checks and quizzes write the date and verdict twice — in the callout title for the reader
+ * (`· 2026-11-06 · ✓`) and in an HTML comment on the line above for tools
+ * (`<!-- icap recall id=q7f3a2 date=2026-11-06 verdict=holds topic="RAII" -->`). A gloss has
+ * only the comment.
  */
 export interface Evidence {
-	kind: "recall" | "check" | "quiz";
+	kind: "recall" | "check" | "quiz" | "gloss";
 	id: string;
 	/** ISO calendar date (local), the day the block was kept. */
 	date: string;
+	/** What the record is about, in the learner's or the note's words (format 2). */
+	topic?: string;
 	verdict?: Verdict;
 	/** Quiz: how the answered questions went. */
 	counts?: { holds: number; partly: number; reconsider: number };
+	/** Gloss: the follow-ups about depth the learner asked for. */
+	depth?: Depth[];
+	/** Recall: how many paragraphs above the comment are the learner's answer, when more than one. */
+	paragraphs?: number;
 }
 
 /** The local calendar date as `YYYY-MM-DD`. */
@@ -209,31 +230,46 @@ export function isoDate(ms = Date.now()): string {
 	return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
+/**
+ * A quoted comment value (FORMAT.md, "The comment"): `\` escapes `\`, `"` and `>`, so the value
+ * never contains a bare quote or the `-->` that would end the comment.
+ */
+export function quoteValue(s: string): string {
+	return `"${oneLine(s).replace(/[\\">]/g, (c) => "\\" + c)}"`;
+}
+
 export function evidenceComment(e: Evidence): string {
 	const f = [`id=${e.id}`, `date=${e.date}`];
 	if (e.verdict) f.push(`verdict=${e.verdict}`);
 	if (e.counts) f.push(`holds=${e.counts.holds}`, `partly=${e.counts.partly}`, `reconsider=${e.counts.reconsider}`);
+	if (e.depth?.length) f.push(`depth=${e.depth.join(",")}`);
+	if (e.paragraphs && e.paragraphs > 1) f.push(`paragraphs=${e.paragraphs}`);
+	if (e.topic && oneLine(e.topic)) f.push(`topic=${quoteValue(e.topic)}`);
 	return `<!-- icap ${e.kind} ${f.join(" ")} -->`;
 }
 
-const EVIDENCE_RE = /^<!--\s*icap\s+(recall|check|quiz)\s+([^>]*?)\s*-->\s*$/;
+const EVIDENCE_RE = /^<!--\s*icap\s+(recall|check|quiz|gloss)\s+(.*?)\s*-->\s*$/;
+/** One `key=value` field: a bare value has no spaces or quotes; a quoted one takes `\` escapes. */
+const FIELD_RE = /([A-Za-z][\w-]*)=(?:"((?:[^"\\]|\\.)*)"|([^\s"]*))/g;
 
-/** Reads an evidence comment back; unknown keys are ignored so later versions stay readable. */
+/** Reads a record comment back; unknown keys are ignored so later versions stay readable. */
 export function parseEvidenceComment(line: string): Evidence | null {
 	const m = line.trim().match(EVIDENCE_RE);
 	if (!m) return null;
 	const kv: Record<string, string> = {};
-	for (const part of m[2].split(/\s+/)) {
-		const i = part.indexOf("=");
-		if (i > 0) kv[part.slice(0, i)] = part.slice(i + 1);
-	}
+	for (const f of m[2].matchAll(FIELD_RE)) kv[f[1]] = f[2] !== undefined ? f[2].replace(/\\(.)/g, "$1") : f[3];
 	if (!kv.id || !/^\d{4}-\d{2}-\d{2}$/.test(kv.date ?? "")) return null;
 	const e: Evidence = { kind: m[1] as Evidence["kind"], id: kv.id, date: kv.date };
+	if (kv.topic?.trim()) e.topic = kv.topic.trim();
 	if (kv.verdict === "holds" || kv.verdict === "partly" || kv.verdict === "reconsider") e.verdict = kv.verdict;
 	if (kv.holds !== undefined || kv.partly !== undefined || kv.reconsider !== undefined) {
 		const n = (s?: string) => Math.max(0, parseInt(s ?? "0", 10) || 0);
 		e.counts = { holds: n(kv.holds), partly: n(kv.partly), reconsider: n(kv.reconsider) };
 	}
+	const depth = (kv.depth ?? "").split(",").filter((d): d is Depth => d === "plainer" || d === "deeper");
+	if (depth.length) e.depth = depth;
+	const paras = parseInt(kv.paragraphs ?? "", 10);
+	if (paras > 1) e.paragraphs = paras;
 	return e;
 }
 

@@ -104,7 +104,7 @@ Pi is a general agent runtime, not a product UI. ICAP bundles Pi's SDK and runs 
 | Belongs to | What |
 |---|---|
 | The learner's Pi | models, credentials, built-in tools (including the shell), skills, extensions, MCP, `AGENTS.md`, project trust |
-| ICAP's tools | `ask_learner`, `create_note`, `propose_edit`, the vault tools, `read_document` |
+| ICAP's tools | `ask_learner`, `create_note`, `propose_edit`, the vault tools, `read_document`, `documents` |
 | ICAP's protocol | appended to the learner's system prompt: the learning rules, never rewriting the learner's answer, preferring `propose_edit` for existing notes, the evidence guide below |
 | The plugin | rendering, blocks, requests, edit review, file-change records, Activity |
 
@@ -123,9 +123,14 @@ There is no import step and no separate source library. The vault is the source.
 ICAP adds what an agent can't easily get right on its own, which is Obsidian's semantics:
 
 - the read-only `obsidian` tool: search with Obsidian's operators, read, links and backlinks, outline, properties, aliases, tags, files
-- `read_document`: a PDF's outline and page ranges through Obsidian's PDF.js, cited as `[[book.pdf#page=12]]`
+- `read_document`: a PDF, EPUB or Word document as a tree of numbered parts with page or section ranges (after PageIndex): the structure first, then one part or a page range, cited as `[[book.pdf#page=12]]`
+- `documents`: every document the agent may read, with its chapters (and summaries when they are on), and search across their text
 
-Both are capabilities, not a required procedure.
+These are capabilities, not a required procedure.
+
+**Many documents, read like a person reads them.** The agent opens a book's table of contents and reads the chapters it needs, instead of retrieving fragments by similarity. A document's structure comes from its bookmarks, its EPUB table of contents or its Word heading styles; a PDF without bookmarks gets it from its layout: body size is the most common one, headings are larger, or bold and set apart, or numbered, and size, weight, capitals and numbering rank them into levels. No model is involved, so preparing documents costs nothing and runs in the background. Summaries per part are the one thing that needs a model, so they are a setting, off by default; whether they are worth their tokens is the learner's call.
+
+The structure and text are cached in the vault's visible `icap/docs/` (FORMAT.md, "Document cache"), keyed by content, so every device and every task reads a document once. It is visible, not a dot-folder, because Obsidian Sync skips dot-folders.
 
 ### Calibration: the evidence is in the notes
 

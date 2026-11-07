@@ -124,7 +124,7 @@
 					</p>
 					<p class="icap-row-meta">
 						{#if t.status === "processing"}
-							<span>{phaseLine(t.phase, t.kind === "explain" || t.kind === "quiz" || t.kind === "note" || t.kind === "request" ? t.kind : "check")}</span>
+							<span>{phaseLine(t.phase, t.kind === "explain" || t.kind === "quiz" || t.kind === "note" || t.kind === "request" || t.kind === "read" ? t.kind : "check")}</span>
 						{:else if t.status === "waiting"}
 							<span class="icap-row-status">{statusWord(t.status)}</span>
 						{:else if t.status !== "completed"}

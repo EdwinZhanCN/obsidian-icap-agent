@@ -51,8 +51,12 @@ src/agent/prompts.ts      the ICAP protocol (systemPrompt) and each task's promp
 src/agent/icap-tools.ts   ICAP's tools as an inline extension (loads even with noExtensions): obsidian,
                           read_document, ask_learner, create_note, propose_edit. Isolated: a tool_call guard keeps
                           read/grep/find/ls inside the vault and the allowed folders
-src/agent/vault-tools.ts  the read-only `obsidian` commands (Obsidian CLI surface through the App API) and
-                          read_document (PDF.js: outline + page ranges); pure page helpers in doc-pages.ts
+src/agent/vault-tools.ts  the read-only `obsidian` commands (Obsidian CLI surface through the App API); pure
+                          helpers (page specs, caps, search syntax) in doc-pages.ts
+src/docs/                 documents (PDF, EPUB, DOCX) as PageIndex-style trees. Pure: model.ts (DocTree, outline),
+                          epub.ts, docx.ts, html.ts, detect.ts (headings and titles from PDF layout), search.ts,
+                          summaries.ts. pdf.ts (PDF.js), store.ts (the icap/docs/ cache: content hash, LRU),
+                          tools.ts (read_document, documents)
 src/agent/session-cache.ts a request block's Pi session (<plugin>/sessions/) as a cache, resumed only while its
                           fingerprint equals the block's history; deleted on keep / clear; orphans pruned on start
 src/agent/icap-skills.ts  ICAP's own skills (icap-visual), shipped in main.js, written to <plugin>/skills/
@@ -61,6 +65,8 @@ src/agent/pi-sdk-entry.ts the SDK surface ICAP uses, built for Node into build/p
 src/agent/pi-node.ts      injected into Pi's bundle only: Node's fetch, timers, streams, Blob/File, __icapImport
 
 src/dsl/blocks.ts         the Markdown DSL: ```icap-ask fences (and legacy ```icpa-ask), callouts
+src/dsl/records.ts        pure: the reference reader of FORMAT.md (readRecords); test/fixtures/format/ pairs each
+                          sample note with the JSON it must read as
 src/dsl/text.ts, links.ts, commands.ts   pure helpers: sections and anchors, `[[`/`@` links, the `/` grammar
 src/dsl/doc-ops.ts        writing into notes: spliceFile (through the open editor when there is one), block
                           insertion, unique paths for new notes
@@ -81,7 +87,7 @@ test/                     vitest; test/fixtures/dev-vault/ is the dev vault's se
 
 | What | Lives in | Becomes on *keep* |
 |---|---|---|
-| Gloss (explanation) | CodeMirror decorations only, never the file | `> [!gloss] term` |
+| Gloss (explanation) | CodeMirror decorations only, never the file | `> [!gloss] term` under an `<!-- icap gloss … -->` comment |
 | Recall, check, quiz, agent question | an ```` ```icap-ask ```` fence, with its state in plugin data | the learner's words + `> [!feedback]` / `> [!practice]`, titled with the date and verdict mark, under an `<!-- icap … -->` comment |
 | Request (*Ask the agent here*) | an ```` ```icap-ask ```` fence with `kind: request` + plugin data | `> [!request]` record: requests, replies, files |
 | Edit to an existing note | a review turn showing a diff | applied only after *apply change* |
@@ -94,7 +100,7 @@ What ends up in notes is a contract other tools read: [FORMAT.md](FORMAT.md). Ch
 - **Kept output is plain Obsidian Markdown.** Uninstalling the plugin must leave readable notes. Transient state (open glosses, block state) never leaks into the file.
 - **The note is the source of truth; a Pi session is a cache.** What the agent is told of a conversation is what the block shows (`transcript.ts`). A session is resumed only while its fingerprint matches. Runtime command turns (`/model`, `/thinking`, `/compact`) carry `control: true` and never reach the transcript or the kept record.
 - **The learner decides what changes.** The plugin writes only its own blocks into the task's note. ICAP's tools change existing notes only through `propose_edit`, which the learner applies. It refuses, before the learner sees anything, an edit that adds an ```` ```icap-ui ```` visual or touches an ICAP block (`editProblem` in `src/dsl/blocks.ts`). The agent never rewrites the learner's answer.
-- **Every file change is attributed.** In "mine" mode, vault create, modify, delete and rename events are recorded on the task whose agent is in a tool call, or ended one less than 3 s ago. Exempt: the task's own note and notes the learner is typing in. Keep this working for every task kind.
+- **Every file change is attributed.** In "mine" mode, vault create, modify, delete and rename events are recorded on the task whose agent is in a tool call, or ended one less than 3 s ago. Exempt: the task's own note, notes the learner is typing in, and the document cache (`icap/docs/`). Keep this working for every task kind.
 - **Slash commands exist only in request blocks.** In a recall, check or quiz the learner's text is an answer, so a leading `/` is just text.
 - **Context files stop at the vault.** Only Pi's global `AGENTS.md` (in "mine" mode) and those inside the vault are loaded, never an ancestor's (`vaultContextFiles`). Isolated mode loads only the vault's own.
 - **Visuals stay sandboxed.** `sandbox="allow-scripts"` without `allow-same-origin`, and CSP `default-src 'none'`. `ask` and `open` are honoured only from the rendered frame, well-formed, and while the learner has focused it. The iframe's `color-scheme` must match the inner document's, or Chromium paints an opaque backdrop.

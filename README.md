@@ -56,12 +56,15 @@ Everything you keep is ordinary Markdown: callouts, paragraphs and links. Your n
 | Agent setup | **Your Pi setup + ICAP** (default) or **ICAP only (isolated)**. See below. |
 | This vault's conventions | A short wizard that writes an `AGENTS.md` at the vault root: what you study here, how notes are organised, which folders the agent must leave alone. |
 | Interactive visuals | *When it helps* (default), *Only when I ask*, or *Never*. |
+| Prepare documents | On by default. Reads the PDFs, EPUBs and Word documents in the vault in the background (their structure and text) so the agent finds its way through many of them quickly. |
+| Summaries for every part | Off by default. While preparing a document, your model writes one sentence per chapter and section, and a few for the whole document. Costs about as many input tokens as the document has words, once per document. |
 
 ## What the agent can do
 
 - **Your Pi setup + ICAP (default).** The agent runs with your own Pi configuration: your skills, extensions, MCP servers, `AGENTS.md`, and Pi's built-in tools, including the shell. It can edit files directly, the same as running Pi in the vault yourself. ICAP records every file it creates, changes, deletes or renames in Activity. ICAP's own tools never rewrite the text of an existing note without your approval: they propose the edit as a diff, and nothing changes until you apply it.
 - **ICAP only (isolated).** Read-only tools plus ICAP's own, no shell. The agent can read this vault and only the outside folders you allow. Your Pi extensions, skills and global `AGENTS.md` are not loaded; the vault's own `AGENTS.md` still is.
 - **Interactive visuals** run in a sandbox: no network, no access to your notes, Obsidian or your computer. A visual can do two things, and only after you click it: send one message back to the agent, or open a note in the vault.
+- **Documents.** Put PDFs, EPUBs and Word documents anywhere in the vault (or in a folder you allow). Ask in a request block, for example *"Make study notes on chapter 3 of the statistics book"* or *"What do these papers say about dropout?"*. The agent lists your documents, opens a book's table of contents, reads only the chapters it needs, and cites pages as links you can click (`[[book.pdf#page=12]]`). A PDF without bookmarks gets its structure from its layout (headings by size, weight and numbering), without a model. What it learns about a document is kept in the vault's `icap/docs/` folder, keyed by the file's content, so each document is read once; to sync it with Obsidian Sync, turn on *Other file types*.
 - **Your learning record is your notes.** There is no hidden learner database. Notes the agent creates are marked `generated-by: icap-agent` so it can tell your writing from its own; you can turn this off.
 
 ## Troubleshooting
@@ -76,6 +79,7 @@ Everything you keep is ordinary Markdown: callouts, paragraphs and links. Your n
 - `main.js` is about 11 MB, because it carries Pi and its model providers.
 - The selection mark works in Live Preview and Source mode, not Reading view.
 - An explanation you haven't kept disappears when the plugin reloads; question and request blocks persist and resume.
+- Scanned PDFs (images without a text layer) can't be read: there is no OCR. Some old PDFs lose ligatures such as "fi" in their text.
 
 ## More
 

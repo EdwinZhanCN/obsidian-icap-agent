@@ -1,0 +1,14 @@
+{
+	"agentWritten": true,
+	"records": [
+		{
+			"kind": "gloss",
+			"callout": "gloss",
+			"title": "rvalue",
+			"line": 8,
+			"topic": "rvalue",
+			"legacy": true
+		}
+	],
+	"live": []
+}

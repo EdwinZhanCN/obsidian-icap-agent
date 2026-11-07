@@ -1,14 +1,13 @@
 /**
- * The read-only Obsidian tools behind the ICAP extension's `obsidian` and `read_document` tools.
+ * The read-only Obsidian tools behind the ICAP extension's `obsidian` tool (`read_document` and
+ * `documents` live in docs/tools.ts).
  *
  * Command names, parameters and JSON output follow the Obsidian CLI (search, search:context, read,
  * links, backlinks, outline, properties, aliases, tags, files), but run in-process through the App
  * API: the learner needs neither Obsidian 1.12's CLI nor to enable it. Nothing here writes.
  */
-import { promises as fs } from "fs";
-import { isAbsolute, resolve } from "path";
-import { TFile, getAllTags, loadPdfJs, parseFrontMatterAliases, prepareSimpleSearch, type App } from "obsidian";
-import { MAX_CHARS, cap, hasTag, parsePages, parseQuery, within } from "./doc-pages";
+import { TFile, getAllTags, parseFrontMatterAliases, prepareSimpleSearch, type App } from "obsidian";
+import { cap, hasTag, parseQuery } from "./doc-pages";
 
 type Json = Record<string, unknown>;
 
@@ -153,87 +152,4 @@ async function search(app: App, p: Json, withContext: boolean): Promise<Json> {
 		.join("\n");
 	const c = cap(out);
 	return { query, matches: c.text, files: Math.min(hits.length, limit), total: hits.length };
-}
-
-/**
- * Read a PDF (or a text file) as text: its outline, and a range of pages.
- * `path` is vault-relative, or absolute; absolute paths must lie inside `allowedRoots` when given
- * (isolated mode), otherwise anything the learner's own agent could read is allowed.
- */
-export async function readDocument(app: App, p: Json, allowedRoots: string[] | null): Promise<Json> {
-	const raw = String(p.path ?? "").trim();
-	if (!raw) return err("path is required");
-	let data: ArrayBuffer | null = null;
-	let name = raw;
-	const inVault = app.vault.getAbstractFileByPath(raw.replace(/^\/+/, ""));
-	if (!isAbsolute(raw) || inVault instanceof TFile) {
-		const f = inVault instanceof TFile ? inVault : target(app, { path: raw });
-		if (!f) return err(`No file at "${raw}" in the vault.`);
-		name = f.path;
-		if (f.extension.toLowerCase() !== "pdf") {
-			const c = cap(await app.vault.cachedRead(f));
-			return { path: f.path, text: c.text, truncated: c.truncated || undefined };
-		}
-		data = await app.vault.readBinary(f);
-	} else {
-		const abs = resolve(raw);
-		if (allowedRoots && !within(abs, allowedRoots)) return err(`"${raw}" is outside the vault and the folders the learner allowed.`);
-		const buf = await fs.readFile(abs).catch(() => null);
-		if (!buf) return err(`Could not read "${raw}".`);
-		if (!/\.pdf$/i.test(abs)) {
-			const c = cap(buf.toString("utf8"));
-			return { path: abs, text: c.text, truncated: c.truncated || undefined };
-		}
-		data = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
-	}
-	const pdfjs = await loadPdfJs();
-	const doc = await pdfjs.getDocument({ data: new Uint8Array(data) }).promise;
-	try {
-		const total: number = doc.numPages;
-		const out: Json = { path: name, pages: total };
-		if (p.outline !== false) out.outline = await outlineOf(doc);
-		if (p.outline === true && !p.pages) return out;
-		const { pages, more } = parsePages(typeof p.pages === "string" ? p.pages : p.pages != null ? String(p.pages) : undefined, total);
-		const parts: string[] = [];
-		let size = 0;
-		let last = 0;
-		for (const n of pages) {
-			const page = await doc.getPage(n);
-			const content = await page.getTextContent();
-			const text = (content.items as { str?: string; hasEOL?: boolean }[]).map((i) => (i.str ?? "") + (i.hasEOL ? "\n" : "")).join("");
-			const block = `--- page ${n} ---\n${text.trim()}`;
-			if (size + block.length > MAX_CHARS && parts.length) break;
-			parts.push(block);
-			size += block.length;
-			last = n;
-		}
-		out.text = parts.join("\n\n");
-		const next = last < (pages[pages.length - 1] ?? 0) || more ? last + 1 : null;
-		if (next && next <= total) out.next = `More pages follow; continue with pages: "${next}-".`;
-		if (!size || !String(out.text).replace(/--- page \d+ ---/g, "").trim()) out.note = "No text layer on these pages (a scan?). Reading it needs OCR.";
-		return out;
-	} finally {
-		void doc.destroy?.();
-	}
-}
-
-async function outlineOf(doc: any): Promise<{ title: string; page: number | null; depth: number }[]> {
-	const items = (await doc.getOutline().catch(() => null)) ?? [];
-	const out: { title: string; page: number | null; depth: number }[] = [];
-	const walk = async (list: any[], depth: number) => {
-		for (const it of list) {
-			if (out.length >= 300) return;
-			let page: number | null = null;
-			try {
-				const dest = typeof it.dest === "string" ? await doc.getDestination(it.dest) : it.dest;
-				if (Array.isArray(dest) && dest[0]) page = (await doc.getPageIndex(dest[0])) + 1;
-			} catch {
-				page = null;
-			}
-			out.push({ title: String(it.title ?? "").trim(), page, depth });
-			if (it.items?.length) await walk(it.items, depth + 1);
-		}
-	};
-	await walk(items, 0);
-	return out;
 }

@@ -298,7 +298,7 @@ describe("context files", () => {
 });
 
 describe("pi session plan", () => {
-	const base = { systemPrompt: "PROTOCOL", tools: ["read", "obsidian", "read_document", "ask_learner"] };
+	const base = { systemPrompt: "PROTOCOL", tools: ["read", "obsidian", "read_document", "documents", "ask_learner"] };
 	it("uses the learner's own setup, appending the protocol and hiding unused ICAP tools", () => {
 		const p = sessionPlan({ ...base, config: "mine" });
 		expect(p).toMatchObject({ bare: false, contextFiles: "vault+pi", builtins: true, appendSystemPrompt: ["PROTOCOL"], excludeTools: ["create_note", "propose_edit"] });
@@ -307,7 +307,7 @@ describe("pi session plan", () => {
 	});
 	it("isolates: only ICAP, the given tools, the protocol as the whole prompt, the vault's own AGENTS.md", () => {
 		const p = sessionPlan({ ...base, config: "isolated" });
-		expect(p).toMatchObject({ bare: true, contextFiles: "vault", builtins: false, systemPrompt: "PROTOCOL", tools: ["read", "obsidian", "read_document", "ask_learner"] });
+		expect(p).toMatchObject({ bare: true, contextFiles: "vault", builtins: false, systemPrompt: "PROTOCOL", tools: ["read", "obsidian", "read_document", "documents", "ask_learner"] });
 		expect(p.appendSystemPrompt).toBeUndefined();
 	});
 });

@@ -113,11 +113,20 @@ export function icapExtension(pi: PiSdk, bridge: BridgeHandler, roots?: string[]
 	});
 
 	const DocumentParams = Type.Object({
-		path: Type.String({ description: "Vault-relative path (e.g. Sources/book.pdf) or an absolute path." }),
-		pages: Type.Optional(Type.String({ description: 'Pages to read: "12", "3-7", "40-" or "1,4,9-11". Default: from page 1.' })),
-		outline: Type.Optional(
-			Type.Boolean({ description: "true = return only the outline and page count (unless pages is given). false = leave the outline out." }),
+		path: Type.String({ description: "Vault-relative path (e.g. Sources/book.pdf), a file name, or an absolute path." }),
+		node: Type.Optional(Type.String({ description: 'A node id from the structure, e.g. "0007": returns that part\'s text.' })),
+		pages: Type.Optional(
+			Type.String({ description: 'Units to read — pages of a PDF, sections of an EPUB/DOCX: "12", "3-7", "40-" or "1,4,9-11".' }),
 		),
+	});
+
+	const DocumentsParams = Type.Object({
+		command: Type.Union([Type.Literal("list"), Type.Literal("search")], {
+			description: "list = every document with its title, structure source, top-level chapters (and summary); search = full-text search across the documents already read.",
+		}),
+		query: Type.Optional(Type.String({ description: 'For search: words that must all appear in the same page/section; "quoted phrase" stays whole.' })),
+		folder: Type.Optional(Type.String({ description: "Only documents inside this vault folder." })),
+		limit: Type.Optional(Type.Number({ description: "Maximum rows or hits." })),
 	});
 
 	const CreateNoteParams = Type.Object({
@@ -193,15 +202,31 @@ export function icapExtension(pi: PiSdk, bridge: BridgeHandler, roots?: string[]
 			name: "read_document",
 			label: "Read document",
 			description:
-				"Read a PDF as text, through Obsidian's built-in PDF reader: its outline (chapters with page numbers) and a range of pages. " +
-				"Start with outline: true to see the structure, then read the pages you need (at most 30 pages per call). " +
-				"`path` is vault-relative (e.g. Sources/book.pdf) or absolute. Plain-text files are returned as they are. " +
-				"Cite pages as [[book.pdf#page=12]].",
-			promptSnippet: "read_document: read a PDF's outline and pages as text",
+				"Read a PDF, EPUB or Word document. With only `path`: its structure — a tree of numbered nodes (chapters, sections) with their page/section ranges, and one-line summaries when the learner turned them on. " +
+				"Then read only what you need: `node` (one part, e.g. \"0007\") or `pages` (at most 30 units per call; follow `next` to continue). " +
+				"The first read of a document prepares it (its structure and text are cached), later reads are instant. " +
+				"`path` is vault-relative (e.g. Sources/book.pdf) or absolute. Other files are returned as plain text. Cite PDF pages as [[book.pdf#page=12]].",
+			promptSnippet: "read_document: a document's structure (PDF, EPUB, DOCX), then the parts you need",
 			parameters: DocumentParams,
 			async execute(_id, params) {
 				const result = await call("read_document", params as Json);
 				if (result.status === "error") throw new Error(String(result.message ?? "read_document failed"));
+				return { content: [{ type: "text", text: text(result) }], details: undefined };
+			},
+		});
+
+		api.registerTool({
+			name: "documents",
+			label: "Documents",
+			description:
+				"The learner's library of PDFs, EPUBs and Word documents (in the vault and the folders they allowed). " +
+				"list → each document's title, where its structure comes from, its top-level chapters and, when on, a summary — use it to choose what to read among many. " +
+				"search {query} → the pages/sections (with node ids) where all the words appear, across every document already read. Then read with read_document.",
+			promptSnippet: "documents: list the learner's PDFs/EPUBs/DOCX, or search their text",
+			parameters: DocumentsParams,
+			async execute(_id, params) {
+				const result = await call("documents", params as Json);
+				if (result.status === "error") throw new Error(String(result.message ?? "documents failed"));
 				return { content: [{ type: "text", text: text(result) }], details: undefined };
 			},
 		});

@@ -1,0 +1,224 @@
+import { createHash } from "crypto";
+import { promises as fs } from "fs";
+import { isAbsolute } from "path";
+import { gunzipSync, gzipSync, strFromU8, strToU8 } from "fflate";
+import { TFile, type App } from "obsidian";
+import { parseDocx } from "./docx";
+import { parseEpub } from "./epub";
+import { DOC_EXTENSIONS, PARSER, buildTree, type DocFormat, type DocTree } from "./model";
+import { carrySummaries } from "./summaries";
+import { parsePdf } from "./pdf";
+
+/**
+ * The document cache in the vault's visible `icap/docs/` folder (FORMAT.md, "Document cache"):
+ *
+ *     icap/docs/index.json          path → { hash, size, mtime } of every document read
+ *     icap/docs/<hash>/tree.json    the DocTree (structure, summaries)
+ *     icap/docs/<hash>/text.json.gz the units' text, a JSON array of strings, gzipped
+ *
+ * Keyed by the file's content, so a document is parsed once, a renamed or copied one is not parsed
+ * again, and every device reads the same cache. It is visible (not a dot-folder) because Obsidian
+ * Sync skips dot-folders; it syncs when "other file types" is on. Nothing in it is Markdown, so it
+ * never shows up in search or the graph.
+ */
+
+export const CACHE_DIR = "icap/docs";
+const INDEX = `${CACHE_DIR}/index.json`;
+/** Units of this many documents stay in memory. */
+const LRU = 6;
+
+interface IndexEntry {
+	hash: string;
+	size: number;
+	mtime: number;
+}
+interface IndexFile {
+	version: 1;
+	files: Record<string, IndexEntry>;
+}
+
+export interface Loaded {
+	path: string;
+	tree: DocTree;
+	units: string[];
+}
+
+export function formatOf(path: string): DocFormat | null {
+	const ext = path.split(".").pop()?.toLowerCase() ?? "";
+	return (DOC_EXTENSIONS as readonly string[]).includes(ext) ? (ext as DocFormat) : null;
+}
+
+export class DocStore {
+	private index: IndexFile | null = null;
+	private memory = new Map<string, string[]>();
+	private building = new Map<string, Promise<Loaded>>();
+	/** Called after a document was parsed for the first time (summaries hook here). */
+	onBuilt?: (l: Loaded) => void;
+
+	constructor(private app: App) {}
+
+	private get adapter() {
+		return this.app.vault.adapter;
+	}
+
+	private async readIndex(): Promise<IndexFile> {
+		if (this.index) return this.index;
+		try {
+			const parsed = JSON.parse(await this.adapter.read(INDEX)) as IndexFile;
+			this.index = parsed?.version === 1 && parsed.files ? parsed : { version: 1, files: {} };
+		} catch {
+			this.index = { version: 1, files: {} };
+		}
+		return this.index;
+	}
+
+	private async saveIndex() {
+		if (!this.index) return;
+		await this.ensureDir(CACHE_DIR);
+		await this.adapter.write(INDEX, JSON.stringify(this.index, null, "\t"));
+	}
+
+	private async ensureDir(dir: string) {
+		if (!(await this.adapter.exists(dir))) await this.adapter.mkdir(dir);
+	}
+
+	/** Size, mtime and bytes of a vault path or an absolute path. */
+	private async stat(path: string): Promise<{ size: number; mtime: number } | null> {
+		const f = this.app.vault.getAbstractFileByPath(path);
+		if (f instanceof TFile) return { size: f.stat.size, mtime: f.stat.mtime };
+		if (!isAbsolute(path)) return null;
+		const s = await fs.stat(path).catch(() => null);
+		return s?.isFile() ? { size: s.size, mtime: Math.floor(s.mtimeMs) } : null;
+	}
+
+	private async bytes(path: string): Promise<Uint8Array> {
+		const f = this.app.vault.getAbstractFileByPath(path);
+		if (f instanceof TFile) return new Uint8Array(await this.app.vault.readBinary(f));
+		return new Uint8Array(await fs.readFile(path));
+	}
+
+	/** The cached tree for a path when it is still fresh, without parsing anything. */
+	async cached(path: string): Promise<DocTree | null> {
+		const entry = (await this.readIndex()).files[path];
+		const st = await this.stat(path);
+		if (!entry || !st || entry.size !== st.size || entry.mtime !== st.mtime) return null;
+		return this.readTree(entry.hash);
+	}
+
+	/** The cached tree, if it was written by this parser. */
+	async readTree(hash: string): Promise<DocTree | null> {
+		const t = await this.readAnyTree(hash);
+		return t?.parser === PARSER ? t : null;
+	}
+
+	private async readAnyTree(hash: string): Promise<DocTree | null> {
+		try {
+			const t = JSON.parse(await this.adapter.read(`${CACHE_DIR}/${hash}/tree.json`)) as DocTree;
+			return t?.version === 1 ? t : null;
+		} catch {
+			return null;
+		}
+	}
+
+	async writeTree(tree: DocTree) {
+		await this.ensureDir(`${CACHE_DIR}/${tree.hash}`);
+		await this.adapter.write(`${CACHE_DIR}/${tree.hash}/tree.json`, JSON.stringify(tree));
+	}
+
+	async units(hash: string): Promise<string[]> {
+		const hit = this.memory.get(hash);
+		if (hit) {
+			this.memory.delete(hash);
+			this.memory.set(hash, hit);
+			return hit;
+		}
+		const gz = new Uint8Array(await this.adapter.readBinary(`${CACHE_DIR}/${hash}/text.json.gz`));
+		const units = JSON.parse(strFromU8(gunzipSync(gz))) as string[];
+		this.memory.set(hash, units);
+		while (this.memory.size > LRU) this.memory.delete(this.memory.keys().next().value!);
+		return units;
+	}
+
+	/** The document, parsed now if the cache has nothing fresh for it. */
+	load(path: string, onProgress?: (done: number, total: number) => void): Promise<Loaded> {
+		const running = this.building.get(path);
+		if (running) return running;
+		const p = this.loadNow(path, onProgress).finally(() => this.building.delete(path));
+		this.building.set(path, p);
+		return p;
+	}
+
+	private async loadNow(path: string, onProgress?: (done: number, total: number) => void): Promise<Loaded> {
+		const format = formatOf(path);
+		if (!format) throw new Error(`"${path}" is not a PDF, EPUB or Word document.`);
+		const st = await this.stat(path);
+		if (!st) throw new Error(`Could not read "${path}".`);
+		const index = await this.readIndex();
+		const entry = index.files[path];
+		if (entry && entry.size === st.size && entry.mtime === st.mtime) {
+			const tree = await this.readTree(entry.hash);
+			if (tree) {
+				const units = await this.units(entry.hash).catch(() => null);
+				if (units) return { path, tree, units };
+			}
+		}
+		const data = await this.bytes(path);
+		const hash = createHash("sha256").update(data).digest("hex");
+		// The same content under another name (renamed, copied, another device): reuse it.
+		let tree = await this.readTree(hash);
+		let units = tree ? await this.units(hash).catch(() => null) : null;
+		let fresh = false;
+		if (!tree || !units) {
+			const parsed = format === "pdf" ? await parsePdf(data, onProgress) : format === "epub" ? parseEpub(data) : parseDocx(data);
+			const name = path.split(/[\\/]/).pop()!.replace(/\.[^.]+$/, "");
+			tree = buildTree(format, hash, name, parsed);
+			units = parsed.units;
+			// Parsed again by a newer parser: summaries of parts that are still the same are kept.
+			const old = await this.readAnyTree(hash);
+			if (old) carrySummaries(old, tree);
+			await this.ensureDir(`${CACHE_DIR}/${hash}`);
+			await this.adapter.writeBinary(`${CACHE_DIR}/${hash}/text.json.gz`, toArrayBuffer(gzipSync(strToU8(JSON.stringify(units)), { level: 6 })));
+			await this.writeTree(tree);
+			this.memory.set(hash, units);
+			fresh = true;
+		}
+		index.files[path] = { hash, size: st.size, mtime: st.mtime };
+		await this.saveIndex();
+		const loaded = { path, tree, units };
+		if (fresh) this.onBuilt?.(loaded);
+		return loaded;
+	}
+
+	/** Every path the cache knows, with its entry. */
+	async entries(): Promise<Record<string, IndexEntry>> {
+		return { ...(await this.readIndex()).files };
+	}
+
+	/**
+	 * Forget vault paths that no longer exist and delete cached documents nothing points to. Absolute
+	 * paths (folders outside the vault) are kept: the index is shared, and on another device they may
+	 * simply not exist.
+	 */
+	async prune() {
+		const index = await this.readIndex();
+		let changed = false;
+		for (const path of Object.keys(index.files)) {
+			if (isAbsolute(path)) continue;
+			if (!(await this.stat(path))) {
+				delete index.files[path];
+				changed = true;
+			}
+		}
+		if (changed) await this.saveIndex();
+		const used = new Set(Object.values(index.files).map((e) => e.hash));
+		const listed = await this.adapter.list(CACHE_DIR).catch(() => ({ folders: [] as string[], files: [] as string[] }));
+		for (const dir of listed.folders) {
+			const hash = dir.split("/").pop()!;
+			if (/^[0-9a-f]{64}$/.test(hash) && !used.has(hash)) await this.adapter.rmdir(dir, true).catch(() => undefined);
+		}
+	}
+}
+
+function toArrayBuffer(u: Uint8Array): ArrayBuffer {
+	return u.buffer.slice(u.byteOffset, u.byteOffset + u.byteLength) as ArrayBuffer;
+}

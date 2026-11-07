@@ -1,0 +1,41 @@
+{
+	"agentWritten": false,
+	"records": [
+		{
+			"kind": "check",
+			"callout": "feedback",
+			"title": "Covariance matrix · 2026-11-06 · ≈",
+			"line": 6,
+			"topic": "Covariance matrix",
+			"id": "c1",
+			"date": "2026-11-06",
+			"verdict": "partly",
+			"learnerText": "A covariance matrix holds each variable's variance on its diagonal."
+		},
+		{
+			"kind": "recall",
+			"callout": "feedback",
+			"title": "Covariance · 2026-11-06",
+			"line": 12,
+			"topic": "Covariance",
+			"id": "q2",
+			"date": "2026-11-06",
+			"learnerText": "Covariance measures how two variables move together."
+		},
+		{
+			"kind": "quiz",
+			"callout": "practice",
+			"title": "Understanding check — Covariance · 2026-11-06",
+			"line": 16,
+			"topic": "Covariance",
+			"id": "z1",
+			"date": "2026-11-06",
+			"counts": {
+				"holds": 2,
+				"partly": 0,
+				"reconsider": 1
+			}
+		}
+	],
+	"live": []
+}

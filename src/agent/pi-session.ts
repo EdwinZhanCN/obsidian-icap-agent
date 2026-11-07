@@ -9,7 +9,7 @@ export type { BridgeHandler } from "./icap-tools";
 export type AgentPhase = "starting" | "thinking" | "reading" | "writing" | "waiting";
 
 /** The tools the ICAP extension registers (agent/icap-tools.ts). */
-export const ICAP_TOOLS = ["obsidian", "read_document", "ask_learner", "create_note", "propose_edit"];
+export const ICAP_TOOLS = ["obsidian", "read_document", "documents", "ask_learner", "create_note", "propose_edit"];
 
 /**
  * How a task's Pi session is set up.

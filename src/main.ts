@@ -111,6 +111,10 @@ export default class IcapPlugin extends Plugin {
 			this.registerEvent(this.app.vault.on("modify", (f) => rt.onVaultChange("edited", f)));
 			this.registerEvent(this.app.vault.on("delete", (f) => rt.onVaultChange("deleted", f)));
 			this.registerEvent(this.app.vault.on("rename", (f, old) => rt.onVaultChange("edited", f, old)));
+			// Documents (PDF, EPUB, DOCX) are prepared ahead of time into icap/docs/, when that is on.
+			this.registerEvent(this.app.vault.on("create", (f) => rt.onDocumentChange(f)));
+			this.registerEvent(this.app.vault.on("modify", (f) => rt.onDocumentChange(f)));
+			window.setTimeout(() => rt.prepareDocuments(), 5000);
 		});
 		this.registerEvent(this.app.workspace.on("editor-menu", (menu, editor, info) => this.editorMenu(menu, editor, info)));
 		this.addSettingTab(new IcapSettingTab(this.app, this));

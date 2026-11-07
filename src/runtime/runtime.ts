@@ -11,7 +11,10 @@ import { THINKING_LEVELS, isIcapCommand, parseCommand, type CommandProvider, typ
 import { L } from "../i18n";
 import { GENERATED_BY } from "../settings";
 import { glossLabelUI } from "../ui/phrases";
-import { readDocument, vaultCommand } from "../agent/vault-tools";
+import { vaultCommand } from "../agent/vault-tools";
+import { DocStore, CACHE_DIR, formatOf, type Loaded } from "../docs/store";
+import { documentsCommand, readDocument } from "../docs/tools";
+import { applySummaries, documentPrompt, parseSummaries, summaryBatches } from "../docs/summaries";
 import { homedir } from "os";
 import { join } from "path";
 import {
@@ -30,7 +33,7 @@ import {
 } from "../agent/prompts";
 import { buildContext } from "../context";
 import { answerText, coveredTranscript, transcriptOf, withReply } from "./transcript";
-import { calloutBlock, editProblem, evidenceCallout, findAskBlock, isoDate, parseAskSource, parseAuthored, requestRecord, type AskSource, glossCallout, newId, serializeAsk, splitSources, tidyOptionLabel, tidyQuestion, verdictGlyph, dialogTitle } from "../dsl/blocks";
+import { calloutBlock, editProblem, evidenceCallout, findAskBlock, isoDate, parseAskSource, parseAuthored, requestRecord, type AskSource, glossCallout, newId, serializeAsk, splitSources, tidyOptionLabel, tidyQuestion, verdictGlyph, dialogTitle, type Depth } from "../dsl/blocks";
 import { askReplacement, blockInsertion, editorFor, spliceFile, uniqueNotePath, type Splice } from "../dsl/doc-ops";
 import { flashRange } from "../editor/fresh";
 import { clearCues, cue, withdrawCue } from "../editor/cue";
@@ -51,7 +54,7 @@ import {
 	type Turn,
 } from "./state.svelte";
 
-const READ_TOOLS = ["read", "grep", "find", "ls", "obsidian", "read_document"];
+const READ_TOOLS = ["read", "grep", "find", "ls", "obsidian", "read_document", "documents"];
 const ASK_TOOLS = [...READ_TOOLS, "ask_learner"];
 const NOTE_TOOLS = [...READ_TOOLS, "ask_learner", "create_note", "propose_edit"];
 const REQUEST_TOOLS = NOTE_TOOLS;
@@ -99,6 +102,12 @@ export class LearningRuntime {
 	private saveTimer: number | null = null;
 	/** Blocks that should take focus the first time they render. */
 	focusOnMount = new Set<string>();
+	/** The document cache (icap/docs/) behind read_document and documents. */
+	docs: DocStore;
+	/** Documents whose summaries are being written (by content hash). */
+	private summarizing = new Set<string>();
+	private prepQueue: string[] = [];
+	private preparing = false;
 
 	constructor(private plugin: IcapPlugin) {
 		const host: GlossHost = {
@@ -119,6 +128,7 @@ export class LearningRuntime {
 			},
 		};
 		this.field = glossField(host);
+		this.docs = new DocStore(plugin.app);
 	}
 
 	get app(): App {
@@ -259,7 +269,7 @@ export class LearningRuntime {
 				onBridge: async (op, p) => {
 					// The read-only vault tools work in every task; the rest depends on the task.
 					if (op === "vault") return vaultCommand(this.app, p);
-					if (op === "read_document") return readDocument(this.app, p, config === "isolated" ? roots : null);
+					if (op === "read_document" || op === "documents") return this.documentTool(op, p, config === "isolated" ? roots : null, roots.slice(1));
 					return opts.onBridge ? opts.onBridge(op, p) : { status: "error", message: "Not available for this task." };
 				},
 				// A dialog from one of the learner's own extensions is asked in the task's block.
@@ -407,6 +417,101 @@ export class LearningRuntime {
 	pruneSessions() {
 		const dir = this.sessionDir();
 		if (dir) removeSessions(dir, { keep: new Set(this.blocks.keys()) });
+	}
+
+	/* ───────────── Documents: preparing ahead, summaries ───────────── */
+
+	/**
+	 * Prepare every document in the vault (when the setting is on), one at a time so Obsidian stays
+	 * responsive, then drop cache entries nothing points to. Summaries follow when they are on.
+	 */
+	/**
+	 * The agent's document tools: `read_document` (structure, a node, pages) and `documents` (list,
+	 * search). `allowed` limits reading to those roots (isolated mode); `extra` are folders outside the
+	 * vault whose documents are listed.
+	 */
+	async documentTool(op: "read_document" | "documents", p: Record<string, unknown>, allowed: string[] | null = null, extra: string[] = []) {
+		if (op === "documents") return documentsCommand(this.app, this.docs, p, extra);
+		const r = await readDocument(this.app, this.docs, p, allowed);
+		if (typeof r.path === "string") void this.summarizeLater(r.path);
+		return r;
+	}
+
+	prepareDocuments() {
+		if (!this.settings.prepareDocuments && !this.settings.documentSummaries) return;
+		const all = this.app.vault
+			.getFiles()
+			.filter((f) => formatOf(f.path) && !f.path.startsWith(CACHE_DIR + "/"))
+			.map((f) => f.path);
+		for (const p of all) if (!this.prepQueue.includes(p)) this.prepQueue.push(p);
+		void this.drainPrep(true);
+	}
+
+	/** A document was added or changed in the vault: prepare it (when the setting is on). */
+	onDocumentChange(file: TAbstractFile) {
+		if (!this.settings.prepareDocuments || !(file instanceof TFile) || !formatOf(file.path) || file.path.startsWith(CACHE_DIR + "/")) return;
+		if (!this.prepQueue.includes(file.path)) this.prepQueue.push(file.path);
+		void this.drainPrep(false);
+	}
+
+	private async drainPrep(prune: boolean) {
+		if (this.preparing) return;
+		this.preparing = true;
+		try {
+			while (this.prepQueue.length) {
+				const path = this.prepQueue.shift()!;
+				try {
+					// With preparing off, only documents already read get their summaries.
+					const known = this.settings.prepareDocuments ? null : await this.docs.cached(path);
+					if (!this.settings.prepareDocuments && !known) continue;
+					const loaded = await this.docs.load(path);
+					void this.summarizeLater(path, loaded);
+				} catch (e) {
+					console.warn(`ICAP: could not prepare ${path}:`, e);
+				}
+				await new Promise((r) => window.setTimeout(r, 150));
+			}
+			if (prune) await this.docs.prune().catch(() => undefined);
+		} finally {
+			this.preparing = false;
+		}
+	}
+
+	/** Write a document's summaries in the background, when they are on and it has none yet. */
+	async summarizeLater(path: string, loaded?: Loaded) {
+		if (!this.settings.documentSummaries) return;
+		const doc = loaded ?? (await this.docs.load(path).catch(() => null));
+		if (!doc || doc.tree.summary !== undefined || this.summarizing.has(doc.tree.hash) || doc.tree.toc_source === "unreadable") return;
+		this.summarizing.add(doc.tree.hash);
+		try {
+			await this.summarizeDocument(doc);
+		} finally {
+			this.summarizing.delete(doc.tree.hash);
+		}
+	}
+
+	private async summarizeDocument(doc: Loaded) {
+		const name = basename(doc.path);
+		const task = this.ledger.add(new Task(newId("t"), "read", L(`Summarizing “${name}”`, `正在为“${name}”写摘要`), doc.path));
+		this.persist();
+		try {
+			const tree = doc.tree;
+			for (const batch of summaryBatches(tree, doc.units)) {
+				const reply = await this.runAgent(task, { prompt: batch.prompt, tools: [] });
+				applySummaries(tree, parseSummaries(reply, batch.ids));
+				// Progress survives an interruption: the next run continues with what is missing.
+				await this.docs.writeTree(tree);
+			}
+			tree.summary = (await this.runAgent(task, { prompt: documentPrompt(tree), tools: [] })).replace(/\s+/g, " ").trim();
+			tree.summarized_by = this.settings.model || "Pi default";
+			await this.docs.writeTree(tree);
+			setResult(task, { kind: "kept", path: doc.path, label: name });
+			task.end("completed", L(`Summarized “${name}”`, `已为“${name}”写好摘要`));
+		} catch (e) {
+			this.finishWithError(task, e, L(`Could not summarize “${name}”`, `无法为“${name}”写摘要`));
+			task.retry = () => void this.summarizeLater(doc.path);
+		}
+		this.persist();
 	}
 
 	/* ───────────────────────── helpers ───────────────────────── */
@@ -581,7 +686,8 @@ export class LearningRuntime {
 		const views = this.viewsShowing(gloss.notePath);
 		const live: GlossAnchor | undefined = views.length ? anchorsIn(views[0], this.field).find((a) => a.id === gloss.id) : undefined;
 		const anchor = live?.anchor ?? gloss.anchor;
-		const callout = glossCallout(gloss.selection, gloss.fullText, gloss.sources);
+		const depth = [...new Set(gloss.sections.flatMap((s): Depth[] => (s.mode === "simpler" ? ["plainer"] : s.mode === "deeper" ? ["deeper"] : [])))];
+		const callout = glossCallout(gloss.selection, gloss.fullText, gloss.sources, { id: gloss.id, date: isoDate(), depth });
 		const ok = await this.writeAndShow(gloss.notePath, "follow", (text) => blockInsertion(text, Math.min(anchor, text.length), callout));
 		if (!ok) return void new Notice(L("Could not write to the note.", "无法写入笔记。"));
 		gloss.state = "kept";
@@ -883,6 +989,8 @@ export class LearningRuntime {
 	 */
 	onVaultChange(kind: "created" | "edited" | "deleted", file: TAbstractFile, oldPath?: string) {
 		if (this.settings.agentConfig !== "mine" || !(file instanceof TFile)) return;
+		// The document cache is the plugin's own (written while read_document runs), never the agent's.
+		if (file.path.startsWith(CACHE_DIR + "/")) return;
 		const now = Date.now();
 		const tasks = this.ledger.tasks.filter((t) => t.toolsRunning > 0 || now - t.toolEndedAt < TOOL_GRACE_MS);
 		if (!tasks.length) return;
@@ -1758,12 +1866,12 @@ export function keptMarkdown(block: AskBlock, artifacts: Artifact[] = [], date =
 			"";
 		const parts = [finalWords];
 		const fb = summary || block.turns.map((t) => t.feedback).filter(Boolean).join("\n\n");
-		if (fb) parts.push(evidenceCallout("feedback", block.topic, { kind: "recall", id: block.id, date, verdict }, fb));
+		if (fb) parts.push(evidenceCallout("feedback", block.topic, { kind: "recall", id: block.id, date, verdict, topic: block.topic, paragraphs: finalWords ? finalWords.split(/\n[ \t]*\n/).filter((p) => p.trim()).length : undefined }, fb));
 		return parts.filter(Boolean).join("\n\n");
 	}
 	if (block.kind === "check") {
 		const fb = summary || block.turns.map((t) => t.feedback).filter(Boolean).join("\n\n");
-		return evidenceCallout("feedback", block.topic, { kind: "check", id: block.id, date, verdict }, fb || L("Checked.", "已检查。"));
+		return evidenceCallout("feedback", block.topic, { kind: "check", id: block.id, date, verdict, topic: block.topic }, fb || L("Checked.", "已检查。"));
 	}
 	if (block.kind === "quiz") {
 		const lines: string[] = [];
@@ -1776,7 +1884,7 @@ export function keptMarkdown(block: AskBlock, artifacts: Artifact[] = [], date =
 			lines.push("");
 		});
 		if (summary) lines.push(summary);
-		return evidenceCallout("practice", title(L("Understanding check", "理解检验")), { kind: "quiz", id: block.id, date, counts }, lines.join("\n").trim());
+		return evidenceCallout("practice", title(L("Understanding check", "理解检验")), { kind: "quiz", id: block.id, date, counts, topic: block.topic }, lines.join("\n").trim());
 	}
 	return summary ? calloutBlock("note", block.topic, summary) : "";
 }

@@ -1,0 +1,25 @@
+{
+	"agentWritten": false,
+	"records": [
+		{
+			"kind": "recall",
+			"callout": "feedback",
+			"title": "three-way handshake (my note)",
+			"line": 6,
+			"topic": "TCP handshake",
+			"id": "q5",
+			"date": "2026-11-07",
+			"verdict": "reconsider",
+			"learnerText": "My own words about TCP handshakes."
+		},
+		{
+			"kind": "recall",
+			"callout": "feedback",
+			"title": "Unpaired",
+			"line": 10,
+			"topic": "Unpaired",
+			"legacy": true
+		}
+	],
+	"live": []
+}

@@ -1,0 +1,33 @@
+{
+	"agentWritten": false,
+	"records": [
+		{
+			"kind": "recall",
+			"callout": "feedback",
+			"title": "Entropy",
+			"line": 5,
+			"topic": "Entropy",
+			"legacy": true,
+			"learnerText": "Entropy is the expected surprise of an outcome."
+		},
+		{
+			"kind": "quiz",
+			"callout": "practice",
+			"title": "Understanding check — Entropy",
+			"line": 8,
+			"topic": "Entropy",
+			"legacy": true
+		},
+		{
+			"kind": "gloss",
+			"callout": "gloss",
+			"title": "KL divergence",
+			"line": 11,
+			"topic": "KL divergence",
+			"legacy": true
+		}
+	],
+	"live": [
+		"old1"
+	]
+}

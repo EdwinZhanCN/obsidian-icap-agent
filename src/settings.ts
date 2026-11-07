@@ -33,6 +33,10 @@ export interface IcapSettings {
 	rememberContext: boolean;
 	/** Interactive visuals (```icap-ui) in replies and agent-created notes. */
 	visuals: Visuals;
+	/** Read every PDF, EPUB and DOCX in the vault ahead of time, into icap/docs/ (docs/store.ts). */
+	prepareDocuments: boolean;
+	/** One-sentence summaries of every part of a document, written by the model when it is first read. */
+	documentSummaries: boolean;
 	/** The guide note is created (and opened) once, on first install. */
 	guideCreated: boolean;
 }
@@ -52,6 +56,8 @@ export const DEFAULT_SETTINGS: IcapSettings = {
 	maxConcurrent: 3,
 	rememberContext: true,
 	visuals: "auto",
+	prepareDocuments: true,
+	documentSummaries: false,
 	guideCreated: false,
 };
 
@@ -185,6 +191,39 @@ export class IcapSettingTab extends PluginSettingTab {
 						s.visuals = v as Visuals;
 						void save();
 					}),
+			);
+
+		/* ── Documents ── */
+		new Setting(containerEl).setName(L("Documents", "资料")).setHeading();
+		new Setting(containerEl)
+			.setName(L("Prepare documents ahead of time", "提前准备资料"))
+			.setDesc(
+				L(
+					"Read the PDFs, EPUBs and Word documents in this vault in the background — their structure and text — so the agent can find its way through many of them quickly. Kept in the icap/docs folder; nothing is sent anywhere. Off: a document is prepared the first time the agent reads it. To sync this folder with Obsidian Sync, turn on “Other file types”.",
+					"在后台读取这个库里的 PDF、EPUB 和 Word 文档——它们的结构和文字——让 Agent 在大量资料里也能快速找到要读的部分。存放在 icap/docs 文件夹，不会发送到任何地方。关闭后，资料在 Agent 第一次读它时才准备。要用 Obsidian Sync 同步这个文件夹，请打开“其他文件类型”。",
+				),
+			)
+			.addToggle((t) =>
+				t.setValue(s.prepareDocuments).onChange((v) => {
+					s.prepareDocuments = v;
+					void save();
+					if (v) this.plugin.runtime?.prepareDocuments();
+				}),
+			);
+		new Setting(containerEl)
+			.setName(L("Summaries of every part", "为每个部分写摘要"))
+			.setDesc(
+				L(
+					"When a document is prepared, the model writes one sentence for every chapter and section, and a few for the whole document. The agent then sees what each part covers before reading it, which helps most across many books. It uses your model: roughly as many input tokens as the document has words, once per document (a 300-page book is on the order of 150,000), kept and never repeated while the file stays the same.",
+					"准备资料时，由模型为每一章、每一节写一句摘要，再为整份资料写几句。Agent 在读之前就能看到每部分讲什么，资料越多越有用。会使用你的模型：每份资料大约消耗与它字数相当的输入 token（一本 300 页的书约 15 万），只写一次并保存，文件不变就不会重复。",
+				),
+			)
+			.addToggle((t) =>
+				t.setValue(s.documentSummaries).onChange((v) => {
+					s.documentSummaries = v;
+					void save();
+					if (v) this.plugin.runtime?.prepareDocuments();
+				}),
 			);
 
 		/* ── Agent ── */

@@ -5,7 +5,7 @@ import type { BlockSession } from "../agent/session-cache";
 /* ───────────────────────── Activity: tasks ───────────────────────── */
 
 export type TaskStatus = "processing" | "waiting" | "completed" | "failed" | "cancelled";
-export type TaskKind = "explain" | "recall" | "check" | "quiz" | "note" | "request";
+export type TaskKind = "explain" | "recall" | "check" | "quiz" | "note" | "request" | "read";
 
 export interface Artifact {
 	kind: "gloss" | "created" | "edited" | "deleted" | "kept" | "feedback";

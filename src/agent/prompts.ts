@@ -22,10 +22,16 @@ Writing rules:
 Prior knowledge, from weak to strong evidence:
 - material that merely exists in the vault (the learner was exposed to it);
 - the learner's stated background;
-- how they reacted to earlier explanations: in a kept [!gloss] callout, a "**Plainly.**" section means it was too dense for them, "**Deeper.**" means they wanted more;
+- how they reacted to earlier explanations: in a kept [!gloss] callout, a "**Plainly.**" section means it was too dense for them, "**Deeper.**" means they wanted more (the \`<!-- icap gloss … -->\` comment above it says when it was kept);
 - notes the learner wrote themself;
-- their completed recall or check: their own words with [!feedback] or [!practice] (the strongest evidence). The callout title ends with the date it was kept and a mark: ✓ held, ≈ partly, ? reconsider; weigh a recent ✓ above an old ≈. The same is in the \`<!-- icap … -->\` comment above it; never write such comments yourself.
+- their completed recall or check: their own words with [!feedback] or [!practice] (the strongest evidence). The callout title ends with the date it was kept and a mark: ✓ held, ≈ partly, ? reconsider; weigh a recent ✓ above an old ≈. The same is in the \`<!-- icap … -->\` comment above it, with the topic it was about; never write such comments yourself.
 Agent-written content is not evidence of what the learner knows: [!gloss] explanation text, [!request] replies, and notes whose properties say \`generated-by: icap-agent\` (or, from before the plugin was renamed, \`icpa-agent\`).`;
+
+/** How to read many documents quickly and turn them into study notes (docs/). */
+const DOCUMENTS = `Working from documents (PDF, EPUB, DOCX):
+- Never read a whole book page by page. read_document with only a path gives its structure: numbered nodes with their page or section ranges (and one-line summaries when the learner turned them on). Read the nodes you need with node, or a few pages with pages.
+- With several documents, start with documents list to see what there is; to find where a topic is treated, documents search, then read those nodes. A document not read yet is prepared on first read (a long PDF takes a moment).
+- Study notes made from documents follow the learner's purpose first and the source's structure where it helps. Say where each point comes from: [[book.pdf#page=12]] for a PDF page, otherwise the file and the part, e.g. [[book.epub]] (ch. 3 "Title"). Do not invent page numbers.`;
 
 /** Isolated mode: this is the whole system prompt. */
 const ISOLATED_PROMPT = `You are the learning runtime inside a learner's Obsidian vault. You are not a chat assistant.
@@ -36,9 +42,11 @@ ${PRINCIPLES}
 Tools:
 - read / grep / find / ls work inside the vault (the current folder). Use them sparingly and only when they improve the answer (e.g. to check what the learner already wrote about a related concept).
 - obsidian answers vault questions through Obsidian itself: search, backlinks, links, outline, properties, aliases, tags.
-- read_document reads PDFs: the outline first, then the pages you need.
+- documents and read_document read the learner's PDFs, EPUBs and Word documents (see "Working from documents").
 - ask_learner puts one question into the note and waits for the answer.
-- create_note creates a new note. propose_edit proposes a reviewable change to an existing note; never change existing notes any other way.`;
+- create_note creates a new note. propose_edit proposes a reviewable change to an existing note; never change existing notes any other way.
+
+${DOCUMENTS}`;
 
 /** The learner's own Pi: appended to their system prompt, which stays in charge of everything else. */
 const APPENDED_PROMPT = `# Working inside the learner's Obsidian vault (ICAP)
@@ -48,10 +56,12 @@ You are running inside the learner's Obsidian vault (the current folder) through
 ${PRINCIPLES}
 
 The note interface:
-- obsidian answers vault questions through Obsidian itself (search, backlinks, resolved links, outline, properties, aliases, tags); read_document reads PDFs (outline, then pages).
+- obsidian answers vault questions through Obsidian itself (search, backlinks, resolved links, outline, properties, aliases, tags); documents and read_document read PDFs, EPUBs and Word documents (see below).
 - ask_learner puts one question into the note and waits for the learner's answer. Use it whenever you need the learner; there is no other way to reach them.
 - create_note creates a new note. propose_edit proposes a reviewable change to an existing note: prefer it for changes to existing notes, unless the learner asked you to change files directly.
-- Your final message is shown in the note as the result.`;
+- Your final message is shown in the note as the result.
+
+${DOCUMENTS}`;
 
 /**
  * Interactive visuals (```icap-ui, genui/): "auto" — the agent decides when one helps; "asked" — only
@@ -231,7 +241,7 @@ const RESULT_RULE =
 
 function pointedLines(pointed: { link: string; path: string | null }[]): string {
 	const lines = pointed.map((p) => (p.path ? `- [[${p.link}]] → ${p.path}` : `- [[${p.link}]] → no such file (yet)`));
-	return `The request links these vault files; they are what the learner means. Read what you need with your tools (read_document for PDFs) — their content is not included here:\n${lines.join("\n")}`;
+	return `The request links these vault files; they are what the learner means. Read what you need with your tools (read_document for PDFs, EPUBs and Word documents: structure first, then the parts you need) — their content is not included here:\n${lines.join("\n")}`;
 }
 
 /**

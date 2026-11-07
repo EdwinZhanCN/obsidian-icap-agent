@@ -1,0 +1,64 @@
+{
+	"agentWritten": false,
+	"records": [
+		{
+			"kind": "recall",
+			"callout": "feedback",
+			"title": "RAII · 2026-11-07 · ✓",
+			"line": 13,
+			"topic": "RAII",
+			"id": "q7f3a2",
+			"date": "2026-11-07",
+			"verdict": "holds",
+			"learnerText": "RAII ties a resource's lifetime to an object's lifetime.\n\nWhen the object goes out of scope, its destructor releases the resource, even on an exception."
+		},
+		{
+			"kind": "check",
+			"callout": "feedback",
+			"title": "Locks · 2026-11-07 · ≈",
+			"line": 21,
+			"topic": "Locks",
+			"id": "c1",
+			"date": "2026-11-07",
+			"verdict": "partly",
+			"learnerText": "A lock_guard locks in its constructor and unlocks in its destructor."
+		},
+		{
+			"kind": "quiz",
+			"callout": "practice",
+			"title": "理解检验 — Locks · 2026-11-07",
+			"line": 25,
+			"topic": "Locks",
+			"id": "z1",
+			"date": "2026-11-07",
+			"counts": {
+				"holds": 1,
+				"partly": 0,
+				"reconsider": 1
+			}
+		},
+		{
+			"kind": "gloss",
+			"callout": "gloss",
+			"title": "the \"rule of zero\" --> why",
+			"line": 33,
+			"topic": "the \"rule of zero\" --> why",
+			"id": "g9",
+			"date": "2026-11-07",
+			"depth": [
+				"plainer",
+				"deeper"
+			]
+		},
+		{
+			"kind": "request",
+			"callout": "request",
+			"title": "Learning path for C++",
+			"line": 42,
+			"topic": "Learning path for C++"
+		}
+	],
+	"live": [
+		"q8"
+	]
+}

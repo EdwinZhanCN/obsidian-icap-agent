@@ -8,7 +8,8 @@ export const SUBMIT_KEYS = "{submit}";
 const K = SUBMIT_KEYS;
 
 /** Process as a sentence about the learner's material — never about tools or models. */
-export function phaseLine(phase: AgentPhase | null | undefined, kind: "explain" | "check" | "quiz" | "note" | "request"): string {
+export function phaseLine(phase: AgentPhase | null | undefined, kind: "explain" | "check" | "quiz" | "note" | "request" | "read"): string {
+	if (kind === "read") return phase === "writing" ? L("writing summaries…", "正在写摘要…") : phase === "waiting" ? L("waiting for you", "等你回应") : L("reading the document…", "正在读这份资料…");
 	switch (phase) {
 		case "starting":
 			return kind === "explain" ? L("reading the passage…", "正在读这段话…") : L("getting ready…", "准备中…");
