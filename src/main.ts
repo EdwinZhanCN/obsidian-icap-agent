@@ -5,6 +5,7 @@ import { mount, unmount } from "svelte";
 import { ASK_LANG, LEGACY_ASK_LANG, parseAskSource } from "./dsl/blocks";
 import { selectionMark } from "./editor/selection-mark";
 import { freshField } from "./editor/fresh";
+import { recordComments } from "./editor/record-comments";
 import { LearningRuntime, cmOf, type PersistedRuntime } from "./runtime/runtime";
 import { DEFAULT_SETTINGS, IcapSettingTab, type IcapSettings } from "./settings";
 import { loadPi, type PiSdk } from "./agent/pi-host";
@@ -54,6 +55,7 @@ export default class IcapPlugin extends Plugin {
 		this.registerEditorExtension([
 			rt.field,
 			freshField,
+			recordComments,
 			selectionMark({
 				enabled: () => this.settings.selectionMark,
 				explain: (view) => rt.explainFromView(view),

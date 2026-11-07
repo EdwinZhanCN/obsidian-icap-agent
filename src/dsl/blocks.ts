@@ -249,6 +249,11 @@ export function evidenceComment(e: Evidence): string {
 }
 
 const EVIDENCE_RE = /^<!--\s*icap\s+(recall|check|quiz|gloss)\s+(.*?)\s*-->\s*$/;
+
+/** Whether a line is a record comment (`<!-- icap recall … -->` and the like). */
+export function isEvidenceComment(line: string): boolean {
+	return EVIDENCE_RE.test(line);
+}
 /** One `key=value` field: a bare value has no spaces or quotes; a quoted one takes `\` escapes. */
 const FIELD_RE = /([A-Za-z][\w-]*)=(?:"((?:[^"\\]|\\.)*)"|([^\s"]*))/g;
 
