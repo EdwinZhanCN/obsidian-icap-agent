@@ -82,16 +82,18 @@ test/                     vitest; test/fixtures/dev-vault/ is the dev vault's se
 | What | Lives in | Becomes on *keep* |
 |---|---|---|
 | Gloss (explanation) | CodeMirror decorations only, never the file | `> [!gloss] term` |
-| Recall, check, quiz, agent question | an ```` ```icap-ask ```` fence, with its state in plugin data | the learner's words + `> [!feedback]` / `> [!practice]` |
+| Recall, check, quiz, agent question | an ```` ```icap-ask ```` fence, with its state in plugin data | the learner's words + `> [!feedback]` / `> [!practice]`, titled with the date and verdict mark, under an `<!-- icap … -->` comment |
 | Request (*Ask the agent here*) | an ```` ```icap-ask ```` fence with `kind: request` + plugin data | `> [!request]` record: requests, replies, files |
 | Edit to an existing note | a review turn showing a diff | applied only after *apply change* |
 | Interactive visual | an ```` ```icap-ui ```` fence in a reply or an agent-created note | unchanged |
+
+What ends up in notes is a contract other tools read: [FORMAT.md](FORMAT.md). Change a kept format only with its version.
 
 ## Rules that must hold
 
 - **Kept output is plain Obsidian Markdown.** Uninstalling the plugin must leave readable notes. Transient state (open glosses, block state) never leaks into the file.
 - **The note is the source of truth; a Pi session is a cache.** What the agent is told of a conversation is what the block shows (`transcript.ts`). A session is resumed only while its fingerprint matches. Runtime command turns (`/model`, `/thinking`, `/compact`) carry `control: true` and never reach the transcript or the kept record.
-- **The learner decides what changes.** The plugin writes only its own blocks into the task's note. ICAP's tools change existing notes only through `propose_edit`, which the learner applies. The agent never rewrites the learner's answer.
+- **The learner decides what changes.** The plugin writes only its own blocks into the task's note. ICAP's tools change existing notes only through `propose_edit`, which the learner applies. It refuses, before the learner sees anything, an edit that adds an ```` ```icap-ui ```` visual or touches an ICAP block (`editProblem` in `src/dsl/blocks.ts`). The agent never rewrites the learner's answer.
 - **Every file change is attributed.** In "mine" mode, vault create, modify, delete and rename events are recorded on the task whose agent is in a tool call, or ended one less than 3 s ago. Exempt: the task's own note and notes the learner is typing in. Keep this working for every task kind.
 - **Slash commands exist only in request blocks.** In a recall, check or quiz the learner's text is an answer, so a leading `/` is just text.
 - **Context files stop at the vault.** Only Pi's global `AGENTS.md` (in "mine" mode) and those inside the vault are loaded, never an ancestor's (`vaultContextFiles`). Isolated mode loads only the vault's own.
@@ -128,4 +130,4 @@ The plugin used to be spelled ICPA (`icpa-agent`). Formats that outlive a versio
 - Only Pi's own code gets Node's fetch. A learner's extension calling `fetch` itself runs in the renderer and is subject to CORS, unlike in the Pi CLI. Pi's codemode (QuickJS in a worker) is not bundled.
 - The selection mark exists in Live Preview and Source mode only. An unkept gloss disappears on plugin reload; blocks persist and resume.
 - An interrupted turn resumes by replaying the transcript into a fresh session, so the next question may be phrased differently.
-- Interactive visuals have been tested with hand-written `icap-ui` blocks, not yet with a model writing them. A visual's state is not saved. In Reading view, a visual in a note without a request block asks through a new request block, which needs the note to be editable.
+- A visual's state is not saved. In Reading view, a visual in a note without a request block asks through a new request block, which needs the note to be editable.

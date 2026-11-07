@@ -2,7 +2,7 @@ import { App, ButtonComponent, Modal, Notice, Setting, TextComponent } from "obs
 import type { AuthEvent, AuthPrompt } from "@earendil-works/pi-ai";
 import { L } from "../i18n";
 import type { PiSdk } from "../agent/pi-host";
-import { login, loginChoices, logout, providerStates, type LoginChoice, type ProviderState } from "../agent/pi-login";
+import { keyProblem, login, loginChoices, logout, providerStates, type LoginChoice, type ProviderState } from "../agent/pi-login";
 
 /** host/path…, for a long authorization URL whose query string means nothing to the learner. */
 function shortUrl(url: string): string {
@@ -244,8 +244,23 @@ export class LoginModal extends Modal {
 			const input = new TextComponent(el).setPlaceholder(p.placeholder ?? "");
 			input.inputEl.addClass("icap-login-input");
 			if (p.type === "secret") input.inputEl.type = "password";
+			const warn = el.createEl("p", { cls: "setting-item-description mod-warning" });
+			warn.hide();
+			input.onChange(() => warn.hide());
 			const submit = () => {
 				const v = input.getValue().trim();
+				// The field is masked, so say plainly what is wrong with the paste instead of saving it.
+				const problem = p.type === "secret" && v ? keyProblem(v) : undefined;
+				if (problem) {
+					warn.setText(
+						problem === "space"
+							? L("A key has no spaces or line breaks. Check what you pasted.", "Key 里不会有空格或换行，请检查粘贴的内容。")
+							: L("This doesn't look like a key: keys use only English letters, digits and symbols. Check what you pasted.", "这不像一个 Key：Key 只由英文字母、数字和符号组成，请检查粘贴的内容。"),
+					);
+					warn.show();
+					input.inputEl.focus();
+					return;
+				}
 				// A text question may be answered blank (e.g. "blank for github.com"); a key or code may not.
 				if (v || p.type === "text") done(() => resolve(v));
 			};

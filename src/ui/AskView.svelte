@@ -273,7 +273,7 @@
 					title={block.veiled ? L("Lift the veil and look at the note (Esc)", "取消模糊，查看笔记（Esc）") : L("Veil the note while you write", "书写时模糊笔记")}
 					onclick={() => (block.veiled = !block.veiled)}
 				>
-					{#if block.veiled}<EyeOff size={13} aria-hidden="true" /> veiled{:else}<Eye size={13} aria-hidden="true" /> veil note{/if}
+					{#if block.veiled}<EyeOff size={13} aria-hidden="true" /> {L("veiled", "已模糊")}{:else}<Eye size={13} aria-hidden="true" /> {L("veil note", "模糊笔记")}{/if}
 				</button>
 			{/if}
 		</header>
@@ -318,7 +318,7 @@
 					{#if turn.inNote}
 						<!-- the learner's words are in the note itself -->
 					{:else if turn.kind === "confirm" || turn.kind === "review"}
-						<p class="icap-learner icap-decision" use:settleIn={`a:${turn.id}`}>→ {turn.answer.confirmed ? (turn.confirmLabel ?? (turn.kind === "review" ? "accepted" : "yes")) : (turn.cancelLabel ?? (turn.kind === "review" ? "declined" : "no"))}</p>
+						<p class="icap-learner icap-decision" use:settleIn={`a:${turn.id}`}>→ {turn.answer.confirmed ? (turn.confirmLabel ?? (turn.kind === "review" ? L("accepted", "已采纳") : L("yes", "好"))) : (turn.cancelLabel ?? (turn.kind === "review" ? L("declined", "未采纳") : L("no", "暂不")))}</p>
 					{:else}
 						<div class="icap-learner" use:settleIn={`a:${turn.id}`}><Markdown app={rt.app} markdown={turn.answer.text ?? ""} {sourcePath} /></div>
 					{/if}

@@ -69,7 +69,7 @@ Inserted passages push text down. To limit that, explanations start short, stay 
 1. *Recall from memory* on a section inserts a question in place and veils the note.
 2. The learner writes and submits.
 3. Feedback appears under the learner's words with a verdict glyph. The agent may ask one pointed follow-up, such as a counter-example or a contrast. The learner answers or **revises their own text**; the agent never rewrites it.
-4. *Write it up* keeps the learner's final words as plain Markdown with the feedback as a `> [!feedback]` callout. *Clear* removes the whole interaction.
+4. *Write it up* keeps the learner's final words as plain Markdown with the feedback as a `> [!feedback]` callout, its title ending in the date and the verdict mark (✓ ≈ ?), under a one-line `<!-- icap … -->` comment that says the same for tools. *Clear* removes the whole interaction.
 
 *Check what I wrote* does the same for a paragraph already in the note.
 
@@ -140,7 +140,7 @@ The same explanation that helps a beginner burdens an expert (the expertise reve
 | Completed recalls and checks (their words, the verdict, the date) | what they actually understand | strong |
 
 - **Provenance makes this work.** The agent must tell the learner's writing from its own, or it would read its own notes as proof of understanding. ICAP records the minimum: notes from `create_note` carry `generated-by: icap-agent` (the learner can turn this off), kept explanations are `gloss` callouts, and kept recalls carry `feedback` and `practice`.
-- **The learning record is the notes.** There is no hidden learner model; the evidence is Markdown the learner can read, edit and delete.
+- **The learning record is the notes.** There is no hidden learner model; the evidence is Markdown the learner can read, edit and delete. A kept recall, check or quiz says when it was kept and how it went, in its callout title and in a comment above it (FORMAT.md), so the record carries its own dates without the plugin's data.
 - **Calibration stays local** to a concept or a note. There is no global level and no long-term knowledge tracing.
 - **Diagnosis stays light.** The explanation always comes first. Only when evidence is missing and levels would differ a lot does the agent offer a fork, such as "if you already know X, start from Y". At first, with no recall evidence, explanations are more generic; implicit feedback and forks move past that quickly.
 
@@ -153,7 +153,7 @@ The same explanation that helps a beginner burdens an expert (the expertise reve
 
 ## 6. Interactive visuals
 
-Sometimes a slider teaches more than a paragraph. The agent may put a hands-on visual in a reply or in a note it creates. The approach follows ChatGPT's in-answer UI and the MCP Apps sandbox model, bounded by ICAP's own skill and actions.
+Sometimes a slider teaches more than a paragraph. The agent may put a hands-on visual in a reply or in a note it creates, never into a note that already exists: `propose_edit` refuses an edit that adds one, and tells the agent to answer with it instead. The approach follows ChatGPT's in-answer UI and the MCP Apps sandbox model, bounded by ICAP's own skill and actions.
 
 - **Format.** An ```` ```icap-ui ```` fence holding an HTML fragment with inline CSS and JS. It is ordinary Markdown: it survives keeping and uninstalling, and stays readable as code.
 - **When.** The setting offers *When it helps* (the default: adjustable parameters, step-through processes, predict-then-reveal exercises, never decoration), *Only when I ask*, and *Never*. The agent reads the `icap-visual` skill before writing one. Visuals never stand in for an explanation, feedback, a question or an edit.

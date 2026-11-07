@@ -202,7 +202,8 @@
 				</div>
 			{/each}
 			{#if sources.length && !busy}
-				<p class="icap-sources">{L("from", "来自")} {sources.join(", ")}</p>
+				<!-- Rendered like the body, so the [[links]] are links: click opens, hover previews. -->
+				<Markdown app={rt.app} markdown={`${L("from", "来自")} ${sources.join(", ")}`} sourcePath={gloss.notePath} class="icap-sources" />
 			{/if}
 		</div>
 	{/if}

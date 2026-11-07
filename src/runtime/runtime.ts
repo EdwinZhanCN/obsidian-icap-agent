@@ -30,7 +30,7 @@ import {
 } from "../agent/prompts";
 import { buildContext } from "../context";
 import { answerText, coveredTranscript, transcriptOf, withReply } from "./transcript";
-import { calloutBlock, findAskBlock, parseAskSource, parseAuthored, requestRecord, type AskSource, glossCallout, newId, serializeAsk, splitSources, tidyOptionLabel, tidyQuestion, verdictGlyph, dialogTitle } from "../dsl/blocks";
+import { calloutBlock, editProblem, evidenceCallout, findAskBlock, isoDate, parseAskSource, parseAuthored, requestRecord, type AskSource, glossCallout, newId, serializeAsk, splitSources, tidyOptionLabel, tidyQuestion, verdictGlyph, dialogTitle } from "../dsl/blocks";
 import { askReplacement, blockInsertion, editorFor, spliceFile, uniqueNotePath, type Splice } from "../dsl/doc-ops";
 import { flashRange } from "../editor/fresh";
 import { clearCues, cue, withdrawCue } from "../editor/cue";
@@ -1441,6 +1441,18 @@ export class LearningRuntime {
 		const text = await this.textOf(file.path);
 		if (find && !text.includes(find)) return { status: "error", message: "The text to replace was not found in the note." };
 		const replace = String(p.replace ?? "");
+		// Refused before the learner sees anything: the rules the prompt states, enforced.
+		const problem = editProblem(text, find, replace);
+		if (problem === "visual")
+			return {
+				status: "error",
+				message: "An edit to an existing note cannot add an ```icap-ui visual. Put the visual in your reply to the learner instead (or in a new note you create with create_note).",
+			};
+		if (problem === "block")
+			return {
+				status: "error",
+				message: "That edit touches an ICAP block (an ```icap-ask fence), which belongs to the plugin. Edit only the learner's own text, outside those blocks.",
+			};
 		// Put the question up and turn it into a reviewable diff *before* waiting for the learner.
 		const pending = this.ask(task, block, { kind: "confirm", question: String(p.summary ?? L("Proposed change", "建议的修改")) });
 		const turn = block.current!;
@@ -1729,7 +1741,12 @@ function requestMarkdown(block: AskBlock, artifacts: Artifact[]): string {
 	return requestRecord(block.topic, rounds, artifacts);
 }
 
-function keptMarkdown(block: AskBlock, artifacts: Artifact[] = []): string {
+/**
+ * What a settled block leaves in the note (FORMAT.md). Recalls, checks and quizzes carry their
+ * evidence — the kept date and the verdict — in the callout title and in a comment above it, so
+ * the note itself is the learning record. `date` is the day of keeping; the turns have no clock.
+ */
+export function keptMarkdown(block: AskBlock, artifacts: Artifact[] = [], date = isoDate()): string {
 	if (block.kind === "request") return requestMarkdown(block, artifacts);
 	const summary = block.summary.trim();
 	const verdict = [...block.turns].reverse().find((t) => t.verdict)?.verdict;
@@ -1741,23 +1758,25 @@ function keptMarkdown(block: AskBlock, artifacts: Artifact[] = []): string {
 			"";
 		const parts = [finalWords];
 		const fb = summary || block.turns.map((t) => t.feedback).filter(Boolean).join("\n\n");
-		if (fb) parts.push(calloutBlock("feedback", block.topic, fb));
+		if (fb) parts.push(evidenceCallout("feedback", block.topic, { kind: "recall", id: block.id, date, verdict }, fb));
 		return parts.filter(Boolean).join("\n\n");
 	}
 	if (block.kind === "check") {
 		const fb = summary || block.turns.map((t) => t.feedback).filter(Boolean).join("\n\n");
-		return calloutBlock("feedback", block.topic, fb || L("Checked.", "已检查。"));
+		return evidenceCallout("feedback", block.topic, { kind: "check", id: block.id, date, verdict }, fb || L("Checked.", "已检查。"));
 	}
 	if (block.kind === "quiz") {
 		const lines: string[] = [];
+		const counts = { holds: 0, partly: 0, reconsider: 0 };
 		block.turns.forEach((t, i) => {
 			if (!t.answer) return;
+			if (t.verdict) counts[t.verdict]++;
 			lines.push(`**${i + 1}.** ${t.question.trim()}`);
 			lines.push(`*${L("My answer", "我的回答")}:* ${answerText(t)}${t.verdict ? ` ${verdictGlyph(t.verdict)}` : ""}`);
 			lines.push("");
 		});
 		if (summary) lines.push(summary);
-		return calloutBlock("practice", title(L("Understanding check", "理解检验")), lines.join("\n").trim());
+		return evidenceCallout("practice", title(L("Understanding check", "理解检验")), { kind: "quiz", id: block.id, date, counts }, lines.join("\n").trim());
 	}
 	return summary ? calloutBlock("note", block.topic, summary) : "";
 }

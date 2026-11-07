@@ -25,6 +25,11 @@ description: How to write an interactive visual (a ${FENCE}${UI_LANG} block) in 
 
 An ${UI_LANG} block is a self-contained HTML fragment that ICAP renders inside the learner's note, in a sandboxed frame. It stays in the note as ordinary Markdown (a fenced block), so it renders again whenever the note is opened.
 
+## Where
+
+- In a request: in your reply. In a note you create with create_note: in its body.
+- Never through propose_edit. An edit to a note that already exists cannot add a visual and is refused.
+
 ## When
 
 - Only where the learner can *do* something that builds understanding: vary a parameter and watch the effect, step through a process, explore a structure, sort or choose and then check. A picture that only displays is rarely worth it — prefer prose, a table, or a Mermaid diagram.

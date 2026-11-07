@@ -31,6 +31,18 @@ export interface ProviderState {
 	stored?: AuthKind;
 }
 
+/**
+ * Why a pasted key cannot be one, or undefined. Keys and tokens travel in HTTP headers, which take
+ * no CJK text, and every provider's are printable ASCII. Without this check, a wrong paste (say, a
+ * sentence in Chinese) is saved and fails only on the first request, with "Failed to execute 'append'
+ * on 'Headers'". `value` is already trimmed.
+ */
+export function keyProblem(value: string): "space" | "not-a-key" | undefined {
+	if (/\s/.test(value)) return "space";
+	if (/[^\x21-\x7e]/.test(value)) return "not-a-key";
+	return undefined;
+}
+
 /** Every way to log in that Pi offers, by provider name. */
 export async function loginChoices(pi: PiSdk): Promise<LoginChoice[]> {
 	const runtime = await modelRuntime(pi);

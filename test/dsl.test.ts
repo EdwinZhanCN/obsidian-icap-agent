@@ -1,13 +1,43 @@
 import { describe, expect, it } from "vitest";
 import {
+	editProblem,
+	evidenceCallout,
+	evidenceComment,
 	findAskBlock,
 	glossCallout,
+	isoDate,
 	parseAskSource,
 	parseAuthored,
+	parseEvidenceComment,
 	serializeAsk,
 	splitSources,
 	fenceFor,
 } from "../src/dsl/blocks";
+
+describe("evidence in kept callouts", () => {
+	it("writes the date and verdict twice: for the reader in the title, for tools in a comment", () => {
+		const md = evidenceCallout("feedback", "  协方差  矩阵 ", { kind: "recall", id: "q7f3a2", date: "2026-11-06", verdict: "holds" }, "Right.\n\nOne gap.");
+		expect(md).toBe("<!-- icap recall id=q7f3a2 date=2026-11-06 verdict=holds -->\n> [!feedback] 协方差 矩阵 · 2026-11-06 · ✓\n> Right.\n>\n> One gap.");
+	});
+	it("leaves the mark out when there is no verdict, and counts a quiz per question", () => {
+		expect(evidenceCallout("feedback", "T", { kind: "check", id: "c1", date: "2026-11-06" }, "Checked.")).toBe("<!-- icap check id=c1 date=2026-11-06 -->\n> [!feedback] T · 2026-11-06\n> Checked.");
+		const quiz = evidenceCallout("practice", "Understanding check — T", { kind: "quiz", id: "z1", date: "2026-11-06", counts: { holds: 2, partly: 0, reconsider: 1 } }, "**1.** Q");
+		expect(quiz.split("\n")[0]).toBe("<!-- icap quiz id=z1 date=2026-11-06 holds=2 partly=0 reconsider=1 -->");
+		expect(quiz.split("\n")[1]).toBe("> [!practice] Understanding check — T · 2026-11-06");
+	});
+	it("reads a comment back, ignoring keys it does not know", () => {
+		const e = { kind: "recall" as const, id: "q7f3a2", date: "2026-11-06", verdict: "partly" as const };
+		expect(parseEvidenceComment(evidenceComment(e))).toEqual(e);
+		expect(parseEvidenceComment("<!-- icap quiz id=z1 date=2026-11-06 holds=2 partly=0 reconsider=1 later=x -->")).toEqual({ kind: "quiz", id: "z1", date: "2026-11-06", counts: { holds: 2, partly: 0, reconsider: 1 } });
+		expect(parseEvidenceComment("<!-- icap recall id=q7f3a2 date=yesterday -->")).toBeNull();
+		expect(parseEvidenceComment("<!-- a note to self -->")).toBeNull();
+		expect(parseEvidenceComment("> [!feedback] T · 2026-11-06 · ✓")).toBeNull();
+	});
+	it("dates in the local calendar", () => {
+		expect(isoDate(new Date(2026, 10, 6, 23, 30).getTime())).toBe("2026-11-06");
+		expect(isoDate(new Date(2026, 0, 1, 0, 1).getTime())).toBe("2026-01-01");
+	});
+});
 import { balanceStreamingMarkdown, glossAnchor, headingTrail, paragraphBounds, sectionBounds } from "../src/dsl/text";
 
 const NOTE = `---
@@ -118,6 +148,51 @@ describe("dsl", () => {
 });
 
 import { tidyOptionLabel, tidyQuestion } from "../src/dsl/blocks";
+
+describe("proposed edits", () => {
+	const note = [
+		"## Why the angle matters",
+		"",
+		"Lift grows roughly in step with the angle of attack, up to about 15°.",
+		"",
+		"```icap-ask",
+		"id: qzjnwo3j46",
+		"kind: request",
+		"---",
+		"Request to the agent",
+		"```",
+		"",
+		"## Explain it back",
+	].join("\n");
+	const visual = "```icap-ui\n<input type=\"range\">\n```";
+
+	it("refuses a visual added to an existing note, as the model tried twice while filming", () => {
+		// Run 1: the whole request fence, replaced by itself plus a visual.
+		const fence = note.slice(note.indexOf("```icap-ask"), note.indexOf("\n\n## Explain"));
+		expect(editProblem(note, fence, `${fence}\n\nDrag α slowly.\n\n${visual}`)).toBe("visual");
+		// Run 2: the fence header, replaced by prose plus a visual (it would have broken the block).
+		expect(editProblem(note, "```icap-ask\nid: qzjnwo3j46\nkind: request\n---", `Predict first.\n\n${visual}`)).toBe("visual");
+		expect(editProblem(note, "", `\n${visual}`)).toBe("visual");
+		expect(editProblem(note, "up to about 15°.", "up to about 15°.\n\n~~~icap-ui\n<b>x</b>\n~~~")).toBe("visual");
+	});
+
+	it("refuses edits that touch ICAP's blocks or write new ones", () => {
+		expect(editProblem(note, "kind: request", "kind: quiz")).toBe("block");
+		expect(editProblem(note, "Request to the agent", "Something else")).toBe("block");
+		expect(editProblem(note, "```\n\n## Explain", "```\n\nMore.\n\n## Explain")).toBe("block");
+		expect(editProblem(note, "up to about 15°.", "up to about 15°.\n\n```icap-ask\nid: x\nkind: agent\n---\nQ?\n```")).toBe("block");
+		const legacy = "Text.\n\n```icpa-ask\nid: old\nkind: recall\n---\n```\n";
+		expect(editProblem(legacy, "kind: recall", "kind: check")).toBe("block");
+	});
+
+	it("allows ordinary edits of the learner's text, and an edit that keeps an existing visual", () => {
+		expect(editProblem(note, "up to about 15°.", "up to about 15° on a plain wing.")).toBeUndefined();
+		expect(editProblem(note, "", "\n## Path\n\n1. [[Stall]]")).toBeUndefined();
+		expect(editProblem(note, "not in the note", "x")).toBeUndefined();
+		const created = `Try it:\n\n${visual}\n\nThen explain.`;
+		expect(editProblem(created, `Try it:\n\n${visual}`, `Try this:\n\n${visual}`)).toBeUndefined();
+	});
+});
 
 describe("ask tidying", () => {
 	it("strips letter prefixes from option labels", () => {

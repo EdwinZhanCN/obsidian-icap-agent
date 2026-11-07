@@ -19,6 +19,7 @@ import { L } from "../i18n";
  *     > …explanation…
  */
 import { splitLines } from "./text";
+import { UI_LANG } from "../genui/widget";
 
 export const ASK_LANG = "icap-ask";
 /** The fence language before the plugin was renamed ICPA → ICAP. Still read (and rendered), never written. */
@@ -127,6 +128,42 @@ export function findAskBlock(text: string, id: string): { from: number; to: numb
 	return null;
 }
 
+const FENCE_OPEN = (lang: string) => new RegExp(`^\\s*(\`{3,}|~{3,})\\s*${lang}\\b`);
+
+/** Every ICAP block in a note: each ```icap-ask (or legacy ```icpa-ask) fence, its fence lines included. */
+export function askFenceRanges(text: string): { from: number; to: number }[] {
+	const lines = splitLines(text);
+	const out: { from: number; to: number }[] = [];
+	for (let i = 0; i < lines.length; i++) {
+		const open = lines[i].text.match(FENCE_OPEN(ASK_LANG_RE));
+		if (!open) continue;
+		let j = i + 1;
+		while (j < lines.length && lines[j].text.trim() !== open[1]) j++;
+		out.push({ from: lines[i].from, to: lines[Math.min(j, lines.length - 1)].to });
+		i = j;
+	}
+	return out;
+}
+
+const countOpenings = (md: string, lang: string) => md.split("\n").filter((l) => FENCE_OPEN(lang).test(l)).length;
+
+/**
+ * Why an edit the agent proposes (propose_edit: replace the first `find` in `text` with `replace`;
+ * an empty `find` appends) must be refused, if it must:
+ * - "visual": it adds an ```icap-ui visual. Visuals go in a reply or in a note the agent creates,
+ *   never into the learner's existing notes;
+ * - "block": it touches an ICAP block (an ```icap-ask fence), or writes a new one. Those are the plugin's.
+ */
+export function editProblem(text: string, find: string, replace: string): "visual" | "block" | undefined {
+	if (countOpenings(replace, UI_LANG) > countOpenings(find, UI_LANG)) return "visual";
+	if (countOpenings(replace, ASK_LANG_RE) > countOpenings(find, ASK_LANG_RE)) return "block";
+	if (!find) return undefined;
+	const i = text.indexOf(find);
+	if (i < 0) return undefined;
+	if (askFenceRanges(text).some((r) => i < r.to && i + find.length > r.from)) return "block";
+	return undefined;
+}
+
 function quote(md: string): string {
 	return md
 		.trim()
@@ -145,6 +182,69 @@ export function glossCallout(term: string, body: string, sources: string[]): str
 
 export function calloutBlock(type: string, title: string, body: string): string {
 	return `> [!${type}] ${title}\n${quote(body)}`;
+}
+
+export type Verdict = "holds" | "partly" | "reconsider";
+
+/**
+ * What a kept recall, check or quiz records about itself, so that the note stays the learning
+ * record (FORMAT.md, "Evidence"): when it was kept and how it went. Written twice — in the callout
+ * title for the reader (`· 2026-11-06 · ✓`) and in an HTML comment on the line above for tools
+ * (`<!-- icap recall id=q7f3a2 date=2026-11-06 verdict=holds -->`).
+ */
+export interface Evidence {
+	kind: "recall" | "check" | "quiz";
+	id: string;
+	/** ISO calendar date (local), the day the block was kept. */
+	date: string;
+	verdict?: Verdict;
+	/** Quiz: how the answered questions went. */
+	counts?: { holds: number; partly: number; reconsider: number };
+}
+
+/** The local calendar date as `YYYY-MM-DD`. */
+export function isoDate(ms = Date.now()): string {
+	const d = new Date(ms);
+	const p = (n: number) => String(n).padStart(2, "0");
+	return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+export function evidenceComment(e: Evidence): string {
+	const f = [`id=${e.id}`, `date=${e.date}`];
+	if (e.verdict) f.push(`verdict=${e.verdict}`);
+	if (e.counts) f.push(`holds=${e.counts.holds}`, `partly=${e.counts.partly}`, `reconsider=${e.counts.reconsider}`);
+	return `<!-- icap ${e.kind} ${f.join(" ")} -->`;
+}
+
+const EVIDENCE_RE = /^<!--\s*icap\s+(recall|check|quiz)\s+([^>]*?)\s*-->\s*$/;
+
+/** Reads an evidence comment back; unknown keys are ignored so later versions stay readable. */
+export function parseEvidenceComment(line: string): Evidence | null {
+	const m = line.trim().match(EVIDENCE_RE);
+	if (!m) return null;
+	const kv: Record<string, string> = {};
+	for (const part of m[2].split(/\s+/)) {
+		const i = part.indexOf("=");
+		if (i > 0) kv[part.slice(0, i)] = part.slice(i + 1);
+	}
+	if (!kv.id || !/^\d{4}-\d{2}-\d{2}$/.test(kv.date ?? "")) return null;
+	const e: Evidence = { kind: m[1] as Evidence["kind"], id: kv.id, date: kv.date };
+	if (kv.verdict === "holds" || kv.verdict === "partly" || kv.verdict === "reconsider") e.verdict = kv.verdict;
+	if (kv.holds !== undefined || kv.partly !== undefined || kv.reconsider !== undefined) {
+		const n = (s?: string) => Math.max(0, parseInt(s ?? "0", 10) || 0);
+		e.counts = { holds: n(kv.holds), partly: n(kv.partly), reconsider: n(kv.reconsider) };
+	}
+	return e;
+}
+
+/**
+ * A kept callout that carries its evidence: the comment line, then the callout whose title ends
+ * with the date and the verdict mark (✓ held, ≈ partly, ? reconsider).
+ */
+export function evidenceCallout(type: "feedback" | "practice", title: string, e: Evidence, body: string): string {
+	const glyph = verdictGlyph(e.verdict);
+	const t = `${title.replace(/\s+/g, " ").trim()} · ${e.date}${glyph ? ` · ${glyph}` : ""}`;
+	return `${evidenceComment(e)}\n${calloutBlock(type, t, body)}`;
 }
 
 /**

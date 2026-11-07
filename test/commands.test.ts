@@ -13,6 +13,7 @@ import {
 	rankCommands,
 	type SlashCommand,
 } from "../src/dsl/commands";
+import { keyProblem } from "../src/agent/pi-login";
 import { blockOfFile, removeSessions, reusable, sessionExists, sessionId, sessionSig } from "../src/agent/session-cache";
 import { coveredTranscript, transcriptOf, withReply } from "../src/runtime/transcript";
 import type { Turn } from "../src/runtime/state.svelte";
@@ -140,5 +141,18 @@ describe("session files", () => {
 		expect(removeSessions(dir, { keep: new Set(["qb2"]) })).toBe(0);
 		expect(removeSessions(dir, { keep: new Set() })).toBe(1);
 		expect(readdirSync(dir)).toEqual(["2026-11-04T10-07-00_someone-elses.jsonl"]);
+	});
+});
+
+describe("keyProblem", () => {
+	it("accepts keys and tokens as providers issue them", () => {
+		for (const k of ["sk-0123456789abcdef0123456789abcdef", "sk-ant-api03-Ab_Cd-Ef", "AKIA1234/abc+def==", "code#state"]) expect(keyProblem(k)).toBeUndefined();
+	});
+	it("rejects a paste that cannot be a key", () => {
+		expect(keyProblem("赫尔曼·梅尔维尔创作的小说")).toBe("not-a-key");
+		expect(keyProblem("sk-abc，def")).toBe("not-a-key"); // full-width comma
+		expect(keyProblem("sk-abc​def")).toBe("not-a-key"); // zero-width space
+		expect(keyProblem("sk-abc def")).toBe("space");
+		expect(keyProblem("sk-abc\ndef")).toBe("space");
 	});
 });

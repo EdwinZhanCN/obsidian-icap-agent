@@ -24,7 +24,7 @@ Prior knowledge, from weak to strong evidence:
 - the learner's stated background;
 - how they reacted to earlier explanations: in a kept [!gloss] callout, a "**Plainly.**" section means it was too dense for them, "**Deeper.**" means they wanted more;
 - notes the learner wrote themself;
-- their completed recall or check: their own words with [!feedback] or [!practice] (the strongest evidence).
+- their completed recall or check: their own words with [!feedback] or [!practice] (the strongest evidence). The callout title ends with the date it was kept and a mark: ✓ held, ≈ partly, ? reconsider; weigh a recent ✓ above an old ≈. The same is in the \`<!-- icap … -->\` comment above it; never write such comments yourself.
 Agent-written content is not evidence of what the learner knows: [!gloss] explanation text, [!request] replies, and notes whose properties say \`generated-by: icap-agent\` (or, from before the plugin was renamed, \`icpa-agent\`).`;
 
 /** Isolated mode: this is the whole system prompt. */
@@ -70,7 +70,7 @@ function visualsRule(visuals: Visuals): string {
 Interactive visuals:
 - In your reply to a request, or in a note you create, you may include an interactive visual: a fenced ${VISUAL_FENCE} block (an HTML fragment with inline CSS and JavaScript) that the note renders in a sandbox. ${when}
 - Before writing your first ${VISUAL_FENCE} block in a task, read the ${VISUAL_SKILL} skill: it defines the format, the theme and the only two actions a visual can take.
-- Not in explanations, feedback, questions or edits to the learner's existing notes.`;
+- Not in explanations, feedback or questions, and never through propose_edit: an edit to an existing note cannot add one.`;
 }
 
 

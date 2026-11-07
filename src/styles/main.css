@@ -356,6 +356,15 @@ body.icap-ink-accent {
 	font-size: var(--tw-text-caption, 0.76rem);
 	margin: 0.6em 0 0;
 }
+.icap-sources p {
+	margin: 0;
+}
+/* The links stay as quiet as the line: its colour, an underline to say they are links. */
+.icap-sources a.internal-link,
+.icap-sources a.external-link {
+	color: inherit;
+	text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+}
 .icap-compare {
 	@apply tw:flex tw:flex-wrap tw:items-baseline tw:gap-2;
 	flex: 1 1 100%;
@@ -718,6 +727,11 @@ body.icap-ink-accent {
 	letter-spacing: 0.02em;
 	text-transform: none;
 	font-size: 0.74rem;
+}
+/* In Live Preview, Obsidian's </> edit-block button sits in the block's top-right corner: keep the
+   toggle clear of it instead of underneath it. */
+.cm-embed-block .icap-veil-toggle.icap-veil-toggle {
+	margin-right: 40px;
 }
 .icap-ask.is-orphan .icap-caption {
 	margin: 0;
