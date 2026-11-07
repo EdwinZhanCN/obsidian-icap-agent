@@ -291,6 +291,8 @@ export interface BlockRecord {
 	session?: BlockSession | null;
 	/** Request block: how many Pi sessions this block has started (new ids for a fresh one). */
 	sessionSeq?: number;
+	/** Folded to its header line by the learner. */
+	collapsed?: boolean;
 }
 
 export class AskBlock {
@@ -308,6 +310,8 @@ export class AskBlock {
 	summary = $state("");
 	error = $state<string | null>(null);
 	veiled = $state(false);
+	/** Folded to its header line by the learner; kept across reloads. */
+	collapsed = $state(false);
 	settled = $state<"open" | "kept" | "cleared">("open");
 	/** Written by a person into the note (not inserted by the runtime): clearing resets it instead of removing it. */
 	authored = false;
@@ -361,6 +365,7 @@ export class AskBlock {
 			...(this.thinking ? { thinking: this.thinking } : {}),
 			...(this.session ? { session: { ...this.session } } : {}),
 			...(this.sessionSeq ? { sessionSeq: this.sessionSeq } : {}),
+			...(this.collapsed ? { collapsed: true } : {}),
 		};
 	}
 
@@ -374,6 +379,7 @@ export class AskBlock {
 		b.thinking = r.thinking ?? "";
 		b.session = r.session ?? null;
 		b.sessionSeq = r.sessionSeq ?? 0;
+		b.collapsed = !!r.collapsed;
 		// A dialog from an extension belongs to the Pi process that asked; it is gone after a restart.
 		b.turns = (r.turns ?? []).filter((t) => !(t.dialog && !t.answer));
 		const live = r.phase === "preparing" || r.phase === "thinking" || r.phase === "waiting";

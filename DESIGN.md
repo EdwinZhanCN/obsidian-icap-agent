@@ -55,6 +55,8 @@ Interleaving was the only option that works against no mode. Its one weakness is
 
 Inserted passages push text down. To limit that, explanations start short, stay transient until kept, and expand only on request. The page also makes room smoothly (see Motion).
 
+What is finished folds; what needs the learner stays open. In a block, earlier rounds fold to one line each (a request and what followed it, or one question with the answer and verdict), but while the learner is answering, the round just before stays open, because its feedback is what they answer from. A proposed change shows only the changed lines with two lines of context, and longer unchanged stretches fold; once decided it folds to its outcome (*accepted · +7 −0*). More than three touched files fold to their counts. The learner can fold a whole block to its header line, which lasts across reloads, and it opens itself when it needs them. Folding is view state only: nothing in the file changes.
+
 ## 4. The interactions
 
 ### Explanation: Passive → Active

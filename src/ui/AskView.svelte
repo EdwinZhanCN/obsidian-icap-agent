@@ -15,6 +15,8 @@
 	import { inertToEditor } from "./keys";
 	import { beckon, closeFrame, fluid, inkIn, play, seal, settleIn, spring } from "./motion";
 	import type { Answer } from "../runtime/state.svelte";
+	import { SvelteSet } from "svelte/reactivity";
+	import { diffStats, foldDiff, lineDiff } from "./line-diff";
 
 	interface Props {
 		block: AskBlock | null;
@@ -32,11 +34,13 @@
 	onMount(() => {
 		if (rt.focusOnMount.has(id)) {
 			rt.focusOnMount.delete(id);
+			if (block?.collapsed) block.collapsed = false;
 			autofocus = true;
 			host.scrollIntoView({ block: "nearest", behavior: "smooth" });
 		}
 		// Arriving from an edge cue or the Activity panel: mark what needs the learner now.
 		const arrive = () => {
+			if (block?.collapsed) block.collapsed = false;
 			if (block?.phase === "waiting") {
 				const turns = section?.querySelectorAll<HTMLElement>(".icap-turn");
 				seal(turns?.[turns.length - 1]?.querySelector<HTMLElement>(".icap-question"), 0.2);
@@ -136,9 +140,123 @@
 		escape();
 	}
 
-	function diffLines(s: string) {
-		return s.split("\n");
+	/*
+	 * Folding. What is finished folds to one line; what needs the learner stays open. Earlier rounds
+	 * fold (a request with what followed it, or one question), but while the block is live the round
+	 * just before the current one stays open: its feedback is what the learner answers from. A decided
+	 * change folds to its outcome. Long file lists fold to their counts. The whole block folds to its
+	 * header when the learner asks, and opens again when it needs them.
+	 */
+	function snippet(s: string | undefined, n = 80): string {
+		const line = (s ?? "").split("\n").map((l) => l.trim()).find(Boolean) ?? "";
+		const plain = line
+			.replace(/!?\[\[([^\]|]*)(?:\|([^\]]*))?\]\]/g, (_m, a: string, b?: string) => b || a)
+			.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+			.replace(/[*_`#>]+/g, "")
+			.replace(/\s+/g, " ")
+			.trim();
+		return plain.length > n ? `${plain.slice(0, n - 1)}…` : plain;
 	}
+
+	interface Round {
+		id: string;
+		turns: Turn[];
+	}
+	const rounds = $derived.by(() => {
+		const out: Round[] = [];
+		if (!block) return out;
+		for (const t of block.turns) {
+			if (t.final) continue;
+			if (!out.length || block.kind !== "request" || t.request) out.push({ id: t.id, turns: [t] });
+			else out[out.length - 1].turns.push(t);
+		}
+		return out;
+	});
+	/** Rounds the learner opened again; local to this view. */
+	const opened = new SvelteSet<string>();
+	function foldable(r: Round, i: number): boolean {
+		if (awaiting && r.turns.includes(awaiting)) return false;
+		const keepOpen = live || awaiting ? 2 : 1;
+		return i < rounds.length - keepOpen;
+	}
+
+	function letters(t: Turn): string {
+		return (t.answer?.choices ?? []).map((c) => String.fromCharCode(97 + Math.max(0, t.options?.findIndex((o) => o.id === c) ?? 0))).join(", ");
+	}
+	function decisionWord(t: Turn): string {
+		if (!t.answer) return "";
+		return t.answer.confirmed ? (t.confirmLabel ?? (t.kind === "review" ? L("accepted", "已采纳") : L("yes", "好"))) : (t.cancelLabel ?? (t.kind === "review" ? L("declined", "未采纳") : L("no", "暂不")));
+	}
+	function changeStats(t: Turn): string {
+		if (!t.review) return "";
+		const s = diffStats(lineDiff(t.review.find, t.review.replace));
+		return `+${s.add} −${s.del}`;
+	}
+	function roundLine(r: Round): { kind: string; text: string; meta: string } {
+		const t = r.turns[0];
+		if (t.request) {
+			const reviews = r.turns.filter((x) => x.kind === "review" && x.answer);
+			const meta = reviews.length === 1 ? `${L("change", "修改")} ${decisionWord(reviews[0])}` : reviews.length ? L(`${reviews.length} changes`, `${reviews.length} 处修改`) : "";
+			return { kind: t.control ? L("command", "命令") : kindLabel.request, text: snippet(t.answer?.text), meta };
+		}
+		if (t.kind === "review" && t.review) return { kind: L("proposed change", "建议修改"), text: t.review.path.replace(/\.md$/, ""), meta: [decisionWord(t), changeStats(t)].filter(Boolean).join(" · ") };
+		const answer = t.kind === "single" || t.kind === "multi" ? letters(t) : t.kind === "confirm" ? decisionWord(t) : t.inNote ? "" : snippet(t.answer?.text, 36);
+		return {
+			kind: L("question", "问题"),
+			text: t.inNote ? L("your explanation above", "你在上面写的解释") : snippet(t.question),
+			meta: [answer, t.verdict ? verdictGlyph(t.verdict) : ""].filter(Boolean).join(" · "),
+		};
+	}
+
+	/** Open or fold a round again: folding fades the words first, then the frame closes the gap. */
+	async function toggleRound(id: string) {
+		if (opened.has(id)) {
+			await play(section?.querySelector(`[data-round-body="${id}"]`), { opacity: 0 }, spring.fade).finished;
+			opened.delete(id);
+		} else {
+			opened.add(id);
+			await tick();
+			play(section?.querySelector(`[data-round-body="${id}"]`), { opacity: [0, 1], y: [-3, 0] }, spring.settle);
+		}
+	}
+
+	/** Decided changes the learner opened again, and unchanged stretches they unfolded. */
+	const openDiffs = new SvelteSet<string>();
+	const openGaps = new SvelteSet<string>();
+	let filesOpen = $state(false);
+	const fileCounts = $derived(
+		(["created", "edited", "deleted"] as const)
+			.map((k) => [k, files.filter((f) => f.kind === k).length] as const)
+			.filter(([, n]) => n > 0)
+			.map(([k, n]) => `${fileWord[k]} ${n}`)
+			.join(" · "),
+	);
+
+	/* The whole block, folded to its header line (kept across reloads). */
+	let body = $state<HTMLElement | null>(null);
+	let foldToken = 0;
+	async function toggleBlock() {
+		if (!block) return;
+		const token = ++foldToken;
+		if (!block.collapsed) {
+			await play(body, { opacity: 0 }, spring.fade).finished;
+			if (token !== foldToken) return;
+			block.collapsed = true;
+		} else {
+			block.collapsed = false;
+			await tick();
+			play(body, { opacity: [0, 1], y: [-3, 0] }, spring.settle);
+		}
+		rt.persist();
+	}
+	// A folded block opens when it needs the learner: a question, a change to decide, a final version.
+	$effect(() => {
+		if (block?.collapsed && awaiting && block.phase !== "idle") {
+			block.collapsed = false;
+			rt.persist();
+		}
+	});
+	const foldedStatus = $derived(!block ? "" : working ? L("working…", "进行中…") : blockCaption(block.phase, block.kind, false).split(SUBMIT_KEYS)[0].replace(/[—–-]\s*$/, "").trim());
 
 	const caption = $derived(
 		!block || working
@@ -251,6 +369,7 @@
 	<section
 		bind:this={section}
 		class="icap-ask"
+		class:is-collapsed={block.collapsed}
 		tabindex="-1"
 		use:inertToEditor
 		data-ask={id}
@@ -261,11 +380,15 @@
 		{onfocusin}
 	>
 		<header class="icap-label" class:icap-voice={working && !block.turns.length} class:is-drawing={working && !block.turns.length} use:settleIn={`bh:${id}`}>
-			<span class="icap-label-kind">{block.kind === "agent" && block.turns.some((t) => t.kind === "review") ? L("review", "修改审查") : kindLabel[block.kind]}</span>
-			<!-- a request's own words follow right below; the header doesn't repeat them -->
-			{#if block.kind !== "request"}<span class="icap-label-term">{block.topic}</span>{/if}
-			{#if ownSetup}<span class="icap-label-meta" title={L("This block's own model and thinking (/model, /thinking)", "这个块自己的模型与思考强度（/model、/thinking）")}>{ownSetup}</span>{/if}
-			{#if block.kind === "recall" && awaiting}
+			<button type="button" class="icap-label-btn" aria-expanded={!block.collapsed} title={block.collapsed ? L("Expand", "展开") : L("Fold", "折叠")} onclick={toggleBlock}>
+				<span class="icap-label-kind">{block.kind === "agent" && block.turns.some((t) => t.kind === "review") ? L("review", "修改审查") : kindLabel[block.kind]}</span>
+				<!-- a request's own words follow right below; the header repeats them only when folded -->
+				{#if block.kind !== "request"}<span class="icap-label-term">{block.topic}</span>
+				{:else if block.collapsed}<span class="icap-label-term">{snippet(block.turns.find((t) => t.request)?.answer?.text ?? block.topic)}</span>{/if}
+			</button>
+			{#if block.collapsed && foldedStatus}<span class="icap-label-meta" use:settleIn>{foldedStatus}</span>{/if}
+			{#if ownSetup && !block.collapsed}<span class="icap-label-meta" title={L("This block's own model and thinking (/model, /thinking)", "这个块自己的模型与思考强度（/model、/thinking）")}>{ownSetup}</span>{/if}
+			{#if block.kind === "recall" && awaiting && !block.collapsed}
 				<button
 					type="button"
 					class="icap-link icap-veil-toggle"
@@ -280,23 +403,41 @@
 
 		{#snippet turnView(turn: Turn, i: number)}
 			<div class="icap-turn" class:is-final={turn.final} data-kind={turn.kind}>
-				{#if turn.inNote}
+				{#if turn.kind === "review" && turn.review && turn.answer}
+					<!-- A decided change: its outcome on one line; it can be opened again. -->
+					<button type="button" class="icap-fold-row" aria-expanded={openDiffs.has(turn.id)} onclick={() => (openDiffs.has(turn.id) ? openDiffs.delete(turn.id) : openDiffs.add(turn.id))}>
+						<span class="icap-fold-kind">{L("proposed change", "建议修改")}</span>
+						<span class="icap-fold-text">{turn.review.path.replace(/\.md$/, "")}</span>
+						<span class="icap-fold-meta">{decisionWord(turn)} · {changeStats(turn)}</span>
+					</button>
+				{/if}
+				{#if turn.kind === "review" && turn.review && turn.answer && !openDiffs.has(turn.id)}
+					<!-- folded -->
+				{:else if turn.inNote}
 					<p class="icap-ref">{L("↑ checking the explanation you wrote above", "↑ 正在检查你在上面写的解释")}</p>
 				{:else if turn.question}
 					<div class="icap-voice icap-question" use:inkIn={{ key: `q:${turn.id}`, delay: i > 0 ? 0.12 : 0 }}>
-						{#if turn.kind === "review" && turn.review}
+						{#if turn.kind === "review" && turn.review && !turn.answer}
 							<p class="icap-review-title">{L("Proposed change to", "建议修改")} <button type="button" class="icap-link" onclick={() => rt.openPath(turn.review!.path)}>{turn.review.path.replace(/\.md$/, "")}</button></p>
 						{/if}
 						<Markdown app={rt.app} markdown={turn.question} {sourcePath} />
 					</div>
 				{/if}
 
-				{#if turn.kind === "review" && turn.review}
+				{#if turn.kind === "review" && turn.review && !(turn.answer && !openDiffs.has(turn.id))}
+					<!-- Only the changed lines and two lines around them; longer unchanged stretches fold. -->
 					<div class="icap-diff" aria-label={L("Proposed change", "建议的修改")} data-diff={turn.id} use:settledDiff={turn.answer}>
-						{#if turn.review.find}
-							{#each diffLines(turn.review.find) as l}<div class="icap-diff-del"><span aria-hidden="true">−</span>{l || " "}</div>{/each}
-						{/if}
-						{#each diffLines(turn.review.replace) as l}<div class="icap-diff-add"><span aria-hidden="true">+</span>{l || " "}</div>{/each}
+						{#each foldDiff(lineDiff(turn.review.find, turn.review.replace)) as item, k}
+							{#if item.t === "gap"}
+								{#if openGaps.has(`${turn.id}:${k}`)}
+									{#each item.lines as l}<div class="icap-diff-same"><span aria-hidden="true"> </span>{l.text || " "}</div>{/each}
+								{:else}
+									<button type="button" class="icap-diff-gap" onclick={() => openGaps.add(`${turn.id}:${k}`)}>{L(`… ${item.lines.length} unchanged lines`, `… ${item.lines.length} 行未改动`)}</button>
+								{/if}
+							{:else}
+								<div class="icap-diff-{item.t}"><span aria-hidden="true">{item.t === "add" ? "+" : item.t === "del" ? "−" : " "}</span>{item.text || " "}</div>
+							{/if}
+						{/each}
 					</div>
 				{/if}
 
@@ -317,8 +458,10 @@
 				{:else if turn.answer}
 					{#if turn.inNote}
 						<!-- the learner's words are in the note itself -->
-					{:else if turn.kind === "confirm" || turn.kind === "review"}
-						<p class="icap-learner icap-decision" use:settleIn={`a:${turn.id}`}>→ {turn.answer.confirmed ? (turn.confirmLabel ?? (turn.kind === "review" ? L("accepted", "已采纳") : L("yes", "好"))) : (turn.cancelLabel ?? (turn.kind === "review" ? L("declined", "未采纳") : L("no", "暂不")))}</p>
+					{:else if turn.kind === "review"}
+						<!-- the outcome is on the change's own line -->
+					{:else if turn.kind === "confirm"}
+						<p class="icap-learner icap-decision" use:settleIn={`a:${turn.id}`}>→ {decisionWord(turn)}</p>
 					{:else}
 						<div class="icap-learner" use:settleIn={`a:${turn.id}`}><Markdown app={rt.app} markdown={turn.answer.text ?? ""} {sourcePath} /></div>
 					{/if}
@@ -370,7 +513,25 @@
 			</div>
 		{/snippet}
 
-		{#each block.turns.filter((t) => !t.final) as turn, i (turn.id)}{@render turnView(turn, i)}{/each}
+		{#if !block.collapsed}
+		<div class="icap-ask-body" bind:this={body}>
+		{#each rounds as r, ri (r.id)}
+			{@const canFold = foldable(r, ri)}
+			{@const folded = canFold && !opened.has(r.id)}
+			{#if canFold}
+				{@const line = roundLine(r)}
+				<button type="button" class="icap-fold-row" aria-expanded={!folded} onclick={() => toggleRound(r.id)}>
+					<span class="icap-fold-kind">{line.kind}</span>
+					<span class="icap-fold-text">{line.text}</span>
+					{#if line.meta}<span class="icap-fold-meta">{line.meta}</span>{/if}
+				</button>
+			{/if}
+			{#if !folded}
+				<div class="icap-round" class:is-reopened={canFold} data-round-body={r.id}>
+					{#each r.turns as turn (turn.id)}{@render turnView(turn, block.turns.indexOf(turn))}{/each}
+				</div>
+			{/if}
+		{/each}
 
 		{#if working}
 			<div class="icap-voice icap-summary" class:is-drawing={true} use:holdHeight={working} use:settleIn={`w:${id}:${block.turns.length}`}>
@@ -387,7 +548,13 @@
 			</div>
 		{/if}
 
-		{#if files.length}
+		{#if files.length > 3}
+			<button type="button" class="icap-fold-row icap-files-sum" aria-expanded={filesOpen} onclick={() => (filesOpen = !filesOpen)}>
+				<span class="icap-fold-kind">{L("files", "文件")}</span>
+				<span class="icap-fold-text">{fileCounts}</span>
+			</button>
+		{/if}
+		{#if files.length && (files.length <= 3 || filesOpen)}
 			<ul class="icap-row-artifacts icap-files" aria-label={L("Files the agent touched", "Agent 改动的文件")}>
 				{#each files as a (a.path + a.kind)}
 					<li use:settleIn={`art:${block.taskId}:${a.kind}:${a.path}`}>
@@ -461,6 +628,8 @@
 				<button type="button" class="icap-link is-quiet" onclick={clear}>{L("not now", "暂不")}</button>
 			{/if}
 		</div>
+		</div>
+		{/if}
 	</section>
 	</div>
 	</div>

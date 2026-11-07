@@ -19,6 +19,8 @@ export function phaseLine(phase: AgentPhase | null | undefined, kind: "explain" 
 			return kind === "explain" ? L("thinking about the passage…", "正在思考这段话…") : kind === "quiz" ? L("considering your answer…", "正在看你的回答…") : kind === "request" ? L("thinking…", "思考中…") : L("reading what you wrote…", "正在读你写的内容…");
 		case "writing":
 			return kind === "explain" || kind === "request" ? L("writing…", "书写中…") : L("writing feedback…", "正在写反馈…");
+		case "retrying":
+			return L("the model provider returned an error — trying again…", "模型服务商出错，正在重试…");
 		case "waiting":
 			return L("waiting for you", "等你回应");
 		default:

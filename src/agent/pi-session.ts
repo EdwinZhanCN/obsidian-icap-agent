@@ -6,7 +6,8 @@ import { findModel, modelRuntime, projectTrusted, type PiSdk } from "./pi-host";
 export type { BridgeHandler } from "./icap-tools";
 
 /** Phases the document is allowed to know about. Never tool names, never thoughts. */
-export type AgentPhase = "starting" | "thinking" | "reading" | "writing" | "waiting";
+/** "retrying": the provider returned an error (a 500, an overload) and Pi is trying again after a pause. */
+export type AgentPhase = "starting" | "thinking" | "reading" | "writing" | "waiting" | "retrying";
 
 /** The tools the ICAP extension registers (agent/icap-tools.ts). */
 export const ICAP_TOOLS = ["obsidian", "read_document", "documents", "ask_learner", "create_note", "propose_edit"];
@@ -366,6 +367,9 @@ export class PiSession {
 			case "tool_execution_end":
 				o.onTool?.(false);
 				o.onPhase?.("thinking");
+				return;
+			case "auto_retry_start":
+				o.onPhase?.("retrying");
 				return;
 			case "auto_retry_end":
 				if (rec.success === false && rec.finalError) this.lastError = rec.finalError;

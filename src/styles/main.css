@@ -178,6 +178,8 @@ body.icap-ink-accent {
 /* Button reset — doubled class to outrank `.markdown-rendered button` and theme rules. */
 .icap-link.icap-link,
 .icap-icon-btn.icap-icon-btn,
+.icap-fold-row.icap-fold-row,
+.icap-diff-gap.icap-diff-gap,
 .icap-label-btn.icap-label-btn,
 .icap-row-title.icap-row-title,
 .icap-mark.icap-mark,
@@ -219,7 +221,7 @@ body.icap-ink-accent {
 	cursor: default;
 	text-decoration-color: transparent;
 }
-:is(.icap-link, .icap-icon-btn, .icap-label-btn, .icap-row-title, .icap-mark, .icap-selmark button):focus-visible {
+:is(.icap-link, .icap-icon-btn, .icap-label-btn, .icap-fold-row, .icap-diff-gap, .icap-row-title, .icap-mark, .icap-selmark button):focus-visible {
 	outline: 2px solid var(--icap-ink-soft);
 	outline-offset: 2px;
 	border-radius: 3px;
@@ -683,6 +685,60 @@ body.icap-ink-accent {
 	font-size: var(--tw-text-caption, 0.76rem);
 	margin: 0 0 0.2em;
 }
+/* Folded: a finished round, a decided change or a long file list, on one line. */
+.icap-fold-row.icap-fold-row {
+	@apply tw:flex tw:items-baseline tw:gap-2 tw:font-ui tw:text-faint;
+	width: 100%;
+	min-width: 0;
+	font-size: var(--tw-text-caption, 0.76rem);
+	line-height: 1.5;
+	margin: 0.15em 0;
+	transition: color 120ms ease;
+}
+.icap-fold-row.icap-fold-row::before {
+	content: "▸";
+	flex: none;
+	width: 0.8em;
+	font-size: 0.8em;
+	color: var(--icap-ink-soft);
+	transition: transform 160ms ease;
+}
+.icap-fold-row.icap-fold-row[aria-expanded="true"]::before {
+	transform: rotate(90deg);
+}
+.icap-fold-row.icap-fold-row:hover {
+	@apply tw:text-muted;
+}
+.icap-fold-kind {
+	flex: none;
+	font-size: 0.64rem;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--icap-ink);
+}
+.icap-fold-text {
+	min-width: 0;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+.icap-fold-meta {
+	flex: none;
+	margin-inline-start: auto;
+	padding-inline-start: 0.5em;
+}
+/* An earlier round opened again sits under its line, a step in. */
+.icap-round.is-reopened {
+	padding-inline-start: 0.8em;
+	margin-bottom: 0.4em;
+}
+.icap-ask.is-collapsed .icap-label {
+	margin-bottom: 0;
+}
+.icap-files-sum.icap-files-sum {
+	margin-top: 0.4em;
+}
+
 .icap-diff {
 	@apply tw:font-code;
 	font-size: 0.8rem;
@@ -707,6 +763,19 @@ body.icap-ink-accent {
 }
 .icap-diff-add {
 	background: var(--icap-ink-wash);
+}
+/* Unchanged context around a change. */
+.icap-diff-same {
+	@apply tw:text-faint;
+}
+.icap-diff-gap.icap-diff-gap {
+	@apply tw:font-ui tw:text-faint;
+	display: block;
+	padding: 0.1em 0 0.1em 1.6em;
+	font-size: var(--tw-text-caption, 0.76rem);
+}
+.icap-diff-gap.icap-diff-gap:hover {
+	@apply tw:text-muted;
 }
 .icap-diff-add span {
 	color: var(--icap-ink);
