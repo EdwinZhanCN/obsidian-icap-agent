@@ -1523,7 +1523,7 @@ export class LearningRuntime {
 		const active = this.app.workspace.getActiveViewOfType(MarkdownView);
 		if (active?.file?.path === block.notePath) return;
 		const n = new Notice(L(`A question is waiting in “${basename(block.notePath)}”.`, `“${basename(block.notePath)}”里有一个问题在等你。`), 6000);
-		n.noticeEl.addEventListener("click", () => void this.reveal(task));
+		n.messageEl.addEventListener("click", () => void this.reveal(task));
 	}
 
 	private async createNote(task: Task, p: Json): Promise<Json> {
@@ -1733,7 +1733,7 @@ export class LearningRuntime {
 			task.end("completed", outcome);
 			if (created.length) {
 				const n = new Notice(outcome + L(". Open the activity ledger to see them.", "。打开活动面板查看。"), 5000);
-				n.noticeEl.addEventListener("click", () => (this.ledger.open = true));
+				n.messageEl.addEventListener("click", () => (this.ledger.open = true));
 			}
 		} catch (e) {
 			this.finishWithError(task, e, L("Could not create the notes", "无法新建笔记"));

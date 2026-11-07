@@ -1,92 +1,55 @@
 # ICAP Learning Agent
 
-Learn inside your Obsidian notes. Select a term you don't understand and the explanation appears under the paragraph. Explain a section from memory and get feedback on what you wrote. Answer the questions the agent asks right in the note, or ask your agent for anything else from where you are. Whatever you decide to keep is plain Markdown.
+An Obsidian plugin for learning inside your own notes. There is no chat panel: explanations, questions and feedback appear in the note you are reading, and whatever you keep is plain Markdown. Its agent is [Pi](https://pi.dev), built into the plugin and connected to your own model provider.
 
-ICAP is an Obsidian plugin. Its agent is [Pi](https://pi.dev), which ships inside the plugin and uses your own model provider. The name comes from the ICAP framework (Chi & Wylie, 2014): learning gets deeper as engagement moves from **P**assive to **A**ctive, **C**onstructive and **I**nteractive, and the plugin is built to make the deeper modes easy.
+**[中文说明](README.zh-CN.md)** · Desktop Obsidian 1.8.7+ · English and Chinese interface
 
-**[中文说明](README.zh-CN.md)**
+![Selecting "angle of attack" opens an explanation under the paragraph](docs/images/explain.en.png)
 
-- Desktop Obsidian 1.8.7 or later
-- Interface in English or Chinese, following Obsidian's language
-- No chat panel: everything happens in the note you are reading
+## Features
+
+- **Explain.** Select a word or passage; the explanation appears under it. Ask for deeper, an example, plainer, or a comparison, and keep it if it helped.
+- **Recall.** Explain a section from memory. The agent answers what you actually wrote and asks a follow-up.
+- **Check.** A few questions on a section or a whole note, with feedback on your answer.
+- **Ask the agent here.** A request block anywhere in a note. Point at files with `[[` or `@`; use your Pi skills and commands with `/`.
+- **Documents.** PDFs, EPUBs and Word files in the vault become readable trees: the agent opens a book's table of contents, reads only the chapters it needs, and cites pages you can click.
+- **Interactive visuals.** Sliders and diagrams you can drag, in a sandbox with no network.
+- **Activity.** Every task, and every file it created, changed or deleted.
+
+![A request block: notes made from a PDF, with the edit to an existing note proposed as a diff](docs/images/request.en.png)
+
+Edits to your existing notes are proposed as a diff and applied only when you accept them. Notes stay readable without the plugin. The name comes from the ICAP framework (Chi & Wylie, 2014): learning deepens from **P**assive to **A**ctive, **C**onstructive and **I**nteractive.
 
 ## Install
 
-ICAP is not in the community plugin directory yet.
+Not in the community directory yet.
 
 1. Download `main.js`, `manifest.json` and `styles.css` from the latest [release](https://github.com/EdwinZhanCN/obsidian-icap-agent/releases).
 2. Put them in `<your vault>/.obsidian/plugins/icap-agent/`.
-3. In Obsidian, open **Settings → Community plugins**, turn off Restricted mode, and enable **ICAP Learning Agent**.
+3. Enable **ICAP Learning Agent** under **Settings → Community plugins**.
 
-On first launch the plugin opens a guide note, *Learning with ICAP*. Working through it takes you through every interaction once.
-
-**Upgrading from ICPA.** The plugin used to be called ICPA (folder `icpa-agent`). Install ICAP into the new folder and enable it. On its first start it imports the old folder's settings, activity and sessions. Then disable the old plugin and delete `.obsidian/plugins/icpa-agent/`. Existing `icpa-ask` blocks and `generated-by: icpa-agent` properties keep working.
+The first launch opens a guide note that walks through every interaction. Coming from ICPA (`icpa-agent`)? ICAP imports its settings on first start; then remove the old plugin.
 
 ## Connect a model
 
-Pi is built in, so you don't need to install Pi or Node.js. You do need a model provider:
+Open **Settings → ICAP Learning Agent → Model providers → Log in…**, then sign in with a subscription (Claude Pro/Max, ChatGPT, GitHub Copilot…) or paste an API key. Pi stores it in `~/.pi/agent/auth.json`, shared with the Pi CLI. A key exported in your shell profile also works.
 
-1. Open **Settings → ICAP Learning Agent → Model providers → Log in…**
-2. Pick your provider, then either sign in with an existing subscription (for example Claude Pro/Max, ChatGPT or GitHub Copilot) or paste an API key.
+**Agent setup.** By default the agent runs with your own Pi setup (skills, extensions, MCP servers, shell) and can edit files directly; every change is listed in Activity. Choose **ICAP only (isolated)** for read-only tools inside the vault and the folders you allow.
 
-The credential is stored by Pi in `~/.pi/agent/auth.json`, the same place the Pi CLI uses; ICAP keeps no keys of its own. A key exported in your shell profile (for example `export DEEPSEEK_API_KEY=…`) or a Pi CLI `/login` works too.
+## Network, accounts and files outside the vault
 
-## Use it
+- **Network.** Requests, with the parts of your notes and documents the agent reads, go only to the model provider you choose. ICAP has no server, no telemetry and no analytics. Visuals have no network access. In the default setup your own Pi extensions and MCP servers may contact their own services.
+- **Accounts.** You need an account with a model provider, which bills you directly. ICAP needs no account.
+- **Files outside the vault.** ICAP reads Pi's folder `~/.pi/agent/` (settings, credentials, extensions, skills) and writes there when you sign in, change the model or trust a project, as the Pi CLI does. On first use it runs your login shell once to pick up missing environment variables such as provider keys. In isolated mode the agent reads only the outside folders you allow; in the default setup it has Pi's shell.
+- **In the vault.** Settings and sessions live in `.obsidian/plugins/icap-agent/`; the document cache in `icap/docs/`.
 
-| To | Do this |
-|---|---|
-| Understand a word or passage | Select it and click the small mark that appears, or run **Explain selection in context**. Ask for *deeper*, *example*, *plainer* or *compare…*, and *keep in note* if it helped. |
-| Test whether you really understand a section | **Recall from memory (this section)**. The rest of the note blurs while you write; the agent responds and asks a follow-up. |
-| Check something you wrote | Select your paragraph and choose *check my words*, or run **Check what I wrote**. |
-| Answer a few questions | **Check my understanding of this section** or **…of this note**. |
-| Ask for anything else | **Ask the agent here** (also in the right-click menu). Type your request and press ⌘↵ (Ctrl+Enter). Type `[[` or `@` to point at files in the vault, and `/` for commands: your Pi skills, prompt templates and extension commands, plus `/model`, `/thinking` and `/compact`. |
-| Try something hands-on | Ask for it ("draw…", "make a slider that…"), or let the agent add one when it helps. Interactive visuals are `icap-ui` blocks. |
-| See what the agent did | Click the dot in the status bar to open **Activity**: every task, its state, and the files it created, changed or deleted. |
+## Troubleshooting and limitations
 
-Everything you keep is ordinary Markdown: callouts, paragraphs and links. Your notes stay readable without the plugin.
-
-## Settings
-
-| Setting | What it does |
-|---|---|
-| Your background | What you already know. Explanations build on this and on your own notes. |
-| How you like to learn | Language, style and depth, applied to every explanation and request. |
-| Model | Optional. The list shows only models you have credentials for; *Pi default* follows Pi's own settings. |
-| Thinking | Reasoning effort for models that support it (default: low). |
-| Agent setup | **Your Pi setup + ICAP** (default) or **ICAP only (isolated)**. See below. |
-| This vault's conventions | A short wizard that writes an `AGENTS.md` at the vault root: what you study here, how notes are organised, which folders the agent must leave alone. |
-| Interactive visuals | *When it helps* (default), *Only when I ask*, or *Never*. |
-| Prepare documents | On by default. Reads the PDFs, EPUBs and Word documents in the vault in the background (their structure and text) so the agent finds its way through many of them quickly. |
-| Summaries for every part | Off by default. While preparing a document, your model writes one sentence per chapter and section, and a few for the whole document. Costs about as many input tokens as the document has words, once per document. |
-
-## What the agent can do
-
-- **Your Pi setup + ICAP (default).** The agent runs with your own Pi configuration: your skills, extensions, MCP servers, `AGENTS.md`, and Pi's built-in tools, including the shell. It can edit files directly, the same as running Pi in the vault yourself. ICAP records every file it creates, changes, deletes or renames in Activity. ICAP's own tools never rewrite the text of an existing note without your approval: they propose the edit as a diff, and nothing changes until you apply it.
-- **ICAP only (isolated).** Read-only tools plus ICAP's own, no shell. The agent can read this vault and only the outside folders you allow. Your Pi extensions, skills and global `AGENTS.md` are not loaded; the vault's own `AGENTS.md` still is.
-- **Interactive visuals** run in a sandbox: no network, no access to your notes, Obsidian or your computer. A visual can do two things, and only after you click it: send one message back to the agent, or open a note in the vault.
-- **Documents.** Put PDFs, EPUBs and Word documents anywhere in the vault (or in a folder you allow). Ask in a request block, for example *"Make study notes on chapter 3 of the statistics book"* or *"What do these papers say about dropout?"*. The agent lists your documents, opens a book's table of contents, reads only the chapters it needs, and cites pages as links you can click (`[[book.pdf#page=12]]`). A PDF without bookmarks gets its structure from its layout (headings by size, weight and numbering), without a model. What it learns about a document is kept in the vault's `icap/docs/` folder, keyed by the file's content, so each document is read once; to sync it with Obsidian Sync, turn on *Other file types*.
-- **Your learning record is your notes.** There is no hidden learner database. Notes the agent creates are marked `generated-by: icap-agent` so it can tell your writing from its own; you can turn this off.
-
-## Troubleshooting
-
-- **"No model has credentials":** log in under **Model providers**. A key exported in `~/.zshrc` reaches Obsidian on its next launch; then press ↻ in the settings.
-- **The model isn't the one you expected:** if Pi's default model has no credential, Pi falls back to another one. Choose a model in the settings, or change Pi's `settings.json`.
-- **You don't want the agent editing files directly:** switch **Agent setup** to *ICAP only (isolated)*.
-
-## Known limitations
-
-- Desktop only: Pi needs Node.js, which only desktop Obsidian has.
-- `main.js` is about 11 MB, because it carries Pi and its model providers.
-- The selection mark works in Live Preview and Source mode, not Reading view.
-- An explanation you haven't kept disappears when the plugin reloads; question and request blocks persist and resume.
-- Scanned PDFs (images without a text layer) can't be read: there is no OCR. Some old PDFs lose ligatures such as "fi" in their text.
+- **"No model has credentials":** log in under **Model providers**. A key added to `~/.zshrc` reaches Obsidian on its next launch; then press ↻.
+- Desktop only (Pi needs Node.js). `main.js` is about 11 MB.
+- Scanned PDFs without a text layer can't be read (no OCR).
+- An explanation you haven't kept disappears when the plugin reloads.
 
 ## More
 
-- [DESIGN.md](DESIGN.md): how ICAP works and why
-- [CONTRIBUTING.md](CONTRIBUTING.md): building, testing and releasing
-- [AGENTS.md](AGENTS.md): the code map, for coding agents
-
-## License
-
-[MIT](LICENSE)
+[DESIGN.md](DESIGN.md) (how it works) · [FORMAT.md](FORMAT.md) (what it writes into notes) · [CONTRIBUTING.md](CONTRIBUTING.md) · [MIT](LICENSE)

@@ -101,8 +101,7 @@ export function fluid(node: HTMLElement, key?: string | null) {
 	let shownHeight = -1;
 
 	const release = () => {
-		node.style.height = "";
-		node.style.clipPath = "";
+		node.setCssStyles({ height: "", clipPath: "" });
 		EditorView.findFromDOM(node)?.requestMeasure();
 	};
 
@@ -121,7 +120,7 @@ export function fluid(node: HTMLElement, key?: string | null) {
 			return;
 		}
 		anim?.stop();
-		node.style.clipPath = CLIP;
+		node.setCssStyles({ clipPath: CLIP });
 		const a = play(node, { height: [from, to] }, spring.settle);
 		anim = a;
 		void a.finished.then(() => {
@@ -133,8 +132,7 @@ export function fluid(node: HTMLElement, key?: string | null) {
 	};
 
 	if (introduce(key) && !reducedMotion()) {
-		node.style.height = "0px";
-		node.style.clipPath = CLIP;
+		node.setCssStyles({ height: "0px", clipPath: CLIP });
 		target = 0;
 		shownHeight = 0;
 	}
@@ -164,7 +162,7 @@ export async function closeFrame(frame: HTMLElement | null | undefined, voice?: 
 		return;
 	}
 	const h = frame.getBoundingClientRect().height;
-	frame.style.clipPath = CLIP;
+	frame.setCssStyles({ clipPath: CLIP });
 	const kids = voice ? (Array.from(voice.children) as HTMLElement[]) : [];
 	play(kids, { opacity: 0 }, spring.fade);
 	if (voice) play(voice, { "--icap-rule-scale": 0 } as DOMKeyframesDefinition, spring.leave);
@@ -187,9 +185,9 @@ export function inkIn(node: HTMLElement, opts: string | { key: string; delay?: n
 		play(node, { opacity: [0, 1] });
 		return {};
 	}
-	node.style.setProperty("--icap-rule-scale", "0");
-	for (const k of kids) k.style.opacity = "0";
-	if (verdict) verdict.style.opacity = "0";
+	node.setCssProps({ "--icap-rule-scale": "0" });
+	for (const k of kids) k.setCssStyles({ opacity: "0" });
+	if (verdict) verdict.setCssStyles({ opacity: "0" });
 	whenAttached(node, () => {
 		const rule = play(node, { "--icap-rule-scale": [0, 1] } as DOMKeyframesDefinition, { ...spring.settle, delay });
 		void rule.finished.then(() => node.style.removeProperty("--icap-rule-scale"));
@@ -239,7 +237,7 @@ export function drawn(path: SVGPathElement, on: boolean) {
 /** A stroke drawn once, the first time its key is seen (e.g. a check mark when a task completes). */
 export function strokeIn(path: SVGPathElement, key: string) {
 	if (!introduce(key) || reducedMotion()) return {};
-	path.style.opacity = "0";
+	path.setCssStyles({ opacity: "0" });
 	whenAttached(path, () => play(path, { pathLength: [0, 1], opacity: [1, 1] }, { ...spring.hand, delay: 0.12 }));
 	return {};
 }
@@ -273,7 +271,7 @@ export function beckon(actions: HTMLElement | null | undefined, delay = 0.15) {
 	const primary = actions.querySelector<HTMLElement>(".icap-primary");
 	if (!primary || reducedMotion()) return;
 	primary.classList.add("is-beckoning");
-	primary.style.setProperty("--icap-underline", "0");
+	primary.setCssProps({ "--icap-underline": "0" });
 	const draw = play(primary, { "--icap-underline": [0, 1] } as DOMKeyframesDefinition, { ...spring.hand, delay: delay + 0.25 });
 	void draw.finished.then(() => {
 		window.setTimeout(() => {

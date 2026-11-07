@@ -174,7 +174,8 @@ const ctx = await esbuild.context({
     // Optional native module for Kerberos proxy auth (Bedrock); Pi's bundle requires it in a try/catch.
     "kerberos",
     ...builtinModules,
-    ...builtinModules.map((m) => `node:${m}`),
+    // Every node: specifier, including prefix-only modules (node:sqlite) that Node 22's builtinModules omits.
+    "node:*",
   ],
   // Pi's bundle carries Babel (via jiti), which has a harmless duplicate case clause.
   logOverride: { "duplicate-case": "silent" },

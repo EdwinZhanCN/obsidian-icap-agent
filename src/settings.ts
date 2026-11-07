@@ -75,7 +75,7 @@ export class IcapSettingTab extends PluginSettingTab {
 			setting.addTextArea((t) => {
 				t.setPlaceholder(placeholder).setValue(value).onChange(onChange);
 				t.inputEl.rows = rows;
-				t.inputEl.style.width = "100%";
+				t.inputEl.setCssStyles({ width: "100%" });
 			});
 
 		/* ── What you already know ── */

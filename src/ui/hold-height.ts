@@ -11,7 +11,7 @@ export function holdHeight(node: HTMLElement, active: boolean) {
 		const h = node.getBoundingClientRect().height;
 		if (h > max) {
 			max = h;
-			node.style.minHeight = `${max}px`;
+			node.setCssStyles({ minHeight: `${max}px` });
 		}
 	});
 	ro.observe(node);
@@ -20,7 +20,7 @@ export function holdHeight(node: HTMLElement, active: boolean) {
 			on = next;
 			if (!on) {
 				max = 0;
-				node.style.minHeight = "";
+				node.setCssStyles({ minHeight: "" });
 			}
 		},
 		destroy() {
