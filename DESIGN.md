@@ -116,7 +116,7 @@ Pi is a general agent runtime, not a product UI. ICAP bundles Pi's SDK and runs 
 
 **Isolated mode**, for predictable behaviour, registers only ICAP's tools and Pi's read-only ones: no shell, no extensions, skills, MCP or prompt templates, no global `AGENTS.md`. The protocol becomes the whole system prompt. Reading is limited to the vault and the folders the learner allows. The vault's own `AGENTS.md` still loads, because it belongs to the vault, not to the learner's Pi.
 
-**Credentials stay with Pi.** Login (OAuth or API key) goes through Pi and is stored in Pi's `auth.json`; keys exported in the shell are found even when Obsidian is launched from the Dock. The model list shows only models with credentials, and probing it sends no prompt and costs nothing.
+**Credentials stay with Pi.** Login (OAuth or API key) goes through Pi and is stored in Pi's `auth.json`; keys exported in the shell are found even when Obsidian is launched from the Dock. A custom endpoint (Ollama, a proxy, any OpenAI-compatible API) is a provider in Pi's `models.json`, edited from the settings without disturbing the rest of that file. The model list shows only models with credentials, and probing it sends no prompt and costs nothing.
 
 ### Knowledge comes from the vault, on demand
 

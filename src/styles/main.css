@@ -1356,6 +1356,10 @@ body {
 .icap-login .icap-login-list .setting-item {
 	padding: var(--size-4-2) 0;
 }
+.icap-login .setting-item-control input[type="text"],
+.icap-login .setting-item-control input[type="password"] {
+	width: min(20em, 100%);
+}
 .icap-login .icap-login-event {
 	margin: var(--size-4-3) 0;
 }

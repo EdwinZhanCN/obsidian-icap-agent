@@ -4,6 +4,7 @@ import { probeModels, type AgentConfig } from "./agent/pi-session";
 import { providerStates } from "./agent/pi-login";
 import type { Visuals } from "./agent/prompts";
 import { LoginModal } from "./ui/login-modal";
+import { EndpointModal } from "./ui/endpoint-modal";
 import { RulesModal, VAULT_RULES } from "./ui/rules-modal";
 import { L } from "./i18n";
 
@@ -246,6 +247,15 @@ export class IcapSettingTab extends PluginSettingTab {
 						new Notice(L("Pi could not load: ", "Pi 无法加载：") + (e as Error).message);
 					}
 				}),
+		);
+		providers.addButton((b) =>
+			b.setButtonText(L("Custom endpoint…", "自定义端点…")).setTooltip(L("Ollama, LM Studio, vLLM, a proxy, any OpenAI-compatible API", "Ollama、LM Studio、vLLM、中转站、任何兼容 OpenAI 的 API")).onClick(async () => {
+				try {
+					new EndpointModal(this.app, await this.plugin.pi(), check).open();
+				} catch (e) {
+					new Notice(L("Pi could not load: ", "Pi 无法加载：") + (e as Error).message);
+				}
+			}),
 		);
 		let modelDropdown: DropdownComponent | null = null;
 		const fillModels = (current: string | null, available: string[]) => {

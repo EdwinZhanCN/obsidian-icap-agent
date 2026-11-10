@@ -22,11 +22,9 @@ Edits to your existing notes are proposed as a diff and applied only when you ac
 
 ## Install
 
-Not in the community directory yet.
+In Obsidian, open **Settings → Community plugins → Browse**, search for **ICAP Learning Agent**, then **Install** and **Enable**.
 
-1. Download `main.js`, `manifest.json` and `styles.css` from the latest [release](https://github.com/EdwinZhanCN/obsidian-icap-agent/releases).
-2. Put them in `<your vault>/.obsidian/plugins/icap-agent/`.
-3. Enable **ICAP Learning Agent** under **Settings → Community plugins**.
+To install by hand instead, download `main.js`, `manifest.json` and `styles.css` from the latest [release](https://github.com/EdwinZhanCN/obsidian-icap-agent/releases) into `<your vault>/.obsidian/plugins/icap-agent/`, and enable the plugin there.
 
 The first launch opens a guide note that walks through every interaction. Coming from ICPA (`icpa-agent`)? ICAP imports its settings on first start; then remove the old plugin.
 
@@ -34,13 +32,15 @@ The first launch opens a guide note that walks through every interaction. Coming
 
 Open **Settings → ICAP Learning Agent → Model providers → Log in…**, then sign in with a subscription (Claude Pro/Max, ChatGPT, GitHub Copilot…) or paste an API key. Pi stores it in `~/.pi/agent/auth.json`, shared with the Pi CLI. A key exported in your shell profile also works.
 
+For a service Pi does not list (Ollama, LM Studio, vLLM, a proxy, any OpenAI-compatible API), use **Custom endpoint…** next to it: a name, base URL, key and model ids. It is saved in Pi's `~/.pi/agent/models.json` (`%USERPROFILE%\.pi\agent\models.json` on Windows), shared with the Pi CLI. A key written there is plain text; enter `$NAME` to read an environment variable instead.
+
 **Agent setup.** By default the agent runs with your own Pi setup (skills, extensions, MCP servers, shell) and can edit files directly; every change is listed in Activity. Choose **ICAP only (isolated)** for read-only tools inside the vault and the folders you allow.
 
 ## Network, accounts and files outside the vault
 
 - **Network.** Requests, with the parts of your notes and documents the agent reads, go only to the model provider you choose. ICAP has no server, no telemetry and no analytics. Visuals have no network access. In the default setup your own Pi extensions and MCP servers may contact their own services.
 - **Accounts.** You need an account with a model provider, which bills you directly. ICAP needs no account.
-- **Files outside the vault.** ICAP reads Pi's folder `~/.pi/agent/` (settings, credentials, extensions, skills) and writes there when you sign in, change the model or trust a project, as the Pi CLI does. On first use it runs your login shell once to pick up missing environment variables such as provider keys. In isolated mode the agent reads only the outside folders you allow; in the default setup it has Pi's shell.
+- **Files outside the vault.** ICAP reads Pi's folder `~/.pi/agent/` (settings, credentials, extensions, skills) and writes there when you sign in, add a custom endpoint, change the model or trust a project, as the Pi CLI does. On first use it runs your login shell once to pick up missing environment variables such as provider keys. In isolated mode the agent reads only the outside folders you allow; in the default setup it has Pi's shell.
 - **In the vault.** Settings and sessions live in `.obsidian/plugins/icap-agent/`; the document cache in `icap/docs/`.
 
 ## Troubleshooting and limitations

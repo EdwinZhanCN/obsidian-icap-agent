@@ -22,11 +22,9 @@
 
 ## 安装
 
-还没有上架社区插件市场。
+在 Obsidian 中打开 **设置 → 第三方插件 → 浏览**，搜索 **ICAP Learning Agent**，点 **安装**，再 **启用**。
 
-1. 在最新的 [Release](https://github.com/EdwinZhanCN/obsidian-icap-agent/releases) 下载 `main.js`、`manifest.json`、`styles.css`。
-2. 放到 `<你的库>/.obsidian/plugins/icap-agent/`。
-3. 在 **设置 → 第三方插件** 中启用 **ICAP Learning Agent**。
+也可以手动安装：在最新的 [Release](https://github.com/EdwinZhanCN/obsidian-icap-agent/releases) 下载 `main.js`、`manifest.json`、`styles.css`，放到 `<你的库>/.obsidian/plugins/icap-agent/`，然后在该页面启用插件。
 
 首次启用会打开一篇指南笔记，带你把每种交互都用一遍。从 ICPA（`icpa-agent`）升级：ICAP 首次启动时会导入旧设置，之后删除旧插件即可。
 
@@ -34,13 +32,15 @@
 
 打开 **设置 → ICAP Learning Agent → 模型服务商 → 登录…**，用订阅登录（Claude Pro/Max、ChatGPT、GitHub Copilot 等）或粘贴 API Key。凭证由 Pi 保存在 `~/.pi/agent/auth.json`，和 Pi 命令行共用。在 shell 配置里导出的密钥也能用。
 
+Pi 没有列出的服务（Ollama、LM Studio、vLLM、中转站、任何兼容 OpenAI 的 API），用旁边的 **自定义端点…**：填名称、Base URL、Key 和模型 ID。它保存在 Pi 的 `~/.pi/agent/models.json`（Windows 是 `%USERPROFILE%\.pi\agent\models.json`），和 Pi 命令行共用。这里的 Key 是明文；填 `$NAME` 则改为读取环境变量。
+
 **Agent 配置。** 默认情况下 Agent 使用你自己的 Pi 配置（skills、扩展、MCP、shell），可以直接改文件，每处改动都列在“活动”里。选择 **仅 ICAP（隔离）**，Agent 只有只读工具，只在库和你授权的文件夹内活动。
 
 ## 网络、账号和库以外的文件
 
 - **网络。** 请求以及 Agent 为此读取的笔记和资料片段，只发给你选择的模型服务商。ICAP 没有服务器，没有遥测，也不做统计。交互式图示不能联网。默认配置下，你自己的 Pi 扩展和 MCP 可能连接各自的服务。
 - **账号。** 需要一个模型服务商的账号，费用由服务商直接收取。ICAP 本身不需要账号。
-- **库以外的文件。** ICAP 读取 Pi 的文件夹 `~/.pi/agent/`（设置、凭证、扩展、skills）；你登录、换模型或信任项目时，会像 Pi 命令行一样写入这里。首次使用时会运行一次登录 shell，补上缺少的环境变量（例如服务商密钥）。隔离模式下 Agent 只读你授权的库外文件夹；默认配置下它可以使用 Pi 的 shell。
+- **库以外的文件。** ICAP 读取 Pi 的文件夹 `~/.pi/agent/`（设置、凭证、扩展、skills）；你登录、添加自定义端点、换模型或信任项目时，会像 Pi 命令行一样写入这里。首次使用时会运行一次登录 shell，补上缺少的环境变量（例如服务商密钥）。隔离模式下 Agent 只读你授权的库外文件夹；默认配置下它可以使用 Pi 的 shell。
 - **库里的东西。** 设置和会话在 `.obsidian/plugins/icap-agent/`；资料缓存在 `icap/docs/`。
 
 ## 常见问题与限制
