@@ -105,7 +105,8 @@ export function selectionMark(host: SelectionMarkHost) {
 						const width = this.el.offsetWidth || 160;
 						return {
 							left: Math.min(Math.max(8, end.right - host.left - 12), host.width - width - 12),
-							top: end.bottom - host.top + 6,
+							// On a phone, below the system's selection handle rather than under it.
+							top: end.bottom - host.top + (document.body.classList.contains("is-mobile") ? 28 : 6),
 						};
 					},
 					write: (at) => {

@@ -1,7 +1,6 @@
 /**
  * Pure helpers for the ICAP vault tools (no Obsidian imports, so they can be unit tested).
  */
-import { isAbsolute, relative, resolve } from "path";
 
 /** Most pages one read_document call returns, so one call can't flood the agent's context. */
 export const MAX_PAGES = 30;
@@ -31,14 +30,6 @@ export function parsePages(spec: string | undefined, total: number): { pages: nu
 /** Cut text to MAX_CHARS, saying so. */
 export function cap(text: string, max = MAX_CHARS): { text: string; truncated: boolean } {
 	return text.length > max ? { text: text.slice(0, max) + "\n…(truncated)", truncated: true } : { text, truncated: false };
-}
-
-/** Is `target` (absolute) inside one of `roots` (absolute)? */
-export function within(target: string, roots: string[]): boolean {
-	return roots.some((root) => {
-		const rel = relative(resolve(root), resolve(target));
-		return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
-	});
 }
 
 export interface SearchQuery {

@@ -1,9 +1,20 @@
 import type { NoteContext } from "../runtime/context";
 import { UI_LANG as VISUAL_FENCE } from "../genui/widget";
-import type { AgentConfig } from "./desktop/pi-session";
+import type { AgentConfig } from "./backend";
+import { VISUAL_SKILL, visualSkill } from "./visual-skill";
 
-/** ICAP's built-in skill for visuals (agent/icap-skills.ts). */
-export const VISUAL_SKILL = "icap-visual";
+export { VISUAL_SKILL };
+
+/**
+ * What the agent has besides ICAP's tools: Pi's file tools (read, grep, find, ls) and skills it reads
+ * on demand (desktop), or neither (mobile: the visual skill's text is then part of the prompt).
+ */
+export interface PromptEnv {
+	fileTools: boolean;
+	skills: boolean;
+}
+
+export const DESKTOP_ENV: PromptEnv = { fileTools: true, skills: true };
 
 const PRINCIPLES = `Principles (ICAP):
 - Make explanations easy to get, but leave the understanding to the learner. Do not do their recall, reasoning or summarising for them unless asked.
@@ -40,8 +51,7 @@ Everything you produce appears directly inside the learner's Markdown note, next
 ${PRINCIPLES}
 
 Tools:
-- read / grep / find / ls work inside the vault (the current folder). Use them sparingly and only when they improve the answer (e.g. to check what the learner already wrote about a related concept).
-- obsidian answers vault questions through Obsidian itself: search, backlinks, links, outline, properties, aliases, tags.
+{{FILE_TOOLS}}- obsidian answers vault questions through Obsidian itself: search, backlinks, links, outline, properties, aliases, tags.
 - documents and read_document read the learner's PDFs, EPUBs and Word documents (see "Working from documents").
 - ask_learner puts one question into the note and waits for the answer.
 - create_note creates a new note. propose_edit proposes a reviewable change to an existing note; never change existing notes any other way.
@@ -69,7 +79,10 @@ ${DOCUMENTS}`;
  */
 export type Visuals = "auto" | "asked" | "off";
 
-function visualsRule(visuals: Visuals): string {
+const FILE_TOOLS_LINE =
+	"- read / grep / find / ls work inside the vault (the current folder). Use them sparingly and only when they improve the answer (e.g. to check what the learner already wrote about a related concept).\n";
+
+function visualsRule(visuals: Visuals, env: PromptEnv): string {
 	if (visuals === "off") return "";
 	const when =
 		visuals === "auto"
@@ -79,13 +92,18 @@ function visualsRule(visuals: Visuals): string {
 
 Interactive visuals:
 - In your reply to a request, or in a note you create, you may include an interactive visual: a fenced ${VISUAL_FENCE} block (an HTML fragment with inline CSS and JavaScript) that the note renders in a sandbox. ${when}
-- Before writing your first ${VISUAL_FENCE} block in a task, read the ${VISUAL_SKILL} skill: it defines the format, the theme and the only two actions a visual can take.
-- Not in explanations, feedback or questions, and never through propose_edit: an edit to an existing note cannot add one.`;
+- ${
+		env.skills
+			? `Before writing your first ${VISUAL_FENCE} block in a task, read the ${VISUAL_SKILL} skill: it defines the format, the theme and the only two actions a visual can take.`
+			: `Write it as the ${VISUAL_SKILL} rules below define: the format, the theme and the only two actions a visual can take.`
+	}
+- Not in explanations, feedback or questions, and never through propose_edit: an edit to an existing note cannot add one.${env.skills ? "" : `\n\n<${VISUAL_SKILL}>\n${visualSkill().replace(/^---[\s\S]*?---\n+/, "").trim()}\n</${VISUAL_SKILL}>`}`;
 }
 
 
-export function systemPrompt(config: AgentConfig, preferences = "", visuals: Visuals = "off"): string {
-	const base = (config === "isolated" ? ISOLATED_PROMPT : APPENDED_PROMPT).replace("No HTML.", visuals === "off" ? "No HTML." : `No HTML outside an ${VISUAL_FENCE} block.`) + visualsRule(visuals);
+export function systemPrompt(config: AgentConfig, preferences = "", visuals: Visuals = "off", env: PromptEnv = DESKTOP_ENV): string {
+	const head = (config === "isolated" ? ISOLATED_PROMPT : APPENDED_PROMPT).replace("{{FILE_TOOLS}}", env.fileTools ? FILE_TOOLS_LINE : "");
+	const base = head.replace("No HTML.", visuals === "off" ? "No HTML." : `No HTML outside an ${VISUAL_FENCE} block.`) + visualsRule(visuals, env);
 	const prefs = preferences.trim();
 	return prefs ? `${base}\n\nHow the learner likes to learn (written by the learner; follow it unless a task says otherwise):\n${prefs}` : base;
 }

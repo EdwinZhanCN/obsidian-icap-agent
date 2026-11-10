@@ -1,47 +1,27 @@
-import { realpathSync } from "fs";
-import { homedir } from "os";
-import { isAbsolute, relative, resolve as resolvePath } from "path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { PiSdk } from "./pi-host";
+import type { TSchema, Type as TypeBuilder } from "typebox";
+import type { BridgeHandler, Json } from "../backend";
 
 /**
- * ICAP's tools, registered in-process on every task's Pi session. Each is a thin, declarative request to
- * the plugin (`onBridge`), which renders it inside the Markdown document — an Interactive Block, a note,
- * a reviewable edit — and returns JSON. The agent never touches the vault through these tools directly.
+ * ICAP's tools, platform-neutral: name, description, schema, execute. Each is a thin, declarative
+ * request to the plugin (`bridge`), which renders it inside the Markdown document — an Interactive
+ * Block, a note, a reviewable edit — and returns JSON. The agent never touches the vault through these
+ * tools directly. A backend wraps them for its agent (desktop: agent/desktop/icap-extension.ts).
  */
 
-type Json = Record<string, unknown>;
-export type BridgeHandler = (op: string, payload: Json) => Promise<Json>;
+/** The tools ICAP registers on every task's agent. */
+export const ICAP_TOOLS = ["obsidian", "read_document", "documents", "ask_learner", "create_note", "propose_edit"];
 
-function expandHome(p: string): string {
-	return p === "~" ? homedir() : p.startsWith("~/") ? homedir() + p.slice(1) : p;
-}
-
-/** Resolve symlinks as far as the path exists, so a link can't lead outside. */
-export function realish(p: string): string {
-	let head = p;
-	const tail: string[] = [];
-	for (;;) {
-		try {
-			return resolvePath(realpathSync(head), ...tail.reverse());
-		} catch {
-			const parent = resolvePath(head, "..");
-			if (parent === head) return p;
-			tail.push(head.slice(parent.length).replace(/^[/\\]/, ""));
-			head = parent;
-		}
-	}
-}
-
-export function inside(target: string, root: string): boolean {
-	const rel = relative(root, target);
-	return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
-}
-
-/** Isolated mode: may a file tool reach `raw` (relative to `cwd`) given the allowed roots? */
-export function allowedPath(raw: string, cwd: string, roots: string[]): boolean {
-	const abs = realish(resolvePath(cwd, expandHome(raw.replace(/^@/, ""))));
-	return roots.some((r) => inside(abs, realish(r)));
+export interface IcapTool {
+	name: string;
+	label: string;
+	description: string;
+	/** One line for the system prompt's tool list. */
+	promptSnippet: string;
+	parameters: TSchema;
+	/** Calls must not run in parallel with others (they wait for the learner). */
+	sequential: boolean;
+	/** The result as text for the model, and the details kept with the tool result. Throws on error. */
+	execute(params: Json): Promise<{ text: string; details: Json | undefined }>;
 }
 
 function text(result: Json): string {
@@ -49,11 +29,10 @@ function text(result: Json): string {
 }
 
 /**
- * The extension that registers ICAP's tools. `roots` (isolated mode): file tools stay inside the vault
- * and the folders the learner allowed.
+ * The tools, in the order they are registered. `Type` is the TypeBox the agent validates with (the
+ * backend's own copy), so the schemas are its own.
  */
-export function icapExtension(pi: PiSdk, bridge: BridgeHandler, roots?: string[]) {
-	const { Type } = pi;
+export function icapTools(Type: typeof TypeBuilder, bridge: BridgeHandler): IcapTool[] {
 	const call = async (op: string, payload: Json): Promise<Json> => {
 		try {
 			// A plain copy: the answer can come from Svelte state (a Proxy), and Pi structured-clones
@@ -143,8 +122,8 @@ export function icapExtension(pi: PiSdk, bridge: BridgeHandler, roots?: string[]
 		summary: Type.String({ description: "One sentence describing the change, shown to the learner for review." }),
 	});
 
-	return (api: ExtensionAPI) => {
-		api.registerTool({
+	return [
+		{
 			name: "ask_learner",
 			label: "Ask learner",
 			description:
@@ -153,32 +132,31 @@ export function icapExtension(pi: PiSdk, bridge: BridgeHandler, roots?: string[]
 				"Attach `feedback` + `verdict` when responding to their previous answer. Returns their answer as JSON.",
 			promptSnippet: "ask_learner: ask one question in the learner's note and wait for their answer",
 			parameters: AskParams,
-			executionMode: "sequential",
-			async execute(_id, params) {
-				if ((params.kind === "single" || params.kind === "multi") && !((params.options?.length ?? 0) >= 2)) {
+			sequential: true,
+			async execute(params) {
+				const options = params.options as unknown[] | undefined;
+				if ((params.kind === "single" || params.kind === "multi") && !((options?.length ?? 0) >= 2)) {
 					throw new Error("single/multi questions need at least two options");
 				}
-				const result = await call("ask", params as Json);
-				return { content: [{ type: "text", text: text(result) }], details: result };
+				const result = await call("ask", params);
+				return { text: text(result), details: result };
 			},
-		});
-
-		api.registerTool({
+		},
+		{
 			name: "create_note",
 			label: "Create note",
 			description:
 				"Create a NEW Markdown note in the learner's vault. Returns the created path. Never use this to modify existing notes — use propose_edit.",
 			promptSnippet: "create_note: create a new Markdown note in the vault",
 			parameters: CreateNoteParams,
-			executionMode: "sequential",
-			async execute(_id, params) {
-				const result = await call("create_note", params as Json);
+			sequential: true,
+			async execute(params) {
+				const result = await call("create_note", params);
 				if (result.status === "error") throw new Error(String(result.message ?? "create_note failed"));
-				return { content: [{ type: "text", text: text(result) }], details: result };
+				return { text: text(result), details: result };
 			},
-		});
-
-		api.registerTool({
+		},
+		{
 			name: "obsidian",
 			label: "Obsidian",
 			description:
@@ -191,14 +169,14 @@ export function icapExtension(pi: PiSdk, bridge: BridgeHandler, roots?: string[]
 				"files {folder?, ext?}. `file` resolves like a wikilink (name only); `path` is the exact vault path.",
 			promptSnippet: "obsidian: query the vault through Obsidian — search, links, backlinks, outline, properties, aliases, tags, files",
 			parameters: VaultParams,
-			async execute(_id, params) {
-				const result = await call("vault", params as Json);
+			sequential: false,
+			async execute(params) {
+				const result = await call("vault", params);
 				if (result.status === "error") throw new Error(String(result.message ?? "obsidian failed"));
-				return { content: [{ type: "text", text: text(result) }], details: undefined };
+				return { text: text(result), details: undefined };
 			},
-		});
-
-		api.registerTool({
+		},
+		{
 			name: "read_document",
 			label: "Read document",
 			description:
@@ -208,14 +186,14 @@ export function icapExtension(pi: PiSdk, bridge: BridgeHandler, roots?: string[]
 				"`path` is vault-relative (e.g. Sources/book.pdf) or absolute. Other files are returned as plain text. Cite PDF pages as [[book.pdf#page=12]].",
 			promptSnippet: "read_document: a document's structure (PDF, EPUB, DOCX), then the parts you need",
 			parameters: DocumentParams,
-			async execute(_id, params) {
-				const result = await call("read_document", params as Json);
+			sequential: false,
+			async execute(params) {
+				const result = await call("read_document", params);
 				if (result.status === "error") throw new Error(String(result.message ?? "read_document failed"));
-				return { content: [{ type: "text", text: text(result) }], details: undefined };
+				return { text: text(result), details: undefined };
 			},
-		});
-
-		api.registerTool({
+		},
+		{
 			name: "documents",
 			label: "Documents",
 			description:
@@ -224,14 +202,14 @@ export function icapExtension(pi: PiSdk, bridge: BridgeHandler, roots?: string[]
 				"search {query} → the pages/sections (with node ids) where all the words appear, across every document already read. Then read with read_document.",
 			promptSnippet: "documents: list the learner's PDFs/EPUBs/DOCX, or search their text",
 			parameters: DocumentsParams,
-			async execute(_id, params) {
-				const result = await call("documents", params as Json);
+			sequential: false,
+			async execute(params) {
+				const result = await call("documents", params);
 				if (result.status === "error") throw new Error(String(result.message ?? "documents failed"));
-				return { content: [{ type: "text", text: text(result) }], details: undefined };
+				return { text: text(result), details: undefined };
 			},
-		});
-
-		api.registerTool({
+		},
+		{
 			name: "propose_edit",
 			label: "Propose edit",
 			description:
@@ -239,22 +217,12 @@ export function icapExtension(pi: PiSdk, bridge: BridgeHandler, roots?: string[]
 				"Returns {status:'accepted'|'declined'}.",
 			promptSnippet: "propose_edit: propose a reviewable edit to an existing note",
 			parameters: ProposeEditParams,
-			executionMode: "sequential",
-			async execute(_id, params) {
-				const result = await call("propose_edit", params as Json);
+			sequential: true,
+			async execute(params) {
+				const result = await call("propose_edit", params);
 				if (result.status === "error") throw new Error(String(result.message ?? "propose_edit failed"));
-				return { content: [{ type: "text", text: text(result) }], details: result };
+				return { text: text(result), details: result };
 			},
-		});
-
-		if (roots) {
-			api.on("tool_call", async (event, ctx) => {
-				if (!["read", "grep", "find", "ls"].includes(event.toolName)) return undefined;
-				const input = event.input as { path?: unknown };
-				const raw = typeof input?.path === "string" && input.path.trim() ? input.path.trim() : ".";
-				if (allowedPath(raw, ctx.cwd, roots)) return undefined;
-				return { block: true, reason: `"${raw}" is outside the vault and the folders the learner allowed.` };
-			});
-		}
-	};
+		},
+	];
 }

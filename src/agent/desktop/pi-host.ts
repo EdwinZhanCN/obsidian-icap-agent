@@ -1,7 +1,7 @@
 import { execFile } from "child_process";
 import { pathToFileURL } from "url";
 import type * as Sdk from "./pi-sdk-entry";
-import type { AgentConfig } from "./pi-session";
+import type { AgentConfig } from "../backend";
 
 /**
  * Pi runs inside Obsidian: its SDK is bundled into main.js (tooling/pi-bundle.ts) and loaded on first use.

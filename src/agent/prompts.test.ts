@@ -19,3 +19,20 @@ describe("visuals in the protocol", () => {
 		expect(systemPrompt("isolated", "", "asked")).toContain("only when the learner asks for a visual");
 	});
 });
+
+describe("the protocol on mobile (no file tools, no skill files)", () => {
+	const mobile = { fileTools: false, skills: false };
+	it("lists only ICAP's tools", () => {
+		expect(systemPrompt("isolated")).toContain("read / grep / find / ls");
+		const p = systemPrompt("isolated", "", "off", mobile);
+		expect(p).not.toContain("read / grep / find / ls");
+		expect(p).toContain("ask_learner");
+	});
+	it("carries the icap-visual rules itself instead of pointing at a skill to read", () => {
+		const p = systemPrompt("isolated", "", "auto", mobile);
+		expect(p).toContain("<icap-visual>");
+		expect(p).toContain("icap.ask(");
+		expect(p).not.toMatch(/read the icap-visual skill/i);
+		expect(systemPrompt("isolated", "", "off", mobile)).not.toContain("icap-visual");
+	});
+});

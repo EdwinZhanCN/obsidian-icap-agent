@@ -2,7 +2,7 @@
 	import { L } from "../i18n";
 	import { focusIfNear } from "./focus";
 	import { onMount } from "svelte";
-	import type { App } from "obsidian";
+	import { Platform, type App } from "obsidian";
 	import Markdown from "./Markdown.svelte";
 	import Keys from "./Keys.svelte";
 	import { keyGuard } from "./keys";
@@ -143,7 +143,7 @@
 	{/each}
 	{#if !locked}
 		<div class="icap-writing-foot">
-			<span class="icap-hint" aria-hidden="true">{multi ? L("space to mark", "空格标记") : `a–${letter(options.length - 1)}`} · <Keys mod={false} /> {L("to submit", "提交")}</span>
+			{#if !Platform.isMobile}<span class="icap-hint" aria-hidden="true">{multi ? L("space to mark", "空格标记") : `a–${letter(options.length - 1)}`} · <Keys mod={false} /> {L("to submit", "提交")}</span>{/if}
 			<button type="button" class="icap-link icap-primary" disabled={!selected.length} onclick={submit}>{L("submit", "提交")}</button>
 		</div>
 	{/if}

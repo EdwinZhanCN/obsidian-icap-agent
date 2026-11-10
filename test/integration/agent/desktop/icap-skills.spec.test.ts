@@ -2,7 +2,8 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vite-plus/test";
-import { ensureSkills, visualSkill } from "../../../../src/agent/desktop/icap-skills";
+import { ensureSkills } from "../../../../src/agent/desktop/icap-skills";
+import { visualSkill } from "../../../../src/agent/visual-skill";
 
 
 

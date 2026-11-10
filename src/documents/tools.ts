@@ -1,7 +1,6 @@
-import { promises as fs } from "fs";
-import { isAbsolute, join, resolve } from "path";
 import { TFile, type App } from "obsidian";
-import { MAX_CHARS, MAX_PAGES, cap, parsePages, within } from "../agent/tools/doc-pages";
+import type { ExternalFiles } from "../agent/backend";
+import { MAX_CHARS, MAX_PAGES, cap, parsePages } from "../agent/tools/doc-pages";
 import { DOC_EXTENSIONS, describeTree, findNode, outlineText, walkNodes, type DocTree } from "./model";
 import { queryTerms, searchUnits, type DocHit } from "./search";
 import { CACHE_DIR, formatOf, type DocStore } from "./store";
@@ -9,7 +8,8 @@ import { CACHE_DIR, formatOf, type DocStore } from "./store";
 /**
  * What ICAP's reading tools answer: `read_document` (a document's structure, a node, or units) and
  * `documents` (the library: list and search). Everything comes from the cache (store.ts); a document
- * is parsed the first time it is read.
+ * is parsed the first time it is read. Files outside the vault are reached through `files`, when the
+ * backend has them (ExternalFiles in agent/backend.ts).
  */
 
 type Json = Record<string, unknown>;
@@ -21,16 +21,20 @@ function err(message: string): Json {
 	return { status: "error", message };
 }
 
-/** A path the agent gave → a vault path or an allowed absolute path. */
-async function locate(app: App, raw: string, allowedRoots: string[] | null): Promise<{ path: string } | { error: string }> {
+/**
+ * A path the agent gave → a vault path or an absolute path. `restrict`: an absolute path only inside
+ * the vault and the folders the learner allowed.
+ */
+function locate(app: App, files: ExternalFiles | null, raw: string, restrict: boolean): { path: string } | { error: string } {
 	const clean = raw.trim().replace(/^\[\[|\]\]$/g, "");
 	if (!clean) return { error: "path is required" };
 	const vaultPath = clean.replace(/^\/+/, "");
-	const f = app.vault.getAbstractFileByPath(vaultPath) ?? (isAbsolute(clean) ? null : app.metadataCache.getFirstLinkpathDest(clean, ""));
+	const absolute = !!files?.isAbsolute(clean);
+	const f = app.vault.getAbstractFileByPath(vaultPath) ?? (absolute ? null : app.metadataCache.getFirstLinkpathDest(clean, ""));
 	if (f instanceof TFile) return { path: f.path };
-	if (!isAbsolute(clean)) return { error: `No file at "${raw}" in the vault.` };
-	const abs = resolve(clean);
-	if (allowedRoots && !within(abs, allowedRoots)) return { error: `"${raw}" is outside the vault and the folders the learner allowed.` };
+	if (!files || !absolute) return { error: `No file at "${raw}" in the vault.` };
+	const abs = files.resolve(clean, restrict);
+	if (!abs) return { error: `"${raw}" is outside the vault and the folders the learner allowed.` };
 	return { path: abs };
 }
 
@@ -57,14 +61,14 @@ function readUnits(tree: DocTree, units: string[], wanted: number[], more: boole
 	return out;
 }
 
-export async function readDocument(app: App, store: DocStore, p: Json, allowedRoots: string[] | null): Promise<Json> {
-	const where = await locate(app, String(p.path ?? ""), allowedRoots);
+export async function readDocument(app: App, store: DocStore, files: ExternalFiles | null, p: Json, restrict: boolean): Promise<Json> {
+	const where = locate(app, files, String(p.path ?? ""), restrict);
 	if ("error" in where) return err(where.error);
 	const { path } = where;
 	if (!formatOf(path)) {
 		// Anything else is read as text, as before.
 		const f = app.vault.getAbstractFileByPath(path);
-		const raw = f instanceof TFile ? await app.vault.cachedRead(f) : await fs.readFile(path, "utf8").catch(() => null);
+		const raw = f instanceof TFile ? await app.vault.cachedRead(f) : files ? await files.readText(path) : null;
 		if (raw === null) return err(`Could not read "${path}".`);
 		const c = cap(raw);
 		return { path, text: c.text, truncated: c.truncated || undefined };
@@ -100,23 +104,21 @@ export async function readDocument(app: App, store: DocStore, p: Json, allowedRo
 	};
 }
 
-/** Documents (PDF, EPUB, DOCX) in the vault and, when given, in folders outside it. */
-async function listDocuments(app: App, extraRoots: string[], folder?: string): Promise<string[]> {
+/** Documents (PDF, EPUB, DOCX) in the vault and, when there are any, in the allowed folders outside it. */
+async function listDocuments(app: App, files: ExternalFiles | null, folder?: string): Promise<string[]> {
 	const prefix = folder ? folder.replace(/^\/+|\/+$/g, "") + "/" : "";
 	const out = app.vault
 		.getFiles()
 		.filter((f) => (DOC_EXTENSIONS as readonly string[]).includes(f.extension.toLowerCase()) && !f.path.startsWith(CACHE_DIR + "/") && (!prefix || f.path.startsWith(prefix)))
 		.map((f) => f.path);
-	if (!folder) {
-		for (const root of extraRoots) {
+	if (!folder && files) {
+		for (const root of files.roots()) {
 			const walk = async (dir: string, depth: number) => {
 				if (depth > 4 || out.length > 2000) return;
-				const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
-				for (const e of entries) {
+				for (const e of await files.list(dir)) {
 					if (e.name.startsWith(".")) continue;
-					const full = join(dir, e.name);
-					if (e.isDirectory()) await walk(full, depth + 1);
-					else if (formatOf(e.name)) out.push(full);
+					if (e.folder) await walk(e.path, depth + 1);
+					else if (formatOf(e.name)) out.push(e.path);
 				}
 			};
 			await walk(root, 0);
@@ -125,10 +127,10 @@ async function listDocuments(app: App, extraRoots: string[], folder?: string): P
 	return out.sort((a, b) => a.localeCompare(b));
 }
 
-export async function documentsCommand(app: App, store: DocStore, p: Json, extraRoots: string[]): Promise<Json> {
+export async function documentsCommand(app: App, store: DocStore, files: ExternalFiles | null, p: Json): Promise<Json> {
 	const command = String(p.command ?? "list");
 	const folder = typeof p.folder === "string" && p.folder.trim() ? p.folder.trim() : undefined;
-	const paths = await listDocuments(app, extraRoots, folder);
+	const paths = await listDocuments(app, files, folder);
 	const limit = Math.min(Math.max(1, Number(p.limit) || (command === "search" ? 20 : 200)), 500);
 	if (command === "list") {
 		const rows: Json[] = [];

@@ -408,6 +408,10 @@ body.icap-ink-accent {
 .cm-embed-block:has(.icap-ask-host):hover .edit-block-button {
 	opacity: 0.45;
 }
+/* A touch screen has no hover: Obsidian's own edit button stays findable. */
+.is-mobile .cm-embed-block:has(.icap-ask-host) .edit-block-button {
+	opacity: 0.45;
+}
 .block-language-icap-ask,
 .block-language-icpa-ask {
 	white-space: normal;
@@ -1442,4 +1446,13 @@ body {
 	width: 100%;
 	font-family: var(--font-monospace);
 	font-size: var(--font-ui-smaller);
+}
+
+/* A touch screen: the quiet text links keep their look but get a finger-sized hit area. */
+.is-mobile .icap-link.icap-link {
+	padding-block: 0.6em;
+	margin-block: -0.6em;
+}
+.icap-notice-action {
+	margin-top: 0.6em;
 }

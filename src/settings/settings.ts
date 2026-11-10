@@ -1,10 +1,8 @@
 import { App, Notice, PluginSettingTab, Setting, type DropdownComponent } from "obsidian";
 import type IcapPlugin from "../main";
-import { probeModels, type AgentConfig } from "../agent/desktop/pi-session";
-import { providerStates } from "../agent/desktop/pi-login";
+import type { AgentConfig } from "../agent/backend";
+import type { MobileEndpoint } from "../agent/mobile/providers";
 import type { Visuals } from "../agent/prompts";
-import { LoginModal } from "./login-modal";
-import { EndpointModal } from "./endpoint-modal";
 import { RulesModal, VAULT_RULES } from "./rules-modal";
 import { L } from "../i18n";
 
@@ -29,17 +27,26 @@ export interface IcapSettings {
 	maxConcurrent: number;
 	/**
 	 * Request blocks resume the Pi session of their last reply while it still matches the block
-	 * (agent/session-cache.ts). Off: every follow-up replays the block's turns to a fresh Pi.
+	 * (SessionCache, agent/backend.ts). Off: every follow-up replays the block's turns to a fresh Pi.
 	 */
 	rememberContext: boolean;
 	/** Interactive visuals (```icap-ui) in replies and agent-created notes. */
 	visuals: Visuals;
-	/** Read every PDF, EPUB and DOCX in the vault ahead of time, into icap/docs/ (docs/store.ts). */
+	/** Read every PDF, EPUB and DOCX in the vault ahead of time, into .icap/docs/ (docs/store.ts). */
 	prepareDocuments: boolean;
 	/** One-sentence summaries of every part of a document, written by the model when it is first read. */
 	documentSummaries: boolean;
 	/** The guide note is created (and opened) once, on first install. */
 	guideCreated: boolean;
+	/** Mobile: provider/id of the model; empty = the first provider with a key, its default model. */
+	mobileModel: string;
+	/**
+	 * Mobile: which secret (app.secretStorage, this device only) holds each provider's key, by provider
+	 * or endpoint id. Absent = `icap-<provider>` / `icap-endpoint-<slug>`.
+	 */
+	mobileSecrets: Record<string, string>;
+	/** Mobile: custom endpoints (their keys by reference, in secretStorage). */
+	mobileEndpoints: MobileEndpoint[];
 }
 
 export const DEFAULT_SETTINGS: IcapSettings = {
@@ -60,6 +67,9 @@ export const DEFAULT_SETTINGS: IcapSettings = {
 	prepareDocuments: true,
 	documentSummaries: false,
 	guideCreated: false,
+	mobileModel: "",
+	mobileSecrets: {},
+	mobileEndpoints: [],
 };
 
 export class IcapSettingTab extends PluginSettingTab {
@@ -71,6 +81,8 @@ export class IcapSettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 		const s = this.plugin.settings;
+		const backend = this.plugin.backend;
+		const caps = backend.capabilities;
 		const save = () => this.plugin.saveSettings();
 		const area = (setting: Setting, value: string, rows: number, onChange: (v: string) => void, placeholder = "") =>
 			setting.addTextArea((t) => {
@@ -200,8 +212,8 @@ export class IcapSettingTab extends PluginSettingTab {
 			.setName(L("Prepare documents ahead of time", "提前准备资料"))
 			.setDesc(
 				L(
-					"Read the PDFs, EPUBs and Word documents in this vault in the background — their structure and text — so the agent can find its way through many of them quickly. Kept in the icap/docs folder; nothing is sent anywhere. Off: a document is prepared the first time the agent reads it. To sync this folder with Obsidian Sync, turn on “Other file types”.",
-					"在后台读取这个库里的 PDF、EPUB 和 Word 文档——它们的结构和文字——让 Agent 在大量资料里也能快速找到要读的部分。存放在 icap/docs 文件夹，不会发送到任何地方。关闭后，资料在 Agent 第一次读它时才准备。要用 Obsidian Sync 同步这个文件夹，请打开“其他文件类型”。",
+					"Read the PDFs, EPUBs and Word documents in this vault in the background — their structure and text — so the agent can find its way through many of them quickly. Kept in the hidden .icap folder of this vault, on this device; nothing is sent anywhere. Off: a document is prepared the first time the agent reads it.",
+					"在后台读取这个库里的 PDF、EPUB 和 Word 文档——它们的结构和文字——让 Agent 在大量资料里也能快速找到要读的部分。存放在这个库的隐藏文件夹 .icap 里，只在这台设备上，不会发送到任何地方。关闭后，资料在 Agent 第一次读它时才准备。",
 				),
 			)
 			.addToggle((t) =>
@@ -229,66 +241,83 @@ export class IcapSettingTab extends PluginSettingTab {
 
 		/* ── Agent ── */
 		new Setting(containerEl).setName(L("Agent", "Agent")).setHeading();
-		const status = new Setting(containerEl).setName("Pi").setDesc(L("Checking…", "检查中…"));
+		const mobile = backend.platform === "mobile";
+		// The model setting this device uses: Pi's on desktop, its own on mobile (keys differ per device).
+		const modelKey = mobile ? "mobileModel" : "model";
+		const defaultWord = mobile ? L("Default", "默认") : L("Pi default", "Pi 默认");
+		const status = new Setting(containerEl).setName(mobile ? L("Agent", "Agent") : "Pi").setDesc(L("Checking…", "检查中…"));
 		const providers = new Setting(containerEl).setName(L("Model providers", "模型服务商"));
-		const providersHelp = L(
-			"Log in with an account or an API key. Credentials are Pi's own (~/.pi/agent/auth.json, or a key exported in your shell profile); ICAP never stores them.",
-			"用账号或 API Key 登录。凭证属于 Pi（~/.pi/agent/auth.json，或 shell 配置文件中导出的密钥），ICAP 从不保存。",
-		);
+		const providersHelp = mobile
+			? L(
+					"An API key per provider, or a custom endpoint. Keys are kept in Obsidian's keychain on this device only: never in your vault, never synced. Account logins (subscriptions) are desktop only.",
+					"每个服务商一个 API Key，或一个自定义端点。Key 保存在这台设备的 Obsidian 钥匙串里：不进入库，也不会同步。账号登录（订阅）只在桌面版可用。",
+				)
+			: L(
+					"Log in with an account or an API key. Credentials are Pi's own (~/.pi/agent/auth.json, or a key exported in your shell profile); ICAP never stores them.",
+					"用账号或 API Key 登录。凭证属于 Pi（~/.pi/agent/auth.json，或 shell 配置文件中导出的密钥），ICAP 从不保存。",
+				);
 		providers.setDesc(providersHelp);
-		providers.addButton((b) =>
-			b
-				.setButtonText(L("Log in…", "登录…"))
-				.setCta()
-				.onClick(async () => {
+		const accounts = backend.accounts;
+		const login = accounts?.login?.bind(accounts);
+		if (login)
+			providers.addButton((b) =>
+				b
+					.setButtonText(L("Log in…", "登录…"))
+					.setCta()
+					.onClick(async () => {
+						try {
+							await login(check);
+						} catch (e) {
+							new Notice(L("Pi could not load: ", "Pi 无法加载：") + (e as Error).message);
+						}
+					}),
+			);
+		const endpoints = caps.customEndpoints ? accounts?.endpoints?.bind(accounts) : undefined;
+		if (endpoints)
+			providers.addButton((b) =>
+				b.setButtonText(L("Custom endpoint…", "自定义端点…")).setTooltip(L("Ollama, LM Studio, vLLM, a proxy, any OpenAI-compatible API", "Ollama、LM Studio、vLLM、中转站、任何兼容 OpenAI 的 API")).onClick(async () => {
 					try {
-						new LoginModal(this.app, await this.plugin.pi(), check).open();
+						await endpoints(check);
 					} catch (e) {
 						new Notice(L("Pi could not load: ", "Pi 无法加载：") + (e as Error).message);
 					}
 				}),
-		);
-		providers.addButton((b) =>
-			b.setButtonText(L("Custom endpoint…", "自定义端点…")).setTooltip(L("Ollama, LM Studio, vLLM, a proxy, any OpenAI-compatible API", "Ollama、LM Studio、vLLM、中转站、任何兼容 OpenAI 的 API")).onClick(async () => {
-				try {
-					new EndpointModal(this.app, await this.plugin.pi(), check).open();
-				} catch (e) {
-					new Notice(L("Pi could not load: ", "Pi 无法加载：") + (e as Error).message);
-				}
-			}),
-		);
+			);
+		// Keys and endpoints edited in place (mobile).
+		if (accounts?.render) accounts.render(containerEl.createDiv(), () => this.display());
 		let modelDropdown: DropdownComponent | null = null;
 		const fillModels = (current: string | null, available: string[]) => {
 			if (!modelDropdown) return;
 			const d = modelDropdown;
+			const chosen = s[modelKey];
 			d.selectEl.empty();
-			d.addOption("", current ? L(`Pi default (${current})`, `Pi 默认（${current}）`) : L("Pi default", "Pi 默认"));
+			d.addOption("", current ? `${defaultWord} (${current})` : defaultWord);
 			for (const m of available) d.addOption(m, m);
-			if (s.model && !available.includes(s.model)) d.addOption(s.model, s.model);
-			d.setValue(s.model);
+			if (chosen && !available.includes(chosen)) d.addOption(chosen, chosen);
+			d.setValue(chosen);
 		};
 		const check = () => {
 			status.setDesc(L("Checking…", "检查中…"));
 			void (async () => {
 				let version = "";
 				try {
-					const pi = await this.plugin.pi();
-					version = `Pi ${pi.VERSION}`;
+					version = await backend.describe();
+					const probe = caps.modelProbe ? backend.probeModels?.bind(backend) : undefined;
+					if (!probe) return void status.setDesc(version);
 					status.setDesc(version + " · " + L("asking for its models…", "正在询问可用模型…"));
-					const m = await probeModels(pi, this.plugin.vaultPath() ?? process.cwd(), s.agentConfig, true);
+					const m = await probe(this.plugin.runtime.agentConfig(), true);
 					fillModels(m.current, m.available);
-					const ready = (await providerStates(pi)).filter((p) => p.configured).map((p) => p.name);
+					const ready = accounts ? await accounts.ready() : [];
 					providers.setDesc(ready.length ? L(`Ready: ${ready.join(", ")}. `, `已就绪：${ready.join("、")}。`) + providersHelp : providersHelp);
 					if (!m.available.length)
 						status.setDesc(
 							version +
 								" · " +
-								L(
-									"⚠ no model has credentials yet — log in to a provider below.",
-									"⚠ 还没有任何模型配置了凭证——在下面登录一个服务商。",
-								),
+								(mobile
+									? L("⚠ no model can run yet — add an API key below.", "⚠ 还没有可用的模型——在下面添加一个 API Key。")
+									: L("⚠ no model has credentials yet — log in to a provider below.", "⚠ 还没有任何模型配置了凭证——在下面登录一个服务商。")),
 						);
-					else status.setDesc(version + " · " + L(`uses ${s.model || m.current} · ${m.available.length} models available`, `使用 ${s.model || m.current} · 共 ${m.available.length} 个可用模型`));
+					else status.setDesc(version + " · " + L(`uses ${s[modelKey] || m.current} · ${m.available.length} models available`, `使用 ${s[modelKey] || m.current} · 共 ${m.available.length} 个可用模型`));
 				} catch (e) {
 					status.setDesc((version ? version + " · " : "") + L("could not load: ", "无法加载：") + (e as Error).message);
 				}
@@ -297,12 +326,16 @@ export class IcapSettingTab extends PluginSettingTab {
 		status.addExtraButton((b) => b.setIcon("refresh-cw").setTooltip(L("Check again", "重新检查")).onClick(check));
 		new Setting(containerEl)
 			.setName(L("Model", "模型"))
-			.setDesc(L("Models that have credentials in your Pi. “Pi default” follows your Pi settings.", "你的 Pi 中已有凭证的模型。“Pi 默认”跟随你的 Pi 设置。"))
+			.setDesc(
+				mobile
+					? L("Models of the providers with a key on this device. This choice is for mobile; the desktop keeps its own.", "这台设备上有 Key 的服务商的模型。这个选择只用于手机，桌面版保留自己的选择。")
+					: L("Models that have credentials in your Pi. “Pi default” follows your Pi settings.", "你的 Pi 中已有凭证的模型。“Pi 默认”跟随你的 Pi 设置。"),
+			)
 			.addDropdown((d) => {
 				modelDropdown = d;
 				fillModels(null, []);
 				d.onChange((v) => {
-					s.model = v;
+					s[modelKey] = v;
 					void save();
 				});
 			});
@@ -316,25 +349,26 @@ export class IcapSettingTab extends PluginSettingTab {
 					void save();
 				});
 			});
-		new Setting(containerEl)
-			.setName(L("Agent setup", "Agent 配置"))
-			.setDesc(
-				L(
-					"Your Pi setup: the agent runs with your own skills, extensions, MCP servers, AGENTS.md and tools (including shell), plus ICAP's note tools — it may change files directly; every change is listed in the activity. ICAP only: just ICAP's tools and this vault's conventions, read-only, no shell — predictable, but your own setup is not used.",
-					"你的 Pi 配置：Agent 带着你自己的 skills、扩展、MCP、AGENTS.md 和工具（包括 shell）运行，再加上 ICAP 的笔记工具——它可以直接修改文件，每处修改都会列在活动中。仅 ICAP：只有 ICAP 的工具和这个库的约定，只读、没有 shell——行为可预期，但不使用你自己的配置。",
-				),
-			)
-			.addDropdown((d) =>
-				d
-					.addOption("mine", L("Your Pi setup + ICAP", "你的 Pi 配置 + ICAP"))
-					.addOption("isolated", L("ICAP only (isolated)", "仅 ICAP（隔离）"))
-					.setValue(s.agentConfig)
-					.onChange((v) => {
-						s.agentConfig = v as AgentConfig;
-						void save();
-						check();
-					}),
-			);
+		if (caps.ownSetup)
+			new Setting(containerEl)
+				.setName(L("Agent setup", "Agent 配置"))
+				.setDesc(
+					L(
+						"Your Pi setup: the agent runs with your own skills, extensions, MCP servers, AGENTS.md and tools (including shell), plus ICAP's note tools — it may change files directly; every change is listed in the activity. ICAP only: just ICAP's tools and this vault's conventions, read-only, no shell — predictable, but your own setup is not used.",
+						"你的 Pi 配置：Agent 带着你自己的 skills、扩展、MCP、AGENTS.md 和工具（包括 shell）运行，再加上 ICAP 的笔记工具——它可以直接修改文件，每处修改都会列在活动中。仅 ICAP：只有 ICAP 的工具和这个库的约定，只读、没有 shell——行为可预期，但不使用你自己的配置。",
+					),
+				)
+				.addDropdown((d) =>
+					d
+						.addOption("mine", L("Your Pi setup + ICAP", "你的 Pi 配置 + ICAP"))
+						.addOption("isolated", L("ICAP only (isolated)", "仅 ICAP（隔离）"))
+						.setValue(s.agentConfig)
+						.onChange((v) => {
+							s.agentConfig = v as AgentConfig;
+							void save();
+							check();
+						}),
+				);
 		const rules = new Setting(containerEl).setName(L("This vault's conventions", "这个库的约定"));
 		const showRules = () => {
 			rules.controlEl.empty();
@@ -361,40 +395,42 @@ export class IcapSettingTab extends PluginSettingTab {
 				);
 		};
 		showRules();
-		area(
+		if (caps.externalFiles)
+			area(
+				new Setting(containerEl)
+					.setName(L("Folders outside the vault", "Vault 之外的文件夹"))
+					.setDesc(
+						L(
+							"ICAP only (isolated): absolute paths of folders the agent may also read, one per line. With your Pi setup, your Pi's own permissions apply.",
+							"仅 ICAP（隔离）模式：Agent 还可以读取的文件夹的绝对路径，每行一个。使用你的 Pi 配置时，按你的 Pi 自身的权限。",
+						),
+					),
+				s.externalFolders.join("\n"),
+				2,
+				(v) => {
+					s.externalFolders = v
+						.split("\n")
+						.map((l) => l.trim())
+						.filter((l) => l.startsWith("/") || /^[A-Za-z]:[\\/]/.test(l) || l.startsWith("~"));
+					void save();
+				},
+				"/Users/me/Books",
+			);
+		if (caps.sessionCache)
 			new Setting(containerEl)
-				.setName(L("Folders outside the vault", "Vault 之外的文件夹"))
+				.setName(L("Remember a request's context", "记住请求的上下文"))
 				.setDesc(
 					L(
-						"ICAP only (isolated): absolute paths of folders the agent may also read, one per line. With your Pi setup, your Pi's own permissions apply.",
-						"仅 ICAP（隔离）模式：Agent 还可以读取的文件夹的绝对路径，每行一个。使用你的 Pi 配置时，按你的 Pi 自身的权限。",
+						"A follow-up in a request block continues the agent's own session — what it already read and did — as long as it still matches what the block shows. Off: each follow-up starts a fresh agent from the block's text. Either way the note is the record; sessions are deleted when the block is kept or cleared.",
+						"在请求块里追问时，继续 Agent 自己的会话（它已经读过、做过的内容），前提是会话仍与块中显示的内容一致。关闭后，每次追问都由新的 Agent 从块中的文字重新开始。两种方式下笔记都是记录本身；块被保留或清除时会话会被删除。",
 					),
-				),
-			s.externalFolders.join("\n"),
-			2,
-			(v) => {
-				s.externalFolders = v
-					.split("\n")
-					.map((l) => l.trim())
-					.filter((l) => l.startsWith("/") || /^[A-Za-z]:[\\/]/.test(l) || l.startsWith("~"));
-				void save();
-			},
-			"/Users/me/Books",
-		);
-		new Setting(containerEl)
-			.setName(L("Remember a request's context", "记住请求的上下文"))
-			.setDesc(
-				L(
-					"A follow-up in a request block continues the agent's own session — what it already read and did — as long as it still matches what the block shows. Off: each follow-up starts a fresh agent from the block's text. Either way the note is the record; sessions are deleted when the block is kept or cleared.",
-					"在请求块里追问时，继续 Agent 自己的会话（它已经读过、做过的内容），前提是会话仍与块中显示的内容一致。关闭后，每次追问都由新的 Agent 从块中的文字重新开始。两种方式下笔记都是记录本身；块被保留或清除时会话会被删除。",
-				),
-			)
-			.addToggle((t) =>
-				t.setValue(s.rememberContext).onChange((v) => {
-					s.rememberContext = v;
-					void save();
-				}),
-			);
+				)
+				.addToggle((t) =>
+					t.setValue(s.rememberContext).onChange((v) => {
+						s.rememberContext = v;
+						void save();
+					}),
+				);
 		new Setting(containerEl)
 			.setName(L("Parallel tasks", "并行任务"))
 			.setDesc(L("How many agent tasks may run at once.", "最多同时运行几个 Agent 任务。"))

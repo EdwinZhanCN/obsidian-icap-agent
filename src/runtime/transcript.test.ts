@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { reusable, sessionSig } from "../agent/desktop/session-cache";
-import { coveredTranscript, transcriptOf, withReply } from "./transcript";
+import { coveredTranscript, reusable, sessionSig, transcriptOf, withReply } from "./transcript";
 import type { Turn } from "./state.svelte";
 
 const req = (text: string, extra: Partial<Turn> = {}): Turn => ({ id: Math.random().toString(36), kind: "text", question: "", local: true, request: true, answer: { text }, ...extra });

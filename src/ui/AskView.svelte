@@ -9,7 +9,8 @@
 	import Markdown from "./Markdown.svelte";
 	import WritingLine from "./WritingLine.svelte";
 	import Choices from "./Choices.svelte";
-	import { SUBMIT_KEYS, blockCaption, phaseLine } from "./phrases";
+	import { SUBMIT_KEYS, blockCaption, phaseLine, stopLabel, touchCaption } from "./phrases";
+	import { Platform } from "obsidian";
 	import Keys from "./Keys.svelte";
 	import { holdHeight } from "./hold-height";
 	import { inertToEditor } from "./keys";
@@ -256,14 +257,14 @@
 			rt.persist();
 		}
 	});
-	const foldedStatus = $derived(!block ? "" : working ? L("working…", "进行中…") : blockCaption(block.phase, block.kind, false).split(SUBMIT_KEYS)[0].replace(/[—–-]\s*$/, "").trim());
+	const foldedStatus = $derived(!block ? "" : working ? L("working…", "进行中…") : blockCaption(block.phase, block.kind, false, !!block.error).split(SUBMIT_KEYS)[0].replace(/[—–-]\s*$/, "").trim());
 
 	const caption = $derived(
 		!block || working
 			? ""
 			: awaiting && (awaiting.kind === "confirm" || awaiting.kind === "review")
 				? L("your turn", "轮到你了")
-				: blockCaption(block.phase, block.kind, !!awaiting?.draft),
+				: blockCaption(block.phase, block.kind, !!awaiting?.draft, !!block.error),
 	);
 
 	/*
@@ -595,10 +596,10 @@
 
 		<div class="icap-actions" role="toolbar" aria-label={L("Interaction actions", "交互操作")} bind:this={actionsEl}>
 			<span class="icap-caption" aria-live="polite">
-				{#key caption}<span class="icap-roll" use:settleIn>{#each caption.split(SUBMIT_KEYS) as part, i}{#if i}<Keys />{/if}{#if part}<span>{part}</span>{/if}{/each}</span>{/key}
+				{#key caption}<span class="icap-roll" use:settleIn>{#each (Platform.isMobile ? touchCaption(caption) : caption).split(SUBMIT_KEYS) as part, i}{#if i}<Keys />{/if}{#if part}<span>{part}</span>{/if}{/each}</span>{/key}
 			</span>
 			{#if live}
-				<button type="button" class="icap-link is-quiet" onclick={() => rt.stopBlock(block)}>{L("stop", "停止")}</button>
+				<button type="button" class="icap-link is-quiet" onclick={() => rt.stopBlock(block)}>{stopLabel(block.agentPhase)}</button>
 			{:else if done}
 				{#if block.phase === "completed"}
 					{#if block.kind === "recall"}

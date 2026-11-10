@@ -1,8 +1,8 @@
 import { App, ButtonComponent, Modal, Notice, Setting, TextComponent } from "obsidian";
 import type { AuthEvent, AuthPrompt } from "@earendil-works/pi-ai";
-import { L } from "../i18n";
-import type { PiSdk } from "../agent/desktop/pi-host";
-import { keyProblem, login, loginChoices, logout, providerStates, type LoginChoice, type ProviderState } from "../agent/desktop/pi-login";
+import { L } from "../../i18n";
+import type { PiSdk } from "./pi-host";
+import { keyProblem, login, loginChoices, logout, providerStates, type LoginChoice, type ProviderState } from "./pi-login";
 
 /** host/path…, for a long authorization URL whose query string means nothing to the learner. */
 function shortUrl(url: string): string {

@@ -1,9 +1,9 @@
 import { existsSync, mkdirSync, readdirSync, unlinkSync } from "fs";
 import { join } from "path";
-import { hashText } from "../../dsl/commands";
 
 /**
- * A request block's Pi session, kept as a cache — never as the source of truth.
+ * A request block's Pi session, kept as a cache — never as the source of truth. The desktop backend's
+ * SessionCache (agent/backend.ts); the fingerprint is runtime/transcript.ts's.
  *
  * The note is what the conversation *is*: the agent's context is the block's visible turns. Without
  * a cache, every follow-up replays them as a prompt to a fresh Pi. With one, a follow-up resumes
@@ -15,24 +15,8 @@ import { hashText } from "../../dsl/commands";
  * `--session-dir` and written once the first assistant message lands.
  */
 
-export interface BlockSession {
-	/** Pi session id: `icap-<blockId>-<n>` (`icpa-…` for sessions from before the plugin was renamed). */
-	id: string;
-	/** Fingerprint of what the session covers: agent setup + the block's transcript up to its last reply. */
-	sig: string;
-}
-
 export function sessionId(blockId: string, n: number): string {
 	return `icap-${blockId}-${n}`;
-}
-
-export function sessionSig(setup: string, transcript: string): string {
-	return `${hashText(setup)}${hashText(transcript)}:${transcript.length}`;
-}
-
-/** Can a follow-up resume this session? Only if it covers exactly the block's history. */
-export function reusable(s: BlockSession | null, setup: string, history: string): s is BlockSession {
-	return !!s && s.sig === sessionSig(setup, history);
 }
 
 export function ensureDir(dir: string): string {

@@ -1,22 +1,18 @@
-import { FileSystemAdapter, MarkdownView, Notice, TFile, type App, type Editor, type TAbstractFile } from "obsidian";
+import { MarkdownView, Notice, TFile, type App, type Editor, type TAbstractFile } from "obsidian";
 import { EditorView } from "@codemirror/view";
 import { mount, unmount } from "svelte";
 import { SvelteMap } from "svelte/reactivity";
 import type IcapPlugin from "../main";
-import { PiSession, probeCommands, probeModels, type AgentPhase, type Control, type DialogAnswer, type DialogRequest } from "../agent/desktop/pi-session";
-import { ensureDir, removeSessions, reusable, sessionExists, sessionId, sessionSig } from "../agent/desktop/session-cache";
-import { ensureSkills } from "../agent/desktop/icap-skills";
+import { SetupNeeded, type AgentBackend, type AgentConfig, type AgentPhase, type Control, type DialogAnswer, type DialogRequest, type SessionCache } from "../agent/backend";
 import { extractLinks } from "../dsl/links";
 import { THINKING_LEVELS, isIcapCommand, parseCommand, type CommandProvider, type IcapCommandName, type SlashCommand } from "../dsl/commands";
 import { L } from "../i18n";
 import { GENERATED_BY } from "../settings/settings";
 import { glossLabelUI } from "../ui/phrases";
 import { vaultCommand } from "../agent/tools/vault-tools";
-import { DocStore, CACHE_DIR, formatOf, type Loaded } from "../documents/store";
+import { DocStore, CACHE_DIR, LEGACY_DIR, formatOf, type Loaded } from "../documents/store";
 import { documentsCommand, readDocument } from "../documents/tools";
 import { applySummaries, documentPrompt, parseSummaries, summaryBatches } from "../documents/summaries";
-import { homedir } from "os";
-import { join } from "path";
 import {
 	blockContext,
 	commandContext,
@@ -32,7 +28,7 @@ import {
 	type NoteTaskKind,
 } from "../agent/prompts";
 import { buildContext } from "./context";
-import { answerText, coveredTranscript, transcriptOf, withReply } from "./transcript";
+import { answerText, coveredTranscript, reusable, sessionSig, transcriptOf, withReply } from "./transcript";
 import { calloutBlock, editProblem, evidenceCallout, findAskBlock, isoDate, parseAskSource, parseAuthored, requestRecord, type AskSource, glossCallout, newId, serializeAsk, splitSources, tidyOptionLabel, tidyQuestion, verdictGlyph, dialogTitle, type Depth } from "../dsl/blocks";
 import { askReplacement, blockInsertion, editorFor, spliceFile, uniqueNotePath, type Splice } from "../dsl/doc-ops";
 import { flashRange } from "../editor/fresh";
@@ -63,6 +59,9 @@ const TOOL_GRACE_MS = 3000;
 /** Artifacts that describe files the agent touched, kept whatever the task's own result is. */
 const FILE_KINDS = new Set<Artifact["kind"]>(["created", "edited", "deleted"]);
 
+/** The connection to the model failed mid-run (mobile: the app went to the background): resumable. */
+class Interrupted extends Error {}
+
 class Cancelled extends Error {
 	constructor() {
 		super(L("Stopped", "已停止"));
@@ -78,12 +77,13 @@ interface RunExtras {
 	/** This block's own model / thinking; empty = the plugin settings. */
 	model?: string;
 	thinking?: string;
-	session?: { id: string; dir: string };
+	/** A cached session to resume or create (SessionCache.id). */
+	session?: string;
 	/** A runtime control (compact) instead of a prompt. */
 	control?: Control;
 }
 
-/** The command catalog is asked of Pi at most this often (new skills show up without a restart). */
+/** The command catalog is asked of the agent at most this often (new skills show up without a restart). */
 const CATALOG_TTL_MS = 5 * 60 * 1000;
 
 export interface PersistedRuntime {
@@ -102,7 +102,7 @@ export class LearningRuntime {
 	private saveTimer: number | null = null;
 	/** Blocks that should take focus the first time they render. */
 	focusOnMount = new Set<string>();
-	/** The document cache (icap/docs/) behind read_document and documents. */
+	/** The document cache (.icap/docs/) behind read_document and documents. */
 	docs: DocStore;
 	/** Documents whose summaries are being written (by content hash). */
 	private summarizing = new Set<string>();
@@ -128,7 +128,12 @@ export class LearningRuntime {
 			},
 		};
 		this.field = glossField(host);
-		this.docs = new DocStore(plugin.app);
+		this.docs = new DocStore(plugin.app, plugin.backend.files ?? null);
+	}
+
+	/** The agent below the runtime (agent/backend.ts). */
+	get backend(): AgentBackend {
+		return this.plugin.backend;
 	}
 
 	get app(): App {
@@ -203,17 +208,9 @@ export class LearningRuntime {
 		};
 	}
 
-	/** The vault plus the folders the learner allowed outside it (enforced in isolated mode). */
-	private allowedRoots(): string[] {
-		const home = homedir();
-		const extra = this.settings.externalFolders.map((f) => (f === "~" ? home : f.startsWith("~/") ? home + f.slice(1) : f));
-		return [this.vaultRoot(), ...extra];
-	}
-
-	private vaultRoot(): string {
-		const a = this.app.vault.adapter;
-		if (a instanceof FileSystemAdapter) return a.getBasePath();
-		throw new Error(L("This plugin needs the desktop app (a vault on disk).", "此插件需要桌面版（Vault 在本地磁盘上）。"));
+	/** The agent setup tasks run with: the learner's choice, when the backend can run their own. */
+	agentConfig(): AgentConfig {
+		return this.backend.capabilities.ownSetup ? this.settings.agentConfig : "isolated";
 	}
 
 	private async runAgent(
@@ -233,62 +230,92 @@ export class LearningRuntime {
 		const release = await this.slot();
 		try {
 			if (cancelledEarly) throw new Cancelled();
-			const pi = await this.plugin.pi();
-			if (cancelledEarly) throw new Cancelled();
-			const config = this.settings.agentConfig;
-			const roots = this.allowedRoots();
+			const config = this.agentConfig();
 			const visuals = this.settings.visuals;
-			const session = new PiSession({
-				pi,
-				cwd: this.vaultRoot(),
-				config,
-				allowedRoots: roots,
-				skillPaths: visuals !== "off" ? this.icapSkills() : [],
-				systemPrompt: systemPrompt(config, this.settings.preferences, visuals) + (opts.systemExtra ? `\n\n${opts.systemExtra}` : ""),
-				prompt: opts.prompt,
-				tools: opts.tools,
-				model: opts.model || this.settings.model,
-				thinking: opts.thinking || this.settings.thinking,
-				session: opts.session,
-				control: opts.control,
-				onText: opts.onText,
-				onStep: (tool, detail) => {
-					task.addStep(tool, detail);
-					this.persist();
+			const run = this.backend.run(
+				{
+					config,
+					icapSkills: visuals !== "off",
+					systemPrompt: systemPrompt(config, this.settings.preferences, visuals, { fileTools: this.backend.capabilities.fileTools, skills: this.backend.capabilities.skillFiles }) + (opts.systemExtra ? `\n\n${opts.systemExtra}` : ""),
+					prompt: opts.prompt,
+					tools: opts.tools,
+					model: opts.model || this.defaultModel(),
+					thinking: opts.thinking || this.settings.thinking,
+					session: opts.session,
+					control: opts.control,
 				},
-				onTool: (running) => {
-					task.toolsRunning = Math.max(0, task.toolsRunning + (running ? 1 : -1));
-					if (!running) task.toolEndedAt = Date.now();
+				{
+					onText: opts.onText,
+					onStep: (tool, detail) => {
+						task.addStep(tool, detail);
+						this.persist();
+					},
+					onTool: (running) => {
+						task.toolsRunning = Math.max(0, task.toolsRunning + (running ? 1 : -1));
+						if (!running) task.toolEndedAt = Date.now();
+					},
+					onPhase: (p) => {
+						task.phase = p;
+						if (p === "waiting") task.status = "waiting";
+						else if (task.status === "waiting") task.status = "processing";
+						opts.onPhase?.(p);
+					},
+					onBridge: async (op, p) => {
+						// The read-only vault tools work in every task; the rest depends on the task.
+						if (op === "vault") return vaultCommand(this.app, p);
+						if (op === "read_document" || op === "documents") return this.documentTool(op, p, config === "isolated");
+						return opts.onBridge ? opts.onBridge(op, p) : { status: "error", message: "Not available for this task." };
+					},
+					// A dialog from one of the learner's own extensions is asked in the task's block.
+					...(this.backend.capabilities.extensionDialogs ? { onDialog: (req: DialogRequest, signal: AbortSignal) => this.dialog(task, req, signal) } : {}),
 				},
-				onPhase: (p) => {
-					task.phase = p;
-					if (p === "waiting") task.status = "waiting";
-					else if (task.status === "waiting") task.status = "processing";
-					opts.onPhase?.(p);
-				},
-				onBridge: async (op, p) => {
-					// The read-only vault tools work in every task; the rest depends on the task.
-					if (op === "vault") return vaultCommand(this.app, p);
-					if (op === "read_document" || op === "documents") return this.documentTool(op, p, config === "isolated" ? roots : null, roots.slice(1));
-					return opts.onBridge ? opts.onBridge(op, p) : { status: "error", message: "Not available for this task." };
-				},
-				// A dialog from one of the learner's own extensions is asked in the task's block.
-				onDialog: (req, signal) => this.dialog(task, req, signal),
-			});
-			task.cancel = () => session.cancel();
-			const result = await session.run();
+			);
+			task.cancel = () => run.cancel();
+			const result = await run.result;
 			if (result.aborted) throw new Cancelled();
+			if (result.interrupted) throw new Interrupted(result.interrupted);
 			return result.text;
 		} finally {
 			release();
 		}
 	}
 
-	private finishWithError(task: Task, err: unknown, outcomeOnFail: string): "cancelled" | "failed" {
+	/** The model the settings choose on this device (each backend has its own; empty = its default). */
+	defaultModel(): string {
+		return this.backend.platform === "mobile" ? this.settings.mobileModel : this.settings.model;
+	}
+
+	/** Open ICAP's settings tab (a task that cannot run until something is set up). */
+	openSettings() {
+		const setting = (this.app as unknown as { setting?: { open(): void; openTabById(id: string): void } }).setting;
+		setting?.open();
+		setting?.openTabById(this.plugin.manifest.id);
+	}
+
+	private finishWithError(task: Task, err: unknown, outcomeOnFail: string): "cancelled" | "failed" | "interrupted" {
 		if (err instanceof Cancelled) {
 			// Keep the task's own title ("Explaining “heap”"); the ledger's status word says "stopped".
 			task.end("cancelled");
 			return "cancelled";
+		}
+		if (err instanceof Interrupted) {
+			// Resumable like a task Obsidian closed on (resume()); the reason is kept for the ledger.
+			task.interrupted = true;
+			task.end("cancelled", undefined, L("The connection to the model was lost (the app may have gone to the background).", "与模型的连接中断了（应用可能被切到了后台）。"));
+			return "interrupted";
+		}
+		if (err instanceof SetupNeeded) {
+			// The direct way into the settings, from wherever the task was started.
+			const notice = new Notice(
+				createFragment((f) => {
+					f.createDiv({ text: err.message });
+					f.createEl("button", { text: L("Open settings", "打开设置"), cls: "mod-cta icap-notice-action" }).addEventListener("click", () => {
+						notice.hide();
+						this.openSettings();
+					});
+				}),
+				0,
+			);
 		}
 		const msg = humanError(err);
 		task.end("failed", outcomeOnFail, msg);
@@ -299,39 +326,42 @@ export class LearningRuntime {
 		task.cancel?.();
 	}
 
-	/* ───────────── The `/` catalog: Pi's commands + ICAP's runtime commands ───────────── */
+	/* ───────────── The `/` catalog: the agent's commands + ICAP's runtime commands ───────────── */
 
 	private commandCache: { key: string; at: number; list: Promise<SlashCommand[]> } | null = null;
 	private modelCache: { key: string; at: number; list: Promise<string[]> } | null = null;
 
-	/** Settings changed (agent setup): ask Pi again next time. */
+	/** Settings changed (agent setup): ask the agent again next time. */
 	invalidateCatalog() {
 		this.commandCache = null;
 		this.modelCache = null;
 	}
 
 	private catalogKey() {
-		return this.settings.agentConfig;
+		return this.agentConfig();
 	}
 
 	private icapCommands(): SlashCommand[] {
-		return [
+		const commands: SlashCommand[] = [
 			{ name: "model", source: "icap", description: L("Model for this block only (/model default goes back)", "仅用于这个块的模型（/model default 恢复默认）") },
 			{ name: "thinking", source: "icap", description: L("Thinking level for this block only", "仅用于这个块的思考强度") },
 			{ name: "compact", source: "icap", description: L("Summarize the earlier rounds for the agent; the note stays as it is", "为 Agent 压缩前面的轮次；笔记保持不变") },
 		];
+		// Only a backend that keeps sessions can compact one.
+		return this.backend.capabilities.compact ? commands : commands.filter((c) => c.name !== "compact");
 	}
 
 	/** Every command a request block offers. The learner's own come from their Pi (cached). */
 	async slashCommands(): Promise<SlashCommand[]> {
 		const own = this.icapCommands();
 		// "ICAP only" runs Pi without extensions, skills and prompt templates: there is nothing to ask.
-		if (this.settings.agentConfig === "isolated") return own;
+		const probe = this.backend.probeCommands?.bind(this.backend);
+		if (this.agentConfig() === "isolated" || !probe || !this.backend.capabilities.commandProbe) return own;
 		const key = this.catalogKey();
 		const c = this.commandCache;
 		if (!c || c.key !== key || Date.now() - c.at > CATALOG_TTL_MS) {
 			const list = (async () => {
-				const found = await probeCommands(await this.plugin.pi(), this.vaultRoot());
+				const found = await probe();
 				return found.map((x): SlashCommand => ({ name: x.name, description: x.description, source: x.source }));
 			})();
 			const entry = { key, at: Date.now(), list };
@@ -348,11 +378,13 @@ export class LearningRuntime {
 
 	/** Models with credentials in the learner's Pi (for /model). */
 	async modelChoices(): Promise<string[]> {
+		const probe = this.backend.probeModels?.bind(this.backend);
+		if (!probe || !this.backend.capabilities.modelProbe) return [];
 		const key = this.catalogKey();
 		const c = this.modelCache;
 		if (!c || c.key !== key || Date.now() - c.at > CATALOG_TTL_MS) {
 			const list = (async () => {
-				return (await probeModels(await this.plugin.pi(), this.vaultRoot(), this.settings.agentConfig)).available;
+				return (await probe(this.agentConfig())).available;
 			})();
 			const entry = { key, at: Date.now(), list };
 			this.modelCache = entry;
@@ -365,58 +397,41 @@ export class LearningRuntime {
 
 	/** What a request block's writing line offers after "/". Learning blocks get none: see AskView. */
 	commandProvider(): CommandProvider {
-		const settings = this.settings;
+		const config = () => this.agentConfig();
 		return {
 			list: () => this.slashCommands(),
 			args: (name) =>
 				name === "model" ? this.modelChoices().then((m) => ["default", ...m]) : name === "thinking" ? Promise.resolve(["default", ...THINKING_LEVELS]) : null,
 			// Read when shown, so a change of agent setup is reflected without re-rendering the block.
 			get note() {
-				return settings.agentConfig === "isolated"
+				return config() === "isolated"
 					? L("Your own Pi skills and commands are off in “ICAP only” mode (settings → Agent setup).", "“仅 ICAP”模式下不加载你自己的 Pi skills 和命令（设置 → Agent 配置）。")
 					: undefined;
 			},
 		};
 	}
 
-	/* ───────────── Request blocks' Pi sessions (a cache of the conversation, agent/session-cache.ts) ───────────── */
+	/* ───────────── Request blocks' sessions (a cache of the conversation, SessionCache in agent/backend.ts) ───────────── */
 
-	/** Where request blocks' Pi sessions live: next to the plugin, out of the vault's notes. */
-	private sessionDir(): string | null {
-		const dir = this.plugin.pluginPath();
-		if (!dir) return null;
-		try {
-			return ensureDir(join(dir, "sessions"));
-		} catch {
-			return null;
-		}
-	}
-
-	/** ICAP's own skills, written into the plugin folder (inside the vault, readable in isolated mode). */
-	private icapSkills(): string[] {
-		const dir = this.plugin.pluginPath();
-		if (!dir) return [];
-		try {
-			return ensureSkills(dir);
-		} catch {
-			return [];
-		}
+	/** The backend's session cache, when it has one and it can be used now. */
+	private sessionCache(): SessionCache | null {
+		const cache = this.backend.sessions;
+		return cache && this.backend.capabilities.sessionCache && cache.ready() ? cache : null;
 	}
 
 	/** What a session was made under; a session made under another setup is not resumed. */
 	private sessionSetup(): string {
-		return `${this.settings.agentConfig}|${this.vaultRoot()}`;
+		const config = this.agentConfig();
+		return this.backend.sessions?.setup(config) ?? config;
 	}
 
 	private dropSessions(blockId: string) {
-		const dir = this.sessionDir();
-		if (dir) removeSessions(dir, { block: blockId });
+		this.sessionCache()?.remove({ block: blockId });
 	}
 
 	/** Remove the sessions of blocks that are no longer open (kept, cleared, or gone with their note). */
 	pruneSessions() {
-		const dir = this.sessionDir();
-		if (dir) removeSessions(dir, { keep: new Set(this.blocks.keys()) });
+		this.sessionCache()?.remove({ keep: new Set(this.blocks.keys()) });
 	}
 
 	/* ───────────── Documents: preparing ahead, summaries ───────────── */
@@ -427,12 +442,13 @@ export class LearningRuntime {
 	 */
 	/**
 	 * The agent's document tools: `read_document` (structure, a node, pages) and `documents` (list,
-	 * search). `allowed` limits reading to those roots (isolated mode); `extra` are folders outside the
-	 * vault whose documents are listed.
+	 * search). `restrict` (isolated mode): an absolute path only inside the vault and the folders the
+	 * learner allowed; documents in those folders are listed either way.
 	 */
-	async documentTool(op: "read_document" | "documents", p: Record<string, unknown>, allowed: string[] | null = null, extra: string[] = []) {
-		if (op === "documents") return documentsCommand(this.app, this.docs, p, extra);
-		const r = await readDocument(this.app, this.docs, p, allowed);
+	async documentTool(op: "read_document" | "documents", p: Record<string, unknown>, restrict = false) {
+		const files = this.backend.files ?? null;
+		if (op === "documents") return documentsCommand(this.app, this.docs, files, p);
+		const r = await readDocument(this.app, this.docs, files, p, restrict);
 		if (typeof r.path === "string") void this.summarizeLater(r.path);
 		return r;
 	}
@@ -503,7 +519,7 @@ export class LearningRuntime {
 				await this.docs.writeTree(tree);
 			}
 			tree.summary = (await this.runAgent(task, { prompt: documentPrompt(tree), tools: [] })).replace(/\s+/g, " ").trim();
-			tree.summarized_by = this.settings.model || "Pi default";
+			tree.summarized_by = this.defaultModel() || (this.backend.platform === "mobile" ? "default" : "Pi default");
 			await this.docs.writeTree(tree);
 			setResult(task, { kind: "kept", path: doc.path, label: name });
 			task.end("completed", L(`Summarized “${name}”`, `已为“${name}”写好摘要`));
@@ -635,7 +651,7 @@ export class LearningRuntime {
 			task.end("completed", mode === "explain" ? L(`Explained “${gloss.term}”`, `已解释“${gloss.term}”`) : `${glossLabelUI(mode, compareWith)} — “${gloss.term}”`);
 		} catch (e) {
 			const r = this.finishWithError(task, e, L(`Could not explain “${gloss.term}”`, `无法解释“${gloss.term}”`));
-			section.status = r;
+			section.status = r === "interrupted" ? "failed" : r;
 			section.error = task.error ?? undefined;
 			if (r === "cancelled" && !section.text.trim()) gloss.sections.splice(gloss.sections.indexOf(section), 1);
 			task.retry = () => {
@@ -828,7 +844,7 @@ export class LearningRuntime {
 	 *
 	 * The block's visible turns are the conversation. If the Pi session that produced the last reply
 	 * still covers exactly those turns, it is resumed and only the new request is sent; otherwise a
-	 * fresh session starts from a replay of the turns (see agent/session-cache.ts).
+	 * fresh session starts from a replay of the turns (SessionCache in agent/backend.ts).
 	 *
 	 * A request starting with "/" is a command. ICAP's own (/model, /thinking, /compact) are handled
 	 * here; any other is sent to Pi verbatim — Pi expands prompt templates and skills, and runs
@@ -856,16 +872,16 @@ export class LearningRuntime {
 		const pointed = extractLinks(request).map((link) => ({ link, path: this.app.metadataCache.getFirstLinkpathDest(link, block.notePath)?.path ?? null }));
 
 		// The session: resumed only if it covers exactly the history; an interrupted round never is.
-		const dir = this.settings.rememberContext ? this.sessionDir() : null;
+		const cache = this.settings.rememberContext ? this.sessionCache() : null;
 		const setup = this.sessionSetup();
-		const resumed = !!dir && !sofar.trim() && reusable(block.session, setup, history) && sessionExists(dir, block.session.id) ? block.session : null;
-		let session: { id: string; dir: string } | undefined;
-		if (dir) {
-			if (resumed) session = { id: resumed.id, dir };
+		const resumed = !!cache && !sofar.trim() && reusable(block.session, setup, history) && cache.exists(block.session.id) ? block.session : null;
+		let session: string | undefined;
+		if (cache) {
+			if (resumed) session = resumed.id;
 			else {
-				removeSessions(dir, { block: block.id });
+				cache.remove({ block: block.id });
 				block.sessionSeq++;
-				session = { id: sessionId(block.id, block.sessionSeq), dir };
+				session = cache.id(block.id, block.sessionSeq);
 			}
 		}
 		// From here on the old session no longer matches the block — until this round succeeds.
@@ -896,7 +912,7 @@ export class LearningRuntime {
 		await this.runBlockTask(block, task, prompt, REQUEST_TOOLS, L(`Done — “${short(request)}”`, `完成——“${short(request)}”`), {
 			extras: { session, systemExtra, model: block.model, thinking: block.thinking },
 			onSuccess: () => {
-				if (session && selfContained) block.session = { id: session.id, sig: sessionSig(setup, coveredTranscript(block)) };
+				if (session && selfContained) block.session = { id: session, sig: sessionSig(setup, coveredTranscript(block)) };
 			},
 		});
 	}
@@ -917,7 +933,7 @@ export class LearningRuntime {
 		switch (name) {
 			case "model": {
 				if (!args) {
-					const shown = block.model || this.settings.model || L("Pi's default", "Pi 默认");
+					const shown = block.model || this.defaultModel() || L("the default", "默认");
 					return done(L(`This block uses **${shown}**. Type \`/model\` and a name to change it here; \`/model default\` follows the settings again.`, `这个块使用 **${shown}**。输入 \`/model\` 加模型名即可只在这里更换；\`/model default\` 恢复为设置中的模型。`));
 				}
 				block.model = reset ? "" : args;
@@ -941,9 +957,9 @@ export class LearningRuntime {
 				return done(reset ? L("Back to the thinking level in the settings.", "已恢复为设置中的思考强度。") : L(`From the next request on, thinking here is **${block.thinking}**.`, `从下一个请求起，这里的思考强度为 **${block.thinking}**。`));
 			}
 			case "compact": {
-				const dir = this.sessionDir();
+				const cache = this.backend.capabilities.compact ? this.sessionCache() : null;
 				const s = block.session;
-				if (!dir || !s || !sessionExists(dir, s.id))
+				if (!cache || !s || !cache.exists(s.id))
 					return done(L("Nothing to compact: this block's conversation is read from the note itself each time.", "没有可压缩的内容：这个块的对话每次都直接从笔记中读取。"));
 				const prev = block.taskId ? this.ledger.get(block.taskId) : undefined;
 				if (prev && !prev.active) this.ledger.remove(prev.id);
@@ -961,7 +977,7 @@ export class LearningRuntime {
 						prompt: "",
 						tools: REQUEST_TOOLS,
 						control: { type: "compact", ...(args ? { customInstructions: args } : {}) },
-						session: { id: s.id, dir },
+						session: s.id,
 						model: block.model,
 						thinking: block.thinking,
 						onPhase: (p) => (block.agentPhase = p),
@@ -988,9 +1004,10 @@ export class LearningRuntime {
 	 * agent is running a tool call — the learner's own shell, write or edit tools, or MCP — or just finished one.
 	 */
 	onVaultChange(kind: "created" | "edited" | "deleted", file: TAbstractFile, oldPath?: string) {
-		if (this.settings.agentConfig !== "mine" || !(file instanceof TFile)) return;
-		// The document cache is the plugin's own (written while read_document runs), never the agent's.
-		if (file.path.startsWith(CACHE_DIR + "/")) return;
+		if (this.agentConfig() !== "mine" || !(file instanceof TFile)) return;
+		// The document cache is the plugin's own, never the agent's. `.icap/docs/` raises no vault events;
+		// the visible folder of earlier versions does, while it is being moved.
+		if (file.path.startsWith(LEGACY_DIR + "/")) return;
 		const now = Date.now();
 		const tasks = this.ledger.tasks.filter((t) => t.toolsRunning > 0 || now - t.toolEndedAt < TOOL_GRACE_MS);
 		if (!tasks.length) return;
@@ -1247,7 +1264,7 @@ export class LearningRuntime {
 			if (block.current?.dialog && !block.current.answer) block.turns.pop();
 			block.agentPhase = null;
 			block.phase = r;
-			block.error = r === "failed" ? task.error : null;
+			block.error = r === "cancelled" ? null : task.error;
 			task.retry = () => void this.resume(block);
 		}
 		this.persist();
@@ -1815,8 +1832,9 @@ function escapeMd(s: string) {
 
 export function humanError(e: unknown): string {
 	const msg = e instanceof Error ? e.message : String(e);
+	if (e instanceof SetupNeeded) return msg;
 	if (/ENOENT|not found/i.test(msg) && /pi\b/i.test(msg)) return L("Pi was not found — check the path in settings.", "找不到 Pi——请检查设置中的路径。");
-	if (/api key|unauthor|401|403/i.test(msg)) return L("The model provider refused the request — check Pi's credentials.", "模型服务商拒绝了请求——请检查 Pi 的凭证。");
+	if (/api key|unauthor|401|403/i.test(msg)) return L("The model provider refused the request — check the credentials (Model providers, in the settings).", "模型服务商拒绝了请求——请检查凭证（设置中的“模型服务商”）。");
 	if (/ETIMEDOUT|ECONNRESET|network|fetch failed/i.test(msg)) return L("Network problem reaching the model.", "连接模型时出现网络问题。");
 	return msg.replace(/\s+/g, " ").slice(0, 220);
 }

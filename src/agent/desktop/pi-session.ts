@@ -1,44 +1,12 @@
 import type { AgentSession, AgentSessionEvent, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { dirname, resolve } from "path";
-import { icapExtension, inside, type BridgeHandler } from "./icap-tools";
+import type { AgentCommand, AgentConfig, AgentEvents, AgentResult, Control, DialogAnswer, DialogRequest, ModelList } from "../backend";
+import { ICAP_TOOLS } from "../tools/icap-tools";
+import { icapExtension, inside } from "./icap-extension";
 import { findModel, modelRuntime, projectTrusted, type PiSdk } from "./pi-host";
 
-export type { BridgeHandler } from "./icap-tools";
-
-/** Phases the document is allowed to know about. Never tool names, never thoughts. */
-/** "retrying": the provider returned an error (a 500, an overload) and Pi is trying again after a pause. */
-export type AgentPhase = "starting" | "thinking" | "reading" | "writing" | "waiting" | "retrying";
-
-/** The tools the ICAP extension registers (agent/icap-tools.ts). */
-export const ICAP_TOOLS = ["obsidian", "read_document", "documents", "ask_learner", "create_note", "propose_edit"];
-
-/**
- * How a task's Pi session is set up.
- * - "mine": the learner's own Pi — their skills, extensions, MCP, context files, project trust and
- *   built-in tools — plus ICAP's tools; the ICAP protocol is appended to their system prompt.
- * - "isolated": only ICAP's tools and read-only built-in tools, and the ICAP protocol as the whole
- *   system prompt. The vault's own AGENTS.md still applies: it belongs to the vault, not to the
- *   learner's Pi.
- */
-export type AgentConfig = "mine" | "isolated";
-
-/** A dialog requested by one of the learner's own extensions. */
-export interface DialogRequest {
-	method: "select" | "confirm" | "input" | "editor";
-	title: string;
-	message?: string;
-	options?: string[];
-	placeholder?: string;
-	prefill?: string;
-}
-
-/** What the learner answered; `undefined` = dismissed. */
-export type DialogAnswer = { value: string } | { confirmed: boolean } | undefined;
-
-/** A runtime control instead of a prompt (ICAP's `/compact`). */
-export type Control = { type: "compact"; customInstructions?: string };
-
-export interface RunOptions {
+/** A run as PiSession needs it: the backend's request resolved to paths on disk, and its events. */
+export interface RunOptions extends AgentEvents {
 	pi: PiSdk;
 	cwd: string;
 	config: AgentConfig;
@@ -51,28 +19,18 @@ export interface RunOptions {
 	tools: string[];
 	/** Isolated mode: file tools may only reach these folders (the vault + what the learner allowed). */
 	allowedRoots?: string[];
-	/** ICAP's own skills (folders with a SKILL.md, agent/icap-skills.ts), offered in both setups. */
+	/** ICAP's own skills (folders with a SKILL.md, agent/desktop/icap-skills.ts), offered in both setups. */
 	skillPaths?: string[];
 	/** provider/id; empty = Pi's default. */
 	model?: string;
 	thinking?: string;
 	/**
 	 * Resume or create this Pi session (a file in `dir`) instead of running without one.
-	 * See agent/session-cache.ts: the session is a cache of the block's conversation.
+	 * See agent/desktop/session-cache.ts: the session is a cache of the block's conversation.
 	 */
 	session?: { id: string; dir: string };
 	/** Run this control instead of the prompt; the run ends when it is done. */
 	control?: Control;
-	/** Full text of the assistant message currently streaming (narration before tool calls is dropped). */
-	onText?: (text: string) => void;
-	onPhase?: (phase: AgentPhase) => void;
-	/** A tool call started (true) or finished (false); file changes in between are the agent's. */
-	onTool?: (running: boolean) => void;
-	/** A tool call started: its name and a one-line gist of its arguments (for the activity's steps). */
-	onStep?: (tool: string, detail: string) => void;
-	onBridge: BridgeHandler;
-	/** Show a dialog from one of the learner's extensions; absent = dismiss it. Aborted on timeout. */
-	onDialog?: (req: DialogRequest, signal: AbortSignal) => Promise<DialogAnswer>;
 }
 
 /** What the session factory is told for each agent setup. Pure. */
@@ -108,13 +66,6 @@ export function vaultContextFiles<T extends { path: string }>(files: T[], vault:
 		const dir = dirname(resolve(f.path));
 		return (!vaultOnly && dir === global) || inside(dir, root);
 	});
-}
-
-export interface RunResult {
-	text: string;
-	aborted: boolean;
-	/** The prompt was a command Pi ran itself (an extension command); no agent turn may have run. */
-	handled?: boolean;
 }
 
 /** A one-line gist of a tool call's arguments: the path, command or query it is about. */
@@ -265,7 +216,7 @@ export class PiSession {
 
 	constructor(private opts: RunOptions) {}
 
-	async run(): Promise<RunResult> {
+	async run(): Promise<AgentResult> {
 		const o = this.opts;
 		o.onPhase?.("starting");
 		let session: AgentSession;
@@ -314,7 +265,7 @@ export class PiSession {
 		void this.session?.abort();
 	}
 
-	private result(): RunResult {
+	private result(): AgentResult {
 		// What an extension command said through notify is its result when no model text came.
 		const text = this.finalText.trim() ? this.finalText : this.notices.join("\n\n");
 		// A session the learner stopped always ends as "aborted", whatever Pi reported on the way out.
@@ -396,19 +347,6 @@ export class PiSession {
 
 /* ───────────── Probes: nothing is sent to a model ───────────── */
 
-export interface PiModels {
-	/** provider/id Pi uses by default; null = no model has credentials. */
-	current: string | null;
-	/** Models with credentials, as provider/id. */
-	available: string[];
-}
-
-export interface PiCommand {
-	name: string;
-	description?: string;
-	source: "extension" | "prompt" | "skill";
-}
-
 /** Open a session the way tasks do, read from it, and close it. */
 async function probe<T>(pi: PiSdk, cwd: string, config: AgentConfig, read: (s: AgentSession) => T | Promise<T>): Promise<T> {
 	const session = await openSession({
@@ -431,7 +369,7 @@ async function probe<T>(pi: PiSdk, cwd: string, config: AgentConfig, read: (s: A
  * Which model Pi would use and which ones have credentials. Runs the way tasks run (the learner's own
  * extensions may register providers). `fresh` re-reads Pi's credentials first.
  */
-export async function probeModels(pi: PiSdk, cwd: string, config: AgentConfig, fresh = false): Promise<PiModels> {
+export async function probeModels(pi: PiSdk, cwd: string, config: AgentConfig, fresh = false): Promise<ModelList> {
 	if (fresh) await modelRuntime(pi, true);
 	return probe(pi, cwd, config, async (s) => {
 		const available = (await s.modelRuntime.getAvailable()).map((m) => `${m.provider}/${m.id}`);
@@ -441,9 +379,9 @@ export async function probeModels(pi: PiSdk, cwd: string, config: AgentConfig, f
 }
 
 /** The slash commands the learner's own Pi offers: extension commands, prompt templates, skills. */
-export function probeCommands(pi: PiSdk, cwd: string): Promise<PiCommand[]> {
+export function probeCommands(pi: PiSdk, cwd: string): Promise<AgentCommand[]> {
 	return probe(pi, cwd, "mine", (s) => {
-		const out: PiCommand[] = [];
+		const out: AgentCommand[] = [];
 		for (const c of s.extensionRunner.getRegisteredCommands()) out.push({ name: c.invocationName, description: c.description, source: "extension" });
 		for (const t of s.promptTemplates) out.push({ name: t.name, description: t.description, source: "prompt" });
 		for (const k of s.resourceLoader.getSkills().skills) out.push({ name: `skill:${k.name}`, description: k.description, source: "skill" });

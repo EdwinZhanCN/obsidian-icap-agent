@@ -95,7 +95,7 @@ Commands ask the agent to create a concept note, collect a note's key concepts, 
 
 ### Activity
 
-Activity is a status surface, not a chat. A small mark in the status bar shows `○` idle, `◔` working or `●` needs you. It unfolds into a ledger: one line per task in past tense ("Explained 'RAII' in *C++ Memory*", "Created 3 notes"), its state, and links to every file the agent created, changed, deleted or renamed. Waiting tasks float to the top with a jump link. Each task's tool calls are available folded ("n steps"). Model reasoning and internal messages are never shown.
+Activity is a status surface, not a chat. A small mark in the status bar (on mobile, which has none, a ribbon button and the *Show activity* command) shows `○` idle, `◔` working or `●` needs you. It unfolds into a ledger: one line per task in past tense ("Explained 'RAII' in *C++ Memory*", "Created 3 notes"), its state, and links to every file the agent created, changed, deleted or renamed. Waiting tasks float to the top with a jump link. Each task's tool calls are available folded ("n steps"). Model reasoning and internal messages are never shown.
 
 ## 5. The agent
 
@@ -118,6 +118,21 @@ Pi is a general agent runtime, not a product UI. ICAP bundles Pi's SDK and runs 
 
 **Credentials stay with Pi.** Login (OAuth or API key) goes through Pi and is stored in Pi's `auth.json`; keys exported in the shell are found even when Obsidian is launched from the Dock. A custom endpoint (Ollama, a proxy, any OpenAI-compatible API) is a provider in Pi's `models.json`, edited from the settings without disturbing the rest of that file. The model list shows only models with credentials, and probing it sends no prompt and costs nothing.
 
+### On a phone: ICAP's own agent
+
+Obsidian mobile has no Node, so Pi's coding agent cannot run there. The mobile backend is ICAP's own agent loop (Pi's `pi-agent-core`) on Pi's provider adapters (`pi-ai`), with the same protocol, prompts and ICAP tools. The runtime does not know which one it talks to (`AgentBackend`); what differs is stated once, as capabilities:
+
+| On mobile | Why |
+|---|---|
+| Isolated only, ICAP's tools only: no file tools, shell, extensions, skills or MCP | none of these exist without Node and the learner's `~/.pi`. The icap-visual rules are written into the system prompt instead of read from a skill |
+| An API key per provider, or a custom endpoint; no subscription login, Bedrock or Vertex | OAuth flows and AWS/Google cloud SDKs need Node. Keys live in Obsidian's keychain on the device (`app.secretStorage`, ids `icap-<provider>`, `icap-endpoint-<slug>`), never in plugin data, so they never sync; endpoint definitions live in plugin data with the key held by reference |
+| No session cache, no `/compact` | every run replays the block's transcript, which is what the note already is the source of (§3) |
+| Its own model choice | keys differ per device; the desktop's Pi model may not exist on the phone |
+
+**One fixed rule for how requests travel.** Built-in providers allow cross-origin requests, so they stream through the WebView's `fetch`. A custom endpoint is probed once, when it is saved: a request with an invalid key that reads back any status means it streams too; a refused request means it goes through Obsidian's `requestUrl`, which is not subject to CORS but returns a reply only whole and cannot be aborted. Nothing falls back at run time. A whole reply is honest about it: the phase line says "waiting for the complete reply" (no simulated typing), and the stop control says it only stops the wait, since the provider still bills the request.
+
+**Interrupted, not failed.** When iOS suspends Obsidian, the connection dies mid-reply. That is recorded as an interruption, like a task Obsidian closed on, and **continue** resumes it from the block. There is no keep-alive.
+
 ### Knowledge comes from the vault, on demand
 
 There is no import step and no separate source library. The vault is the source. Finding knowledge is something the agent does while working, not a stage the learner starts: before explaining a term, it might check the term's backlinks and whether the learner has written about it. Nothing scans the whole vault, and there is no vector database or knowledge graph.
@@ -132,7 +147,7 @@ These are capabilities, not a required procedure.
 
 **Many documents, read like a person reads them.** The agent opens a book's table of contents and reads the chapters it needs, instead of retrieving fragments by similarity. A document's structure comes from its bookmarks, its EPUB table of contents or its Word heading styles; a PDF without bookmarks gets it from its layout: body size is the most common one, headings are larger, or bold and set apart, or numbered, and size, weight, capitals and numbering rank them into levels. No model is involved, so preparing documents costs nothing and runs in the background. Summaries per part are the one thing that needs a model, so they are a setting, off by default; whether they are worth their tokens is the learner's call.
 
-The structure and text are cached in the vault's visible `icap/docs/` (FORMAT.md, "Document cache"), keyed by content, so every device and every task reads a document once. It is visible, not a dot-folder, because Obsidian Sync skips dot-folders.
+The structure and text are cached in the vault's hidden `.icap/docs/` (FORMAT.md, "Document cache"), keyed by content, so every task reads a document once. It is a dot-folder so that the learner's vault shows nothing they did not put there; Obsidian Sync skips dot-folders, so each device prepares its own.
 
 ### Calibration: the evidence is in the notes
 

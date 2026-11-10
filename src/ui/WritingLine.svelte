@@ -2,7 +2,7 @@
 	import { L } from "../i18n";
 	import { focusIfNear } from "./focus";
 	import { onMount } from "svelte";
-	import { TFile, prepareFuzzySearch, type App } from "obsidian";
+	import { Platform, TFile, prepareFuzzySearch, type App } from "obsidian";
 	import { keyGuard } from "./keys";
 	import Keys from "./Keys.svelte";
 	import { insertLink, linkTrigger, type LinkTrigger } from "../dsl/links";
@@ -255,7 +255,8 @@
 		</div>
 	{/if}
 	<div class="icap-writing-foot">
-		<span class="icap-hint" aria-hidden="true"><Keys /></span>
+		<!-- A touch screen submits with the button; the keycaps are for a keyboard. -->
+		{#if !Platform.isMobile}<span class="icap-hint" aria-hidden="true"><Keys /></span>{/if}
 		<button type="button" class="icap-link icap-primary" disabled={!text.trim()} onclick={submit}>{submitLabel}</button>
 	</div>
 </div>

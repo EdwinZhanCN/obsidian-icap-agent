@@ -1,6 +1,6 @@
 # What ICAP writes into notes
 
-Format version **2** (2026-11-07). This is the contract between ICAP and any tool that reads a vault ICAP has worked in. Kept output is plain Obsidian Markdown: it must read well without the plugin, and nothing here depends on plugin data (`data.json`), whose shape is private and may change without notice.
+Format version **3** (2026-11-10). This is the contract between ICAP and any tool that reads a vault ICAP has worked in. Kept output is plain Obsidian Markdown: it must read well without the plugin, and nothing here depends on plugin data (`data.json`), whose shape is private and may change without notice.
 
 Readers must ignore what they do not know: unknown callout types, unknown keys in a comment, unknown `kind:` values. A new key or kind is an additive change; removing or renaming one, or changing a meaning, bumps the version.
 
@@ -126,12 +126,12 @@ An interactive visual is an ```` ```icap-ui ```` fence containing an HTML docume
 
 ## Document cache
 
-Not part of any note, but a stable format other tools may read. `icap/docs/` in the vault holds what the plugin learned about each PDF, EPUB and Word document:
+Not part of any note, but a stable format other tools may read. The hidden `.icap/docs/` in the vault holds what the plugin learned about each PDF, EPUB and Word document. Until format 3 it was the visible `icap/docs/`, with the same contents; the plugin moves it the first time it reads a document.
 
 ```
-icap/docs/index.json            {"version": 1, "files": {"<vault path or absolute path>": {"hash", "size", "mtime"}}}
-icap/docs/<sha256>/tree.json    the document's structure
-icap/docs/<sha256>/text.json.gz a gzipped JSON array of strings: the text of each unit, in order
+.icap/docs/index.json            {"version": 1, "files": {"<vault path or absolute path>": {"hash", "size", "mtime"}}}
+.icap/docs/<sha256>/tree.json    the document's structure
+.icap/docs/<sha256>/text.json.gz a gzipped JSON array of strings: the text of each unit, in order
 ```
 
 `<sha256>` is the hash of the file's bytes, so a renamed or copied file reuses its entry. A unit is a page (PDF) or a section (EPUB: a spine document, split where the table of contents points inside it; Word: the text under one heading). `tree.json`:

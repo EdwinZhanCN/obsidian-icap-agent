@@ -1,6 +1,5 @@
-import type { AgentPhase } from "../agent/desktop/pi-session";
+import type { AgentPhase, BlockSession } from "../agent/backend";
 import type { GlossMode } from "../agent/prompts";
-import type { BlockSession } from "../agent/desktop/session-cache";
 
 /* ───────────────────────── Activity: tasks ───────────────────────── */
 
@@ -287,7 +286,7 @@ export interface BlockRecord {
 	/** Request block: model / thinking for this block only (set with /model, /thinking). */
 	model?: string;
 	thinking?: string;
-	/** Request block: the Pi session that holds this conversation, as a cache (agent/session-cache.ts). */
+	/** Request block: the session that holds this conversation, as a cache (SessionCache, agent/backend.ts). */
 	session?: BlockSession | null;
 	/** Request block: how many Pi sessions this block has started (new ids for a fresh one). */
 	sessionSeq?: number;

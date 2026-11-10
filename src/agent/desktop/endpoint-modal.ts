@@ -1,7 +1,7 @@
 import { App, Modal, Notice, Setting } from "obsidian";
-import { L } from "../i18n";
-import type { PiSdk } from "../agent/desktop/pi-host";
-import { ENDPOINT_APIS, endpointProblem, listEndpoints, modelsFile, parseModelIds, removeEndpoint, saveEndpoint, type Endpoint } from "../agent/desktop/pi-endpoints";
+import { L } from "../../i18n";
+import type { PiSdk } from "./pi-host";
+import { ENDPOINT_APIS, endpointProblem, listEndpoints, modelsFile, parseModelIds, removeEndpoint, saveEndpoint, type Endpoint } from "./pi-endpoints";
 
 const PRESETS: { label: string; endpoint: Partial<Endpoint> }[] = [
 	{ label: "Ollama", endpoint: { name: "Ollama", id: "ollama", baseUrl: "http://localhost:11434/v1", apiKey: "ollama" } },

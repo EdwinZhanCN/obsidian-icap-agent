@@ -1,8 +1,6 @@
-import { createHash } from "crypto";
-import { promises as fs } from "fs";
-import { isAbsolute } from "path";
 import { gunzipSync, gzipSync, strFromU8, strToU8 } from "fflate";
 import { TFile, type App } from "obsidian";
+import type { ExternalFiles } from "../agent/backend";
 import { parseDocx } from "./docx";
 import { parseEpub } from "./epub";
 import { DOC_EXTENSIONS, PARSER, buildTree, type DocFormat, type DocTree } from "./model";
@@ -10,20 +8,21 @@ import { carrySummaries } from "./summaries";
 import { parsePdf } from "./pdf";
 
 /**
- * The document cache in the vault's visible `icap/docs/` folder (FORMAT.md, "Document cache"):
+ * The document cache in the vault's hidden `.icap/docs/` folder (FORMAT.md, "Document cache"):
  *
- *     icap/docs/index.json          path → { hash, size, mtime } of every document read
- *     icap/docs/<hash>/tree.json    the DocTree (structure, summaries)
- *     icap/docs/<hash>/text.json.gz the units' text, a JSON array of strings, gzipped
+ *     .icap/docs/index.json          path → { hash, size, mtime } of every document read
+ *     .icap/docs/<hash>/tree.json    the DocTree (structure, summaries)
+ *     .icap/docs/<hash>/text.json.gz the units' text, a JSON array of strings, gzipped
  *
- * Keyed by the file's content, so a document is parsed once, a renamed or copied one is not parsed
- * again, and every device reads the same cache. It is visible (not a dot-folder) because Obsidian
- * Sync skips dot-folders; it syncs when "other file types" is on. Nothing in it is Markdown, so it
- * never shows up in search or the graph.
+ * Keyed by the file's content, so a document is parsed once, and a renamed or copied one is not
+ * parsed again. A dot-folder, so Obsidian never shows or indexes it and the learner's vault holds
+ * nothing they did not put there. Obsidian Sync skips dot-folders: each device prepares its own.
  */
 
-export const CACHE_DIR = "icap/docs";
+export const CACHE_DIR = ".icap/docs";
 const INDEX = `${CACHE_DIR}/index.json`;
+/** Where the cache was until format 3: a visible folder, moved by `adoptLegacy`. */
+export const LEGACY_DIR = "icap/docs";
 /** Units of this many documents stay in memory. */
 const LRU = 6;
 
@@ -52,10 +51,15 @@ export class DocStore {
 	private index: IndexFile | null = null;
 	private memory = new Map<string, string[]>();
 	private building = new Map<string, Promise<Loaded>>();
+	private adopted: Promise<void> | null = null;
 	/** Called after a document was parsed for the first time (summaries hook here). */
 	onBuilt?: (l: Loaded) => void;
 
-	constructor(private app: App) {}
+	/** `files`: documents outside the vault (absolute paths), when the backend can reach them. */
+	constructor(
+		private app: App,
+		private files: ExternalFiles | null = null,
+	) {}
 
 	private get adapter() {
 		return this.app.vault.adapter;
@@ -63,6 +67,7 @@ export class DocStore {
 
 	private async readIndex(): Promise<IndexFile> {
 		if (this.index) return this.index;
+		await (this.adopted ??= this.adoptLegacy());
 		try {
 			const parsed = JSON.parse(await this.adapter.read(INDEX)) as IndexFile;
 			this.index = parsed?.version === 1 && parsed.files ? parsed : { version: 1, files: {} };
@@ -70,6 +75,38 @@ export class DocStore {
 			this.index = { version: 1, files: {} };
 		}
 		return this.index;
+	}
+
+	/**
+	 * The cache of an earlier version (`icap/docs/`) becomes this one, so nothing is parsed again; when
+	 * this device already has a cache, the old one is deleted. Only the cache's own entries are touched,
+	 * and `icap/` goes only when nothing else is left in it.
+	 */
+	private async adoptLegacy() {
+		const a = this.adapter;
+		try {
+			if (!(await a.exists(LEGACY_DIR))) return;
+			const adopt = !(await a.exists(INDEX));
+			const old = await a.list(LEGACY_DIR);
+			for (const path of [...old.files, ...old.folders]) {
+				const name = path.split("/").pop()!;
+				const folder = old.folders.includes(path);
+				if (folder ? !/^[0-9a-f]{64}$/.test(name) : name !== "index.json") continue;
+				const to = `${CACHE_DIR}/${name}`;
+				if (adopt && !(await a.exists(to))) {
+					await this.ensureDir(CACHE_DIR);
+					await a.rename(path, to);
+				} else if (folder) await a.rmdir(path, true);
+				else await a.remove(path);
+			}
+			for (const dir of [LEGACY_DIR, "icap"]) {
+				const left = await a.list(dir);
+				if (left.folders.length || left.files.some((f) => !f.endsWith("/.DS_Store"))) break;
+				await a.rmdir(dir, true);
+			}
+		} catch {
+			// What could not be moved stays where it was; those documents are parsed again.
+		}
 	}
 
 	private async saveIndex() {
@@ -86,15 +123,15 @@ export class DocStore {
 	private async stat(path: string): Promise<{ size: number; mtime: number } | null> {
 		const f = this.app.vault.getAbstractFileByPath(path);
 		if (f instanceof TFile) return { size: f.stat.size, mtime: f.stat.mtime };
-		if (!isAbsolute(path)) return null;
-		const s = await fs.stat(path).catch(() => null);
-		return s?.isFile() ? { size: s.size, mtime: Math.floor(s.mtimeMs) } : null;
+		if (!this.files?.isAbsolute(path)) return null;
+		return this.files.stat(path);
 	}
 
 	private async bytes(path: string): Promise<Uint8Array> {
 		const f = this.app.vault.getAbstractFileByPath(path);
 		if (f instanceof TFile) return new Uint8Array(await this.app.vault.readBinary(f));
-		return new Uint8Array(await fs.readFile(path));
+		if (!this.files) throw new Error(`Could not read "${path}".`);
+		return this.files.read(path);
 	}
 
 	/** The cached tree for a path when it is still fresh, without parsing anything. */
@@ -163,7 +200,7 @@ export class DocStore {
 			}
 		}
 		const data = await this.bytes(path);
-		const hash = createHash("sha256").update(data).digest("hex");
+		const hash = await sha256(data);
 		// The same content under another name (renamed, copied, another device): reuse it.
 		let tree = await this.readTree(hash);
 		let units = tree ? await this.units(hash).catch(() => null) : null;
@@ -203,7 +240,7 @@ export class DocStore {
 		const index = await this.readIndex();
 		let changed = false;
 		for (const path of Object.keys(index.files)) {
-			if (isAbsolute(path)) continue;
+			if (absolutePath(path, this.files)) continue;
 			if (!(await this.stat(path))) {
 				delete index.files[path];
 				changed = true;
@@ -217,6 +254,20 @@ export class DocStore {
 			if (/^[0-9a-f]{64}$/.test(hash) && !used.has(hash)) await this.adapter.rmdir(dir, true).catch(() => undefined);
 		}
 	}
+}
+
+/** Hex SHA-256 of the bytes (Web Crypto: the same digest on every platform). */
+async function sha256(data: Uint8Array): Promise<string> {
+	const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", data as Uint8Array<ArrayBuffer>));
+	return Array.from(digest, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Is an index entry an absolute path (a document outside the vault)? Asked of the backend's files
+ * when there are any; otherwise by its shape, since vault paths never start with "/" or a drive.
+ */
+function absolutePath(path: string, files: ExternalFiles | null): boolean {
+	return files ? files.isAbsolute(path) : /^(?:[/\\]|[A-Za-z]:[/\\])/.test(path);
 }
 
 function toArrayBuffer(u: Uint8Array): ArrayBuffer {

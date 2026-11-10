@@ -1,8 +1,20 @@
 /**
  * A block's conversation as text: what the agent is given as history, and what a request block's
- * Pi session is fingerprinted against (agent/session-cache.ts). Pure (type imports only).
+ * cached session is fingerprinted against (SessionCache in agent/backend.ts). Pure.
  */
+import type { BlockSession } from "../agent/backend";
+import { hashText } from "../dsl/commands";
 import type { Turn } from "./state.svelte";
+
+/** The fingerprint of a session: the setup it was made under + the transcript it covers. */
+export function sessionSig(setup: string, transcript: string): string {
+	return `${hashText(setup)}${hashText(transcript)}:${transcript.length}`;
+}
+
+/** Can a follow-up resume this session? Only if it covers exactly the block's history. */
+export function reusable(s: BlockSession | null, setup: string, history: string): s is BlockSession {
+	return !!s && s.sig === sessionSig(setup, history);
+}
 
 export function answerText(t: Turn): string {
 	const a = t.answer;

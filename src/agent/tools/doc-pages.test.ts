@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { cap, parsePages, within, MAX_PAGES } from "./doc-pages";
+import { cap, parsePages, MAX_PAGES } from "./doc-pages";
 import { hasTag, parseQuery } from "./doc-pages";
 
 
@@ -25,13 +25,6 @@ describe("read_document helpers", () => {
 	it("caps long text", () => {
 		expect(cap("abcdef", 3)).toEqual({ text: "abc\n…(truncated)", truncated: true });
 		expect(cap("ab", 3)).toEqual({ text: "ab", truncated: false });
-	});
-	it("knows what is inside the allowed folders", () => {
-		expect(within("/v/notes/a.pdf", ["/v"])).toBe(true);
-		expect(within("/v", ["/v"])).toBe(true);
-		expect(within("/vault2/a.pdf", ["/v"])).toBe(false);
-		expect(within("/v/../etc/hosts", ["/v"])).toBe(false);
-		expect(within("/books/x.pdf", ["/v", "/books"])).toBe(true);
 	});
 });
 

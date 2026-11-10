@@ -5,7 +5,8 @@ import { beforeAll, beforeEach, describe, expect, it } from "vite-plus/test";
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall, type FauxProviderHandle } from "@earendil-works/pi-ai";
 import type { PiSdk } from "../../../../src/agent/desktop/pi-host";
 import { modelRuntime } from "../../../../src/agent/desktop/pi-host";
-import { ICAP_TOOLS, PiSession, probeCommands, type RunOptions } from "../../../../src/agent/desktop/pi-session";
+import { ICAP_TOOLS } from "../../../../src/agent/tools/icap-tools";
+import { PiSession, probeCommands, type RunOptions } from "../../../../src/agent/desktop/pi-session";
 import { ensureSkills } from "../../../../src/agent/desktop/icap-skills";
 
 /**

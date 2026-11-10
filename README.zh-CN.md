@@ -2,7 +2,7 @@
 
 在自己的笔记里学习的 Obsidian 插件。没有聊天面板：解释、提问和反馈都出现在你正在读的笔记里，保留下来的都是普通 Markdown。它的 Agent 是 [Pi](https://pi.dev)，内置在插件里，使用你自己的模型服务商。
 
-**[English](README.md)** · 桌面版 Obsidian 1.8.7+ · 中英文界面
+**[English](README.md)** · Obsidian 1.11.4+，桌面、iPhone、iPad 和 Android · 中英文界面
 
 ![选中“攻角”，解释出现在段落下方](docs/images/explain.zh.png)
 
@@ -34,6 +34,8 @@
 
 Pi 没有列出的服务（Ollama、LM Studio、vLLM、中转站、任何兼容 OpenAI 的 API），用旁边的 **自定义端点…**：填名称、Base URL、Key 和模型 ID。它保存在 Pi 的 `~/.pi/agent/models.json`（Windows 是 `%USERPROFILE%\.pi\agent\models.json`），和 Pi 命令行共用。这里的 Key 是明文；填 `$NAME` 则改为读取环境变量。
 
+**在手机或平板上。** Pi 需要 Node，而 Obsidian 移动版没有 Node，所以 ICAP 在那里运行自己的 Agent：基于 Pi 的模型库，只有 ICAP 自己的工具。打开 **设置 → ICAP Learning Agent → 模型服务商**，为 Anthropic、OpenAI、Google Gemini、OpenRouter、DeepSeek、Mistral、Groq 或 xAI 添加 API Key。Key 只保存在这台设备的 Obsidian 钥匙串里：不进入库，也不会同步，所以每台设备各自添加。**添加端点…** 可以连接局域网里的 Ollama 或 LM Studio、中转站，或任何兼容 OpenAI / Anthropic 的 API。保存时 ICAP 会检查一次服务器是否允许应用以流式方式访问；不允许时，回复经由 Obsidian 转发、整段到达：你看到的是“等待完整回复…”而不是逐字出现，停止只是停止等待（这次请求仍会计费）。订阅登录、Bedrock 和 Vertex 只在桌面版可用。手机上选的模型和桌面版各自独立。
+
 **Agent 配置。** 默认情况下 Agent 使用你自己的 Pi 配置（skills、扩展、MCP、shell），可以直接改文件，每处改动都列在“活动”里。选择 **仅 ICAP（隔离）**，Agent 只有只读工具，只在库和你授权的文件夹内活动。
 
 ## 网络、账号和库以外的文件
@@ -41,12 +43,14 @@ Pi 没有列出的服务（Ollama、LM Studio、vLLM、中转站、任何兼容 
 - **网络。** 请求以及 Agent 为此读取的笔记和资料片段，只发给你选择的模型服务商。ICAP 没有服务器，没有遥测，也不做统计。交互式图示不能联网。默认配置下，你自己的 Pi 扩展和 MCP 可能连接各自的服务。
 - **账号。** 需要一个模型服务商的账号，费用由服务商直接收取。ICAP 本身不需要账号。
 - **库以外的文件。** ICAP 读取 Pi 的文件夹 `~/.pi/agent/`（设置、凭证、扩展、skills）；你登录、添加自定义端点、换模型或信任项目时，会像 Pi 命令行一样写入这里。首次使用时会运行一次登录 shell，补上缺少的环境变量（例如服务商密钥）。隔离模式下 Agent 只读你授权的库外文件夹；默认配置下它可以使用 Pi 的 shell。
-- **库里的东西。** 设置和会话在 `.obsidian/plugins/icap-agent/`；资料缓存在 `icap/docs/`。
+- **在手机上。** 不读取库以外的任何东西。API Key 在设备的 Obsidian 钥匙串里。
+- **库里的东西。** 设置和会话在 `.obsidian/plugins/icap-agent/`；资料缓存在隐藏的 `.icap/docs/`。
 
 ## 常见问题与限制
 
 - **“没有任何模型配置了凭证”**：在“模型服务商”里登录。写进 `~/.zshrc` 的密钥要等 Obsidian 下次启动才生效，之后点 ↻。
-- 仅支持桌面版（Pi 需要 Node.js）。`main.js` 约 11 MB。
+- `main.js` 约 13 MB：桌面版用的 Pi，加上手机 Agent 用的模型库；手机只加载后者。
+- **手机上：** 没有 Pi 配置（你的 skills、扩展、MCP、`/compact`），没有文件和 shell 工具，不能访问库以外的文件夹。会话不在手机上缓存，请求块的每一轮都会把对话重新发给模型。如果回复途中 iOS 把 Obsidian 挂起，任务会暂停；回到 Obsidian 点 **继续** 即可。
 - 扫描版 PDF（没有文字层）读不出来，没有 OCR。
 - 没有保留的解释会在插件重新加载时消失。
 
