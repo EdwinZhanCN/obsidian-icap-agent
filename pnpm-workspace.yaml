@@ -1,0 +1,7 @@
+overrides:
+  vite@*: npm:@voidzero-dev/vite-plus-core@1.5.1
+  vitest@*: 5.1.0
+allowBuilds:
+  '@tailwindcss/oxide': true
+  '@google/genai': true
+  protobufjs: true

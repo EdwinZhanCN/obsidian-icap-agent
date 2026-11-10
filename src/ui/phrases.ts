@@ -1,4 +1,4 @@
-import type { AgentPhase } from "../agent/pi-session";
+import type { AgentPhase } from "../agent/desktop/pi-session";
 import type { BlockPhase, TaskStatus } from "../runtime/state.svelte";
 import type { GlossMode } from "../agent/prompts";
 import { L } from "../i18n";

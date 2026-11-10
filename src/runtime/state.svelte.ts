@@ -1,6 +1,6 @@
-import type { AgentPhase } from "../agent/pi-session";
+import type { AgentPhase } from "../agent/desktop/pi-session";
 import type { GlossMode } from "../agent/prompts";
-import type { BlockSession } from "../agent/session-cache";
+import type { BlockSession } from "../agent/desktop/session-cache";
 
 /* ───────────────────────── Activity: tasks ───────────────────────── */
 

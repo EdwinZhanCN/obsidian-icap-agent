@@ -1,6 +1,6 @@
-import type { NoteContext } from "../context";
+import type { NoteContext } from "../runtime/context";
 import { UI_LANG as VISUAL_FENCE } from "../genui/widget";
-import type { AgentConfig } from "./pi-session";
+import type { AgentConfig } from "./desktop/pi-session";
 
 /** ICAP's built-in skill for visuals (agent/icap-skills.ts). */
 export const VISUAL_SKILL = "icap-visual";

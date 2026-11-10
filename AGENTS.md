@@ -9,17 +9,17 @@ ICAP Learning Agent is a desktop Obsidian plugin (TypeScript, Svelte 5, CodeMirr
 ## Commands
 
 ```bash
-npm run build                   # styles.css (Tailwind) + build/pi-sdk.cjs + main.js
-npm run dev                     # watch main.js (not styles.css: npm run build:css)
-npm run check                   # tsc + svelte-check: must be 0 errors
-npm test                        # vitest: must pass
-npm run vault [-- --reset|--clean]   # generate dev-vault/ from test/fixtures/dev-vault/
+pnpm build                      # vp build: build/pi-sdk.cjs (vp pack) + main.js + styles.css
+pnpm dev                        # the same, watching
+pnpm check                      # vp check (type-aware Oxlint + type check) + svelte-check: 0 errors
+pnpm test                       # vp test: unit (src/**/*.test.ts) + integration (test/integration/): must pass
+pnpm vault [--reset|--clean]    # generate dev-vault/ from test/fixtures/dev-vault/
 node scripts/drive.mjs …        # drive the running plugin through the Obsidian CLI (commands listed in the file)
 ```
 
 ## Verify a change
 
-1. `npm run check && npm test && npm run build`.
+1. `pnpm check && pnpm test && pnpm build`.
 2. For anything visible, see it in Obsidian (`dev-vault`): `drive.mjs select` / `cmd` / `wait` / `state` / `shot`, plus `key` / `type` / `palette` / `focus` for keyboard flows. Read the screenshot; a passing test is not evidence that an interaction looks or feels right.
 3. Chromium pauses `requestAnimationFrame` while the Obsidian window is hidden, so animations and modals stall in a background window. Before sampling animation frame by frame (`getBoundingClientRect()` or computed styles in a rAF loop through `obsidian eval`), run `require('electron').remote.getCurrentWebContents().setBackgroundThrottling(false)` and `obsidian dev:cdp method=Emulation.setFocusEmulationEnabled params='{"enabled":true}'`. Emulate reduced motion with `Emulation.setEmulatedMedia` (`prefers-reduced-motion: reduce`). Settings and the login dialog never attach while hidden: render the tab with `app.setting.pluginTabs.find(t => t.id === "icap-agent").display()`.
 4. Never complete a login or write `~/.pi/agent/auth.json` from a test or a script. Use `ModelRuntime.create({ authPath: <scratch file> })`; tests answer through pi-ai's faux provider.
@@ -29,9 +29,10 @@ node scripts/drive.mjs …        # drive the running plugin through the Obsidia
 
 ```
 src/main.ts               plugin entry: commands, editor menu, settings load, one-time import from icpa-agent/
-src/settings.ts           settings tab and DEFAULT_SETTINGS
+src/settings/settings.ts  settings tab and DEFAULT_SETTINGS; its dialogs: endpoint-modal.ts, login-modal.ts,
+                          rules-modal.ts (the AGENTS.md wizard)
 src/i18n.ts               L("English", "中文"), the interface language follows Obsidian's
-src/context.ts            NoteContext, what a task is told about its note: heading trail, frontmatter, links,
+src/runtime/context.ts    NoteContext, what a task is told about its note: heading trail, frontmatter, links,
                           the passage and section around the focus, the note windowed around it
 
 src/runtime/runtime.ts    LearningRuntime: orchestrates every task (explain, recall, check, quiz, note, request),
@@ -39,30 +40,31 @@ src/runtime/runtime.ts    LearningRuntime: orchestrates every task (explain, rec
 src/runtime/state.svelte.ts  rune state: Task / Ledger, Gloss, AskBlock
 src/runtime/transcript.ts pure: a block's conversation as text (the agent's history; the session fingerprint)
 
-src/agent/pi-host.ts      loads Pi's SDK on first use; first fills process.env with the login shell's missing
+src/agent/desktop/        Pi on Node, desktop only:
+  pi-host.ts              loads Pi's SDK on first use; first fills process.env with the login shell's missing
                           variables and PATH (provider keys exported in ~/.zshrc, which a Dock-launched Obsidian
                           lacks), never overriding. Shared ModelRuntime; project trust
-src/agent/pi-session.ts   PiSession: one in-process AgentSession per task. sessionPlan "mine" (the learner's
+  pi-session.ts           PiSession: one in-process AgentSession per task. sessionPlan "mine" (the learner's
                           ~/.pi/agent + vault .pi/, ICAP protocol appended) or "isolated" (no extensions or
                           skills, exact tool allowlist, protocol as the whole system prompt). Extension dialogs
                           become turns in the task's block. probeModels / probeCommands read without prompting
 src/agent/prompts.ts      the ICAP protocol (systemPrompt) and each task's prompt (explain, recall, quiz, note,
                           request, follow-up, continuation)
-src/agent/icap-tools.ts   ICAP's tools as an inline extension (loads even with noExtensions): obsidian,
+  icap-tools.ts           ICAP's tools as an inline extension (loads even with noExtensions): obsidian,
                           read_document, ask_learner, create_note, propose_edit. Isolated: a tool_call guard keeps
                           read/grep/find/ls inside the vault and the allowed folders
-src/agent/vault-tools.ts  the read-only `obsidian` commands (Obsidian CLI surface through the App API); pure
+src/agent/tools/vault-tools.ts  the read-only `obsidian` commands (Obsidian CLI surface through the App API); pure
                           helpers (page specs, caps, search syntax) in doc-pages.ts
-src/docs/                 documents (PDF, EPUB, DOCX) as PageIndex-style trees. Pure: model.ts (DocTree, outline),
+src/documents/            documents (PDF, EPUB, DOCX) as PageIndex-style trees. Pure: model.ts (DocTree, outline),
                           epub.ts, docx.ts, html.ts, detect.ts (headings and titles from PDF layout), search.ts,
                           summaries.ts. pdf.ts (PDF.js), store.ts (the icap/docs/ cache: content hash, LRU),
                           tools.ts (read_document, documents)
-src/agent/session-cache.ts a request block's Pi session (<plugin>/sessions/) as a cache, resumed only while its
+  session-cache.ts        a request block's Pi session (<plugin>/sessions/) as a cache, resumed only while its
                           fingerprint equals the block's history; deleted on keep / clear; orphans pruned on start
-src/agent/icap-skills.ts  ICAP's own skills (icap-visual), shipped in main.js, written to <plugin>/skills/
-src/agent/pi-login.ts     provider login without the CLI; src/ui/login-modal.ts is its dialog
-src/agent/pi-sdk-entry.ts the SDK surface ICAP uses, built for Node into build/pi-sdk.cjs (see "Pi inside Obsidian")
-src/agent/pi-node.ts      injected into Pi's bundle only: Node's fetch, timers, streams, Blob/File, __icapImport
+  icap-skills.ts          ICAP's own skills (icap-visual), shipped in main.js, written to <plugin>/skills/
+  pi-login.ts             provider login without the CLI; src/settings/login-modal.ts is its dialog
+  pi-sdk-entry.ts         the SDK surface ICAP uses, built for Node into build/pi-sdk.cjs (see "Pi inside Obsidian")
+  pi-node.ts              injected into Pi's bundle only: Node's fetch, timers, streams, Blob/File, __icapImport
 
 src/dsl/blocks.ts         the Markdown DSL: ```icap-ask fences (and legacy ```icpa-ask), callouts
 src/dsl/records.ts        pure: the reference reader of FORMAT.md (readRecords); test/fixtures/format/ pairs each
@@ -75,12 +77,15 @@ src/editor/               CM6: transient glosses (gloss-field.ts), the selection
 src/genui/widget.ts       pure: ```icap-ui fence → sandboxed document; parseUiMessage; veilWidgets (streaming)
 src/genui/host.ts         UiHost: the sandboxed iframe, its one message listener, theme rebroadcast
 src/guide/guide.ts        the first-run guide note (zh / en)
-src/guide/vault-rules.ts  pure: presets and renderRules for the AGENTS.md wizard (src/ui/rules-modal.ts)
+src/guide/vault-rules.ts  pure: presets and renderRules for the AGENTS.md wizard (src/settings/rules-modal.ts)
 src/ui/                   Svelte views (GlossView, AskView, WritingLine, Choices, Ledger, LedgerMark, Markdown),
                           motion.ts (the motion language), keys.ts (the writing Scope), focus.ts, hold-height.ts,
                           phrases.ts (task phases as sentences)
 src/styles/main.css       the design system: Tailwind v4 utilities with the `tw:` prefix, on Obsidian's variables
-test/                     vitest; test/fixtures/dev-vault/ is the dev vault's seed
+src/**/*.test.ts          unit tests, next to their module
+test/integration/         tests against the real Pi SDK (*.spec.test.ts); test/fixtures/dev-vault/ is the dev vault's seed
+tooling/                  the build: obsidian-build.ts (Vite plugin: Pi bundle, copies to the repo root and dev-vault),
+                          pi-bundle.ts (vp pack config for Pi), plugin-entry.ts (main.ts + the stylesheet)
 ```
 
 ## Document model
@@ -110,13 +115,13 @@ What ends up in notes is a contract other tools read: [FORMAT.md](FORMAT.md). Ch
 
 ## Pi inside Obsidian
 
-`esbuild.config.mjs` builds `src/agent/pi-sdk-entry.ts` for Node into `build/pi-sdk.cjs`, and `main.js` includes it behind a lazy import. Tests import the entry directly.
+`vp pack` (tsdown, configured in `tooling/pi-bundle.ts`) builds `src/agent/desktop/pi-sdk-entry.ts` for Node into `build/pi-sdk.cjs` at the start of `vp build`, and `main.js` includes it behind a lazy import. Tests import the entry directly.
 
 The bundle is CJS with `PI_BUNDLED_NODE`. `import.meta.url` maps to `globalThis.__ICAP_PI_URL`, and Pi's package.json and photon's wasm are embedded. Like Pi's standalone binary, the entry registers the OAuth flows and Bedrock statically.
 
-`pi-node.ts` gives Pi's code Node's fetch (undici, honouring `HTTP(S)_PROXY`, no CORS), timers, web streams, Blob/File and performance. Obsidian's own globals are untouched.
+`pi-node.ts` gives Pi's code, through rolldown's `define` + `transform.inject`, Node's fetch (undici, honouring `HTTP(S)_PROXY`, no CORS), timers, web streams, Blob/File and performance. Obsidian's own globals are untouched.
 
-The esbuild plugins `piConfigPatch`, `photonWasm` and `runtimeImports` patch specific upstream files and **throw when upstream changes**. When bumping `@earendil-works/pi-*` (pinned to an exact version in `package.json`), expect to update them.
+`piPatches` in `tooling/pi-bundle.ts` patches specific upstream files (Pi's config.js, photon's wasm loader, undici's `install()`, runtime `import()` in pi-ai and jiti) and **throw when upstream changes**. When bumping `@earendil-works/pi-*` (pinned to an exact version in `package.json`), expect to update them.
 
 ## Legacy ICPA formats
 
@@ -132,7 +137,7 @@ The plugin used to be spelled ICPA (`icpa-agent`). Formats that outlive a versio
 
 ## Known limitations
 
-- Desktop only (Pi needs Node). `main.js` is about 11 MB: Pi with its providers (including the AWS SDK for Bedrock), jiti for the learner's TypeScript extensions, and photon.
+- Desktop only (Pi needs Node). `main.js` is about 8 MB: Pi with its providers (including the AWS SDK for Bedrock), jiti for the learner's TypeScript extensions, and photon.
 - Only Pi's own code gets Node's fetch. A learner's extension calling `fetch` itself runs in the renderer and is subject to CORS, unlike in the Pi CLI. Pi's codemode (QuickJS in a worker) is not bundled.
 - The selection mark exists in Live Preview and Source mode only. An unkept gloss disappears on plugin reload; blocks persist and resume.
 - An interrupted turn resumes by replaying the transcript into a fresh session, so the next question may be phrased differently.

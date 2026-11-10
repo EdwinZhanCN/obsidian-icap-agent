@@ -3,18 +3,18 @@ import { EditorView } from "@codemirror/view";
 import { mount, unmount } from "svelte";
 import { SvelteMap } from "svelte/reactivity";
 import type IcapPlugin from "../main";
-import { PiSession, probeCommands, probeModels, type AgentPhase, type Control, type DialogAnswer, type DialogRequest } from "../agent/pi-session";
-import { ensureDir, removeSessions, reusable, sessionExists, sessionId, sessionSig } from "../agent/session-cache";
-import { ensureSkills } from "../agent/icap-skills";
+import { PiSession, probeCommands, probeModels, type AgentPhase, type Control, type DialogAnswer, type DialogRequest } from "../agent/desktop/pi-session";
+import { ensureDir, removeSessions, reusable, sessionExists, sessionId, sessionSig } from "../agent/desktop/session-cache";
+import { ensureSkills } from "../agent/desktop/icap-skills";
 import { extractLinks } from "../dsl/links";
 import { THINKING_LEVELS, isIcapCommand, parseCommand, type CommandProvider, type IcapCommandName, type SlashCommand } from "../dsl/commands";
 import { L } from "../i18n";
-import { GENERATED_BY } from "../settings";
+import { GENERATED_BY } from "../settings/settings";
 import { glossLabelUI } from "../ui/phrases";
-import { vaultCommand } from "../agent/vault-tools";
-import { DocStore, CACHE_DIR, formatOf, type Loaded } from "../docs/store";
-import { documentsCommand, readDocument } from "../docs/tools";
-import { applySummaries, documentPrompt, parseSummaries, summaryBatches } from "../docs/summaries";
+import { vaultCommand } from "../agent/tools/vault-tools";
+import { DocStore, CACHE_DIR, formatOf, type Loaded } from "../documents/store";
+import { documentsCommand, readDocument } from "../documents/tools";
+import { applySummaries, documentPrompt, parseSummaries, summaryBatches } from "../documents/summaries";
 import { homedir } from "os";
 import { join } from "path";
 import {
@@ -31,7 +31,7 @@ import {
 	type GlossMode,
 	type NoteTaskKind,
 } from "../agent/prompts";
-import { buildContext } from "../context";
+import { buildContext } from "./context";
 import { answerText, coveredTranscript, transcriptOf, withReply } from "./transcript";
 import { calloutBlock, editProblem, evidenceCallout, findAskBlock, isoDate, parseAskSource, parseAuthored, requestRecord, type AskSource, glossCallout, newId, serializeAsk, splitSources, tidyOptionLabel, tidyQuestion, verdictGlyph, dialogTitle, type Depth } from "../dsl/blocks";
 import { askReplacement, blockInsertion, editorFor, spliceFile, uniqueNotePath, type Splice } from "../dsl/doc-ops";

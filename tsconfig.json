@@ -1,18 +1,14 @@
 {
   "compilerOptions": {
-    "baseUrl": ".",
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
     "lib": ["DOM", "DOM.Iterable", "ES2022"],
     "strict": true,
-    "noImplicitAny": true,
-    "noUnusedLocals": false,
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
-    "types": ["node", "svelte"],
-    "allowImportingTsExtensions": false
+    "types": ["node", "svelte", "vite-plus/client"]
   },
-  "include": ["src/**/*.ts", "src/**/*.svelte", "test/**/*.ts"]
+  "include": ["src/**/*.ts", "src/**/*.svelte", "test/**/*.ts", "tooling/**/*.ts", "vite.config.ts"]
 }
