@@ -68,7 +68,7 @@ src/documents/            documents (PDF, EPUB, DOCX) as PageIndex-style trees. 
                           content hash, LRU), tools.ts (read_document, documents); files outside the vault only
                           through the backend's ExternalFiles
 
-src/agent/desktop/        the desktop backend, Pi on Node (the only place for Node built-ins outside tests/tooling):
+src/agent/desktop/        the desktop backend, Pi on Node (the only place for Node built-ins outside tests/scripts):
   desktop-backend.ts      DesktopBackend: every capability on; vault root, allowed folders, sessions dir, skills
   pi-host.ts              loads Pi's SDK on first use; first fills process.env with the login shell's missing
                           variables and PATH (provider keys exported in ~/.zshrc, which a Dock-launched Obsidian
@@ -125,9 +125,9 @@ src/**/*.test.ts          unit tests, next to their module
 test/integration/         tests against the real Pi SDK (*.spec.test.ts); test/fixtures/dev-vault/ is the dev vault's seed.
                           mobile/: the built main.js booted in a vm with no Node (phone.ts: happy-dom + an obsidian
                           stub with Platform.isMobile; require throws on Node built-ins), driven end to end
-tooling/                  the build: obsidian-build.ts (Vite plugin: Pi bundle, Node built-ins as lazy requires,
-                          copies to the repo root and dev-vault),
-                          pi-bundle.ts (vp pack config for Pi), plugin-entry.ts (main.ts + the stylesheet)
+scripts/build/            the build, under scripts/ (which the community plugin scanner skips): obsidian-build.ts
+                          (Vite plugin: Pi bundle, Node built-ins as lazy requires, copies to the repo root and
+                          dev-vault), pi-bundle.ts (vp pack config for Pi), plugin-entry.ts (main.ts + the stylesheet)
 ```
 
 ## Document model
@@ -151,7 +151,7 @@ What ends up in notes is a contract other tools read: [FORMAT.md](FORMAT.md). Ch
 - **Slash commands exist only in request blocks.** In a recall, check or quiz the learner's text is an answer, so a leading `/` is just text.
 - **Context files stop at the vault.** Only Pi's global `AGENTS.md` (in "mine" mode) and those inside the vault are loaded, never an ancestor's (`vaultContextFiles`). Isolated mode loads only the vault's own; so does mobile, which reads the vault root's file itself (`src/agent/context-files.ts`, Pi's names and rendering).
 - **Visuals stay sandboxed.** `sandbox="allow-scripts"` without `allow-same-origin`, and CSP `default-src 'none'`. `ask` and `open` are honoured only from the rendered frame, well-formed, and while the learner has focused it. The iframe's `color-scheme` must match the inner document's, or Chromium paints an opaque backdrop.
-- **The agent sits behind `AgentBackend`.** The runtime, settings and tools reach Pi only through `src/agent/backend.ts`; a feature a backend lacks is gated by its capability flags, never faked. Node built-ins (`fs`, `path`, `os`, `node:*`…) are imported only in `src/agent/desktop/`, tests, `tooling/` and `scripts/`; `pnpm check` fails otherwise (`no-restricted-imports` in `vite.config.ts`).
+- **The agent sits behind `AgentBackend`.** The runtime, settings and tools reach Pi only through `src/agent/backend.ts`; a feature a backend lacks is gated by its capability flags, never faked. Node built-ins (`fs`, `path`, `os`, `node:*`…) are imported only in `src/agent/desktop/`, tests and `scripts/` (the build is in `scripts/build/`); `pnpm check` fails otherwise (`no-restricted-imports` in `vite.config.ts`).
 - **Nothing on the mobile load path touches Node.** Obsidian mobile has no `require("fs")`, `process` or `Buffer`; one top-level use and the plugin fails to load on a phone. Node built-ins are never external imports at the top of `main.js`: `obsidianBuild()` serves each as a CommonJS module whose `require` runs on first use, inside the desktop backend's lazy import. `test/integration/mobile/mobile-load.spec.test.ts` boots the built `main.js` with no Node and runs a request: it failing is the phone failing.
 - **Touch has a way to everything.** Hover, right-click and keyboard chords are extras: every action is a visible control or a command (with an icon, usable from the mobile toolbar). On mobile, keycap hints are hidden and the activity opens from the ribbon.
 - **Tasks can be notes; the activity is a Base.** With recording on, note tasks, and request blocks that amount to a task (a tool call, a file touched, a question back, or more than one round: `TaskNotes.substantial`), are recorded as task notes (`icap: task`, FORMAT.md); a one-question-one-answer request, and explain, recall, check and quiz, never are. Live phase never goes into properties. An ended task always records `icap-cost`: a number, or `unknown` when it cannot be told (never 0 for "don't know"). In a `.base` expression a hyphenated property is `note["icap-status"]` (bare, Bases subtracts); as a column or group key, `note.icap-status`. Status-bar mark, mobile ribbon and *Show activity* open `Activity.base` (with recording on), whose first view is the plugin's `icap-activity` (uninstalled, Bases says the view type is unknown and the tables after it still work); the ledger list is what they open when recording is off or the Bases core plugin is off. A row's title opens where the task was asked (`openTask`: the block, else the kept `[!request]` record, else the note); Mod opens the task note. This plugin is released: what earlier versions stored (the ledger in plugin data, `icap/docs/`, `.icap/docs/`) is migrated, never dropped.
@@ -162,13 +162,13 @@ What ends up in notes is a contract other tools read: [FORMAT.md](FORMAT.md). Ch
 
 ## Pi inside Obsidian
 
-`vp pack` (tsdown, configured in `tooling/pi-bundle.ts`) builds `src/agent/desktop/pi-sdk-entry.ts` for Node into `build/pi-sdk.cjs` at the start of `vp build`, and `main.js` includes it behind a lazy import. Tests import the entry directly.
+`vp pack` (tsdown, configured in `scripts/build/pi-bundle.ts`) builds `src/agent/desktop/pi-sdk-entry.ts` for Node into `build/pi-sdk.cjs` at the start of `vp build`, and `main.js` includes it behind a lazy import. Tests import the entry directly.
 
 The bundle is CJS with `PI_BUNDLED_NODE`. `import.meta.url` maps to `globalThis.__ICAP_PI_URL`, and Pi's package.json and photon's wasm are embedded. Like Pi's standalone binary, the entry registers the OAuth flows and Bedrock statically.
 
 `pi-node.ts` gives Pi's code, through rolldown's `define` + `transform.inject`, Node's fetch (undici, honouring `HTTP(S)_PROXY`, no CORS), timers, web streams, Blob/File and performance. Obsidian's own globals are untouched.
 
-`piPatches` in `tooling/pi-bundle.ts` patches specific upstream files (Pi's config.js, photon's wasm loader, undici's `install()`, runtime `import()` in pi-ai and jiti) and **throw when upstream changes**. When bumping `@earendil-works/pi-*` (pinned to an exact version in `package.json`), expect to update them.
+`piPatches` in `scripts/build/pi-bundle.ts` patches specific upstream files (Pi's config.js, photon's wasm loader, undici's `install()`, runtime `import()` in pi-ai and jiti) and **throw when upstream changes**. When bumping `@earendil-works/pi-*` (pinned to an exact version in `package.json`), expect to update them.
 
 ## Legacy ICPA formats
 

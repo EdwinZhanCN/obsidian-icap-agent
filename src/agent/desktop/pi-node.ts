@@ -8,7 +8,7 @@ import type * as Undici from "undici";
 /**
  * Node's versions of the browser globals Pi relies on. Obsidian's renderer is a browser page with Node
  * alongside, so `fetch`, timers, web streams and Blob are Chromium's — Pi's CLI runs where they are
- * Node's. tooling/pi-bundle.ts points these names inside Pi's bundle here (define + inject); Obsidian's
+ * Node's. scripts/build/pi-bundle.ts points these names inside Pi's bundle here (define + inject); Obsidian's
  * own globals are left alone. Nothing here may load at import time what Pi itself imports (undici is
  * required on first use), or the bundle's initialization would become circular.
  */

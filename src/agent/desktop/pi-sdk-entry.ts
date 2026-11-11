@@ -1,7 +1,7 @@
 /**
  * The part of Pi's SDK the plugin uses.
  *
- * tooling/pi-bundle.ts bundles this module on its own for Node (Pi's "bundled node" mode: user extensions
+ * scripts/build/pi-bundle.ts bundles this module on its own for Node (Pi's "bundled node" mode: user extensions
  * resolve typebox / pi-ai / pi-coding-agent to these embedded copies), and main.js loads it on first use
  * through agent/desktop/pi-host.ts. Tests import it straight from node_modules.
  */

@@ -2,8 +2,8 @@ import { builtinModules } from "node:module";
 import { defineConfig } from "vite-plus";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 import tailwind from "@tailwindcss/vite";
-import { obsidianBuild } from "./tooling/obsidian-build";
-import { piPack } from "./tooling/pi-bundle";
+import { obsidianBuild } from "./scripts/build/obsidian-build";
+import { piPack } from "./scripts/build/pi-bundle";
 
 // Node's built-ins are not listed: obsidianBuild() serves them as lazy requires (none may run on mobile).
 const hostModules = new Set(["obsidian", "electron", "kerberos"]);
@@ -16,7 +16,7 @@ export default defineConfig(({ mode }) => ({
   build: {
     outDir: "build/plugin", emptyOutDir: false, target: "es2022", sourcemap: mode === "development" ? "inline" : false,
     minify: mode !== "development", cssCodeSplit: false,
-    lib: { entry: "tooling/plugin-entry.ts", formats: ["cjs"], fileName: () => "main.js", cssFileName: "styles" },
+    lib: { entry: "scripts/build/plugin-entry.ts", formats: ["cjs"], fileName: () => "main.js", cssFileName: "styles" },
     rolldownOptions: {
       external: (id) => hostModules.has(id) || id.startsWith("@codemirror/") || id.startsWith("@lezer/"),
       output: { exports: "default", codeSplitting: false, dynamicImportInCjs: false },
@@ -42,7 +42,7 @@ export default defineConfig(({ mode }) => ({
       }],
     },
     overrides: [
-      { files: ["src/agent/desktop/**", "**/*.test.ts", "test/**", "tooling/**", "scripts/**", "vite.config.ts"], rules: { "no-restricted-imports": "off" } },
+      { files: ["src/agent/desktop/**", "**/*.test.ts", "test/**", "scripts/**", "vite.config.ts"], rules: { "no-restricted-imports": "off" } },
     ],
   },
 }));

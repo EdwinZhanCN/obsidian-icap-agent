@@ -5,7 +5,7 @@ import type { AgentConfig } from "../backend";
 import { L } from "../../i18n";
 
 /**
- * Pi runs inside Obsidian: its SDK is bundled into main.js (tooling/pi-bundle.ts) and loaded on first use.
+ * Pi runs inside Obsidian: its SDK is bundled into main.js (scripts/build/pi-bundle.ts) and loaded on first use.
  * Configuration is Pi's own — ~/.pi/agent (auth.json, settings.json, skills, extensions, AGENTS.md, MCP)
  * and the vault's .pi/ — shared with the Pi CLI, which need not be installed.
  */
@@ -19,7 +19,7 @@ let sdk: Promise<PiSdk> | null = null;
  */
 export function loadPi(baseFile?: string): Promise<PiSdk> {
 	if (!sdk) {
-		const g = globalThis as { __ICAP_PI_URL?: string };
+		const g = window as unknown as { __ICAP_PI_URL?: string }; // the renderer's global object, where Pi's bundle reads it
 		if (baseFile && !g.__ICAP_PI_URL) g.__ICAP_PI_URL = pathToFileURL(baseFile).href;
 		const loading = (async () => {
 			const short = oldNode(process.versions.node);

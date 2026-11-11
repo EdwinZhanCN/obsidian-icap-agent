@@ -85,7 +85,7 @@ export function requestPath(api: EndpointApi, baseUrl: string): string {
  * fetch with an invalid key. Any HTTP status read back (even 401) means the server allows cross-origin
  * requests → "stream". A thrown TypeError (CORS refused, or unreachable from the WebView) → "whole".
  */
-export async function probeTransport(api: EndpointApi, baseUrl: string, f: typeof fetch = globalThis.fetch, timeoutMs = 10000): Promise<Transport> {
+export async function probeTransport(api: EndpointApi, baseUrl: string, f: typeof fetch = window.fetch, timeoutMs = 10000): Promise<Transport> {
 	const headers: Record<string, string> = { "content-type": "application/json" };
 	if (api === "anthropic-messages") {
 		headers["x-api-key"] = "icap-probe-invalid";
