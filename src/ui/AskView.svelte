@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { L } from "../i18n";
 	import { onMount, tick } from "svelte";
+	import ChevronRight from "@lucide/svelte/icons/chevron-right";
 	import Eye from "@lucide/svelte/icons/eye";
 	import EyeOff from "@lucide/svelte/icons/eye-off";
 	import type { LearningRuntime } from "../runtime/runtime";
@@ -9,7 +10,8 @@
 	import Markdown from "./Markdown.svelte";
 	import WritingLine from "./WritingLine.svelte";
 	import Choices from "./Choices.svelte";
-	import { SUBMIT_KEYS, blockCaption, phaseLine } from "./phrases";
+	import { SUBMIT_KEYS, blockCaption, phaseLine, stopLabel, touchCaption, usageLine } from "./phrases";
+	import { Platform } from "obsidian";
 	import Keys from "./Keys.svelte";
 	import { holdHeight } from "./hold-height";
 	import { inertToEditor } from "./keys";
@@ -67,6 +69,7 @@
 			? (rt.ledger.get(block.taskId ?? "")?.artifacts ?? []).filter((a) => a.kind === "created" || a.kind === "edited" || a.kind === "deleted")
 			: [],
 	);
+	const usage = $derived(block?.kind === "request" ? usageLine(rt.ledger.get(block.taskId ?? "")?.usage) : "");
 	const fileWord: Record<string, string> = { created: L("new", "新建"), edited: L("changed", "修改"), deleted: L("deleted", "删除") };
 	/*
 	 * Slash commands belong to request blocks only. In a recall, check or quiz the learner's words
@@ -256,14 +259,14 @@
 			rt.persist();
 		}
 	});
-	const foldedStatus = $derived(!block ? "" : working ? L("working…", "进行中…") : blockCaption(block.phase, block.kind, false).split(SUBMIT_KEYS)[0].replace(/[—–-]\s*$/, "").trim());
+	const foldedStatus = $derived(!block ? "" : working ? L("working…", "进行中…") : blockCaption(block.phase, block.kind, false, !!block.error).split(SUBMIT_KEYS)[0].replace(/[—–-]\s*$/, "").trim());
 
 	const caption = $derived(
 		!block || working
 			? ""
 			: awaiting && (awaiting.kind === "confirm" || awaiting.kind === "review")
 				? L("your turn", "轮到你了")
-				: blockCaption(block.phase, block.kind, !!awaiting?.draft),
+				: blockCaption(block.phase, block.kind, !!awaiting?.draft, !!block.error),
 	);
 
 	/*
@@ -355,10 +358,10 @@
 
 {#if !block}
 	<section class="icap-voice icap-ask is-orphan" data-ask={id}>
-		<header class="icap-label"><span class="icap-label-kind">interaction</span><span class="icap-label-term">{title}</span></header>
+		<header class="icap-label"><span class="icap-label-kind">{L("interaction", "交互")}</span><span class="icap-label-term">{title}</span></header>
 		<p class="icap-caption">
-			This interaction has ended or lives on another device.
-			<button type="button" class="icap-link" onclick={() => rt.removeOrphan(sourcePath, id)}>remove it</button>
+			{L("This interaction has ended or lives on another device.", "这段交互已经结束，或在另一台设备上。")}
+			<button type="button" class="icap-link" onclick={() => rt.removeOrphan(sourcePath, id)}>{L("remove it", "移除")}</button>
 		</p>
 	</section>
 {:else}
@@ -405,7 +408,7 @@
 			<div class="icap-turn" class:is-final={turn.final} data-kind={turn.kind}>
 				{#if turn.kind === "review" && turn.review && turn.answer}
 					<!-- A decided change: its outcome on one line; it can be opened again. -->
-					<button type="button" class="icap-fold-row" aria-expanded={openDiffs.has(turn.id)} onclick={() => (openDiffs.has(turn.id) ? openDiffs.delete(turn.id) : openDiffs.add(turn.id))}>
+					<button type="button" class="icap-fold-row" aria-expanded={openDiffs.has(turn.id)} onclick={() => (openDiffs.has(turn.id) ? openDiffs.delete(turn.id) : openDiffs.add(turn.id))}><ChevronRight class="icap-fold-chevron" aria-hidden="true" />
 						<span class="icap-fold-kind">{L("proposed change", "建议修改")}</span>
 						<span class="icap-fold-text">{turn.review.path.replace(/\.md$/, "")}</span>
 						<span class="icap-fold-meta">{decisionWord(turn)} · {changeStats(turn)}</span>
@@ -414,7 +417,7 @@
 				{#if turn.kind === "review" && turn.review && turn.answer && !openDiffs.has(turn.id)}
 					<!-- folded -->
 				{:else if turn.inNote}
-					<p class="icap-ref">{L("↑ checking the explanation you wrote above", "↑ 正在检查你在上面写的解释")}</p>
+					<p class="icap-ref">{L("Checking the explanation you wrote above", "正在检查你在上面写的解释")}</p>
 				{:else if turn.question}
 					<div class="icap-voice icap-question" use:inkIn={{ key: `q:${turn.id}`, delay: i > 0 ? 0.12 : 0 }}>
 						{#if turn.kind === "review" && turn.review && !turn.answer}
@@ -461,7 +464,7 @@
 					{:else if turn.kind === "review"}
 						<!-- the outcome is on the change's own line -->
 					{:else if turn.kind === "confirm"}
-						<p class="icap-learner icap-decision" use:settleIn={`a:${turn.id}`}>→ {decisionWord(turn)}</p>
+						<p class="icap-learner icap-decision" use:settleIn={`a:${turn.id}`}>{decisionWord(turn)}</p>
 					{:else}
 						<div class="icap-learner" use:settleIn={`a:${turn.id}`}><Markdown app={rt.app} markdown={turn.answer.text ?? ""} {sourcePath} /></div>
 					{/if}
@@ -520,7 +523,7 @@
 			{@const folded = canFold && !opened.has(r.id)}
 			{#if canFold}
 				{@const line = roundLine(r)}
-				<button type="button" class="icap-fold-row" aria-expanded={!folded} onclick={() => toggleRound(r.id)}>
+				<button type="button" class="icap-fold-row" aria-expanded={!folded} onclick={() => toggleRound(r.id)}><ChevronRight class="icap-fold-chevron" aria-hidden="true" />
 					<span class="icap-fold-kind">{line.kind}</span>
 					<span class="icap-fold-text">{line.text}</span>
 					{#if line.meta}<span class="icap-fold-meta">{line.meta}</span>{/if}
@@ -549,7 +552,7 @@
 		{/if}
 
 		{#if files.length > 3}
-			<button type="button" class="icap-fold-row icap-files-sum" aria-expanded={filesOpen} onclick={() => (filesOpen = !filesOpen)}>
+			<button type="button" class="icap-fold-row icap-files-sum" aria-expanded={filesOpen} onclick={() => (filesOpen = !filesOpen)}><ChevronRight class="icap-fold-chevron" aria-hidden="true" />
 				<span class="icap-fold-kind">{L("files", "文件")}</span>
 				<span class="icap-fold-text">{fileCounts}</span>
 			</button>
@@ -567,6 +570,10 @@
 					</li>
 				{/each}
 			</ul>
+		{/if}
+
+		{#if usage && block.phase !== "thinking" && block.phase !== "preparing"}
+			<p class="icap-usage" title={L("Tokens, share of the prompt read from the cache, and price for this conversation so far. ≈ marks an estimate from list prices.", "这段对话到目前为止的 token、提示词的缓存命中比例和价格。≈ 表示按公开价目估算。")}>{usage}</p>
 		{/if}
 
 		{#if block.kind === "request" && block.phase === "completed"}
@@ -595,10 +602,10 @@
 
 		<div class="icap-actions" role="toolbar" aria-label={L("Interaction actions", "交互操作")} bind:this={actionsEl}>
 			<span class="icap-caption" aria-live="polite">
-				{#key caption}<span class="icap-roll" use:settleIn>{#each caption.split(SUBMIT_KEYS) as part, i}{#if i}<Keys />{/if}{#if part}<span>{part}</span>{/if}{/each}</span>{/key}
+				{#key caption}<span class="icap-roll" use:settleIn>{#each (Platform.isMobile ? touchCaption(caption) : caption).split(SUBMIT_KEYS) as part, i}{#if i}<Keys />{/if}{#if part}<span>{part}</span>{/if}{/each}</span>{/key}
 			</span>
 			{#if live}
-				<button type="button" class="icap-link is-quiet" onclick={() => rt.stopBlock(block)}>{L("stop", "停止")}</button>
+				<button type="button" class="icap-link is-quiet" onclick={() => rt.stopBlock(block)}>{stopLabel(block.agentPhase)}</button>
 			{:else if done}
 				{#if block.phase === "completed"}
 					{#if block.kind === "recall"}

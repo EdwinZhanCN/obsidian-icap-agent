@@ -206,3 +206,22 @@ export function balanceStreamingMarkdown(md: string): string {
 	if (displayMath % 2 === 1) out += "\n$$";
 	return out;
 }
+
+/**
+ * A short title from free text (a request, a concept): one line, about `max` characters. It never
+ * cuts a `[[link]]` in two: a link that crosses the cut stays whole when it ends soon after, or the
+ * title ends before it.
+ */
+export function shortTitle(s: string, max = 40): string {
+	const t = s.replace(/\s+/g, " ").trim();
+	if (t.length <= max) return t;
+	let cut = max - 2;
+	const open = t.lastIndexOf("[[", cut);
+	if (open >= 0 && t.indexOf("]]", open) === -1) cut = open;
+	else if (open >= 0 && t.indexOf("]]", open) + 2 > cut) {
+		const end = t.indexOf("]]", open) + 2;
+		cut = end - cut <= 30 ? end : open;
+	}
+	const head = t.slice(0, cut).trimEnd();
+	return head.length === t.length ? head : `${head}…`;
+}

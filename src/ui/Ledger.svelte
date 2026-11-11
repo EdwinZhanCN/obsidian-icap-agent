@@ -4,7 +4,7 @@
 	import X from "@lucide/svelte/icons/x";
 	import type { LearningRuntime } from "../runtime/runtime";
 	import type { Task } from "../runtime/state.svelte";
-	import { ago, phaseLine, statusWord } from "./phrases";
+	import { ago, phaseLine, statusWord, stopLabel, usageLine } from "./phrases";
 	import { play, settleIn, spring, strokeIn } from "./motion";
 
 	let { rt }: { rt: LearningRuntime } = $props();
@@ -128,11 +128,12 @@
 						{:else if t.status === "waiting"}
 							<span class="icap-row-status">{statusWord(t.status)}</span>
 						{:else if t.status !== "completed"}
-							<span class="icap-row-status" title={t.interrupted ? L("Obsidian closed while this was running", "运行时 Obsidian 被关闭") : undefined}>{t.interrupted ? L("interrupted", "已中断") : statusWord(t.status)}</span>
+							<span class="icap-row-status" title={t.interrupted ? (t.error ?? L("Obsidian closed while this was running", "运行时 Obsidian 被关闭")) : undefined}>{t.interrupted ? L("interrupted", "已中断") : statusWord(t.status)}</span>
 						{/if}
 						<span>{L("in", "于")} <button type="button" class="icap-link" onclick={() => rt.openPath(t.notePath)}>{noteName(t.notePath)}</button></span>
 						<span class="icap-row-time">{ago(t.endedAt ?? t.createdAt, now)}</span>
 					</p>
+					{#if t.usage && !t.active}<p class="icap-usage">{usageLine(t.usage)}</p>{/if}
 					{#if t.error}<p class="icap-row-error">{t.error}</p>{/if}
 					{#if t.artifacts.some((a) => a.kind === "created" || a.kind === "edited" || a.kind === "deleted")}
 						<ul class="icap-row-artifacts">
@@ -165,7 +166,7 @@
 						<button type="button" class="icap-link icap-primary" onclick={() => go(t)}>{L("answer", "去回答")}</button>
 					{/if}
 					{#if t.active}
-						<button type="button" class="icap-link is-quiet" onclick={() => rt.cancelTask(t)}>{L("stop", "停止")}</button>
+						<button type="button" class="icap-link is-quiet" onclick={() => rt.cancelTask(t)}>{stopLabel(t.phase)}</button>
 					{:else if t.status === "failed" && t.retry}
 						<button type="button" class="icap-link" onclick={() => t.retry?.()}>{L("retry", "重试")}</button>
 					{/if}

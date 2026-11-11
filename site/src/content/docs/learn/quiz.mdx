@@ -1,0 +1,35 @@
+---
+title: Check your understanding
+description: Answer a few questions about a section or a note.
+sidebar:
+  order: 4
+---
+
+import AskDemo from "../../../demo/AskDemo.svelte";
+
+An understanding check asks a few questions about a section or a whole note. After each answer, the agent tells you if it holds. If it does not hold, the agent helps you find the answer. It does not give it to you.
+
+<AskDemo client:only="svelte" lang="en" kind="quiz" />
+
+## Start a check
+
+1. Put the cursor in the section, or anywhere in the note.
+2. Open the command palette and run one of these:
+   - **Check my understanding of this section**
+   - **Check my understanding of this note**
+
+The block shows the first question.
+
+## Answer the questions
+
+1. Select an answer, then select **submit**. For a question with a text field, write the answer, then submit.
+2. Read the feedback below your answer.
+3. Answer the next question.
+
+After the last question, the agent writes a summary and a next step.
+
+## Keep the result
+
+Select **keep in note**. The plugin replaces the block with a `practice` callout: each question, your answer and its result. The title has the date.
+
+Each answer has a mark: ✓ holds, ≈ partly, ? look again.

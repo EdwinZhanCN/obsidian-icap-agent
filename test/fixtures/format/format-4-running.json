@@ -1,0 +1,12 @@
+{
+  "agentWritten": false,
+  "records": [],
+  "live": [],
+  "task": {
+    "id": "tk3m81",
+    "status": "needs-you",
+    "source": ["梯度下降"],
+    "changed": [],
+    "started": "2026-11-10T09:30:00"
+  }
+}

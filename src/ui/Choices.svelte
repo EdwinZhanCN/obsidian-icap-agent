@@ -2,7 +2,7 @@
 	import { L } from "../i18n";
 	import { focusIfNear } from "./focus";
 	import { onMount } from "svelte";
-	import type { App } from "obsidian";
+	import { Platform, type App } from "obsidian";
 	import Markdown from "./Markdown.svelte";
 	import Keys from "./Keys.svelte";
 	import { keyGuard } from "./keys";
@@ -59,8 +59,15 @@
 	const BOX = "M9 8 L 35 7.2 L 35.6 32 L 8.6 33 Z";
 	const TICK = "M29 15 L 34 21 L 46 3";
 
+	/**
+	 * Focus that arrived by itself (autofocus) shows no caret: on the first option it would read as an
+	 * answer already chosen. The caret appears once the learner moves with the keyboard, or leaves the
+	 * list and comes back.
+	 */
+	let quiet = $state(false);
+
 	onMount(() => {
-		if (autofocus && !locked) focusIfNear(items[0]);
+		if (autofocus && !locked) quiet = focusIfNear(items[0]);
 	});
 
 	function toggle(id: string) {
@@ -78,6 +85,7 @@
 	function onkeydown(e: KeyboardEvent, i: number) {
 		if (locked) return;
 		const k = e.key;
+		if (k !== "Tab" && k !== "Escape" && !e.metaKey && !e.ctrlKey) quiet = false;
 		if (k === "ArrowDown" || k === "ArrowRight") {
 			e.preventDefault();
 			move(i + 1);
@@ -107,7 +115,9 @@
 	}
 </script>
 
-<div class="icap-choices" class:is-locked={locked} class:is-multi={multi} role={multi ? "group" : "radiogroup"} aria-label={label} use:keyGuard={{ app, submit }}>
+<div class="icap-choices" class:is-locked={locked} class:is-multi={multi} class:is-quiet={quiet} onfocusout={(e) => {
+	if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node | null)) quiet = false;
+}} role={multi ? "group" : "radiogroup"} aria-label={label} use:keyGuard={{ app, submit }}>
 	{#each options as o, i (o.id)}
 		{@const on = selected.includes(o.id)}
 		<!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_interactive_supports_focus -->
@@ -143,7 +153,7 @@
 	{/each}
 	{#if !locked}
 		<div class="icap-writing-foot">
-			<span class="icap-hint" aria-hidden="true">{multi ? L("space to mark", "空格标记") : `a–${letter(options.length - 1)}`} · <Keys mod={false} /> {L("to submit", "提交")}</span>
+			{#if !Platform.isMobile}<span class="icap-hint" aria-hidden="true">{multi ? L("space to mark", "空格标记") : `a–${letter(options.length - 1)}`} · <Keys mod={false} /> {L("to submit", "提交")}</span>{/if}
 			<button type="button" class="icap-link icap-primary" disabled={!selected.length} onclick={submit}>{L("submit", "提交")}</button>
 		</div>
 	{/if}

@@ -1,10 +1,11 @@
 import type { EditorView } from "@codemirror/view";
+import { setIcon } from "obsidian";
 import { play, spring } from "../ui/motion";
 
 /**
  * Edge cue: when something needs the learner (a question, a finished explanation, feedback) but
  * it is outside the visible part of the note, a small ink note appears at the top or bottom edge
- * of the editor pointing towards it — "↓ your turn". Clicking it goes there. It disappears by
+ * of the editor pointing towards it (an arrow and "your turn"). Clicking it goes there. It disappears by
  * itself as soon as the place scrolls into view; nothing is shown when it is already visible.
  */
 
@@ -62,7 +63,8 @@ function show(view: EditorView, spec: CueSpec, dir: "up" | "down") {
 	el.type = "button";
 	el.className = `icap-cue is-${dir}`;
 	el.replaceChildren();
-	const arrow = el.createSpan({ cls: "icap-cue-arrow", text: dir === "down" ? "↓" : "↑" });
+	const arrow = el.createSpan({ cls: "icap-cue-arrow" });
+	setIcon(arrow, dir === "down" ? "arrow-down" : "arrow-up");
 	el.createSpan({ text: spec.label });
 	el.setAttribute("aria-label", `${spec.label} — go there`);
 	if (!prev) {
@@ -91,7 +93,7 @@ function show(view: EditorView, spec: CueSpec, dir: "up" | "down") {
 				cur.dir = d;
 				el.classList.toggle("is-down", d === "down");
 				el.classList.toggle("is-up", d === "up");
-				arrow.textContent = d === "down" ? "↓" : "↑";
+				setIcon(arrow, d === "down" ? "arrow-down" : "arrow-up");
 			}
 		});
 	};

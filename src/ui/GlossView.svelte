@@ -1,11 +1,12 @@
 <script lang="ts">
+	import CornerDownLeft from "@lucide/svelte/icons/corner-down-left";
 	import { L } from "../i18n";
 	import { glossLabelUI } from "./phrases";
 	import { tick } from "svelte";
 	import type { LearningRuntime } from "../runtime/runtime";
 	import type { Gloss } from "../runtime/state.svelte";
 	import Markdown from "./Markdown.svelte";
-	import { phaseLine } from "./phrases";
+	import { phaseLine, stopLabel } from "./phrases";
 	import { inertToEditor, keyGuard } from "./keys";
 	import { holdHeight } from "./hold-height";
 	import { beckon, closeFrame, fluid, inkIn, nextFrame, play, seal, settleIn, spring } from "./motion";
@@ -211,7 +212,7 @@
 	<div class="icap-actions" role="toolbar" aria-label={L("Explanation actions", "解释操作")} bind:this={actionsEl}>
 		{#if busy}
 			{#if streamingSection?.text}<span class="icap-caption" aria-live="polite">{L("writing…", "书写中…")}</span>{/if}
-			<button type="button" class="icap-link" onclick={() => rt.stopGloss(gloss)}>{L("stop", "停止")}</button>
+			<button type="button" class="icap-link" onclick={() => rt.stopGloss(gloss)}>{stopLabel(streamingTask?.phase)}</button>
 		{:else if comparing}
 			<form class="icap-compare" use:keyGuard={{ app: rt.app, submit: submitCompare, escape: () => { comparing = false; root?.focus({ preventScroll: true }); } }} onsubmit={(e) => (e.preventDefault(), submitCompare())}>
 				<label for="cmp-{gloss.id}">{L("compare with", "对比")}</label>
@@ -223,7 +224,7 @@
 					autocomplete="off"
 					spellcheck="false"
 				/>
-				<button type="submit" class="icap-link" disabled={!compareWith.trim()}>↵</button>
+				<button type="submit" class="icap-link icap-icon-link" disabled={!compareWith.trim()} aria-label={L("Compare", "对比")} title={L("Compare", "对比")}><CornerDownLeft aria-hidden="true" /></button>
 				<button type="button" class="icap-link is-quiet" onclick={() => (comparing = false)}>{L("cancel", "取消")}</button>
 			</form>
 		{:else}

@@ -95,7 +95,17 @@ Commands ask the agent to create a concept note, collect a note's key concepts, 
 
 ### Activity
 
-Activity is a status surface, not a chat. A small mark in the status bar shows `○` idle, `◔` working or `●` needs you. It unfolds into a ledger: one line per task in past tense ("Explained 'RAII' in *C++ Memory*", "Created 3 notes"), its state, and links to every file the agent created, changed, deleted or renamed. Waiting tasks float to the top with a jump link. Each task's tool calls are available folded ("n steps"). Model reasoning and internal messages are never shown.
+Activity is a status surface, not a chat. A small mark in the status bar (on mobile, which has none, a ribbon button and the *Show activity* command) shows `○` idle, `◔` working or `●` needs you. Clicking it opens the activity: `Activity.base`, a native Obsidian Base over the task notes, when the learner records tasks as notes; otherwise the plugin's own list.
+
+**Tasks can be notes, if the learner wants them.** A vault is the learner's workspace, and many have their own folders, templates and rules, so the plugin writes nothing into it unasked: *Record tasks as notes* (Files) is off by default, and the activity then lives in plugin data, shown as the plugin's list. A vault that already had `Activity.base` from an earlier version keeps recording. Turned on, each note-making task, and each request that amounts to a task, is recorded as a note with `icap-*` properties (FORMAT.md, "Task notes") in `ICAP/Tasks/` (the `ICAP` folder is a setting). It is a visible folder on purpose: Obsidian does not index hidden ones, so Bases could not list notes kept in `.icap/`: its status, the note it is about, the files it created or changed, when it ran. One request block is one task note, however many rounds the conversation has. The note is written only when the task's state really changes, and only by the device that runs the task; what the agent is doing this second stays in the status bar and the block. A request amounts to a task once its agent used a tool, touched a file, asked something back, or the conversation went past one round. A question asked in passing ("what does this mean?", one answer) is not a task: it stays in its block, which still shows what it cost, and the task folder is not buried under one-liners. For the same reason explanations, recalls, checks and quizzes get no task note; when one of them waits for the learner, the mark leads straight to it instead of to the Base.
+
+**What it cost.** Every assistant message reports its tokens and price (pi-ai's usage, the same on desktop and mobile); the runtime adds them up per task, across the rounds of a request block. The block shows one quiet line under the reply, "6.1k tokens · cache 95% · ≈$0.0002", and the task note records `icap-cost`, `icap-tokens` and `icap-cache`. The price is an estimate from list prices (≈) unless the provider reported what it billed. When it cannot be told (a custom endpoint without prices, a task from an earlier version) it says *cost unknown*, and the note says `icap-cost: unknown`: never a number that looks like a price. Summed per message rather than read from the session's totals, because a resumed session would count earlier rounds twice.
+
+A task's name in the activity leads back to where it was asked: the request block while it is there, else the `[!request]` record kept in its place, else the note (Mod opens the task note). The task note holds the properties the tables show; the conversation never leaves the source note.
+
+`Activity.base` is generated once and then belongs to the learner: the plugin's own `icap-activity` view first, then three tables (needs me, in progress, all grouped by status with cost and tokens summed) they can change like any Base. It is never rewritten, save once: a base generated before the activity view gets that view as its first; if they delete it, *Show activity* creates it again. A task note the learner deletes stays deleted; *Rebuild task notes from recent activity* writes the missing ones again from the latest 60 tasks plugin data keeps, only when asked. Activity kept by earlier versions in plugin data is written out as task notes once, on upgrade, with a notice saying where.
+
+Without the Bases core plugin, the mark unfolds into the plugin's own ledger instead: one line per task in past tense ("Explained 'RAII' in *C++ Memory*", "Created 3 notes"), its state, and links to every file the agent created, changed, deleted or renamed, with each task's tool calls folded ("n steps"). Model reasoning and internal messages are never shown.
 
 ## 5. The agent
 
@@ -118,6 +128,21 @@ Pi is a general agent runtime, not a product UI. ICAP bundles Pi's SDK and runs 
 
 **Credentials stay with Pi.** Login (OAuth or API key) goes through Pi and is stored in Pi's `auth.json`; keys exported in the shell are found even when Obsidian is launched from the Dock. A custom endpoint (Ollama, a proxy, any OpenAI-compatible API) is a provider in Pi's `models.json`, edited from the settings without disturbing the rest of that file. The model list shows only models with credentials, and probing it sends no prompt and costs nothing.
 
+### On a phone: ICAP's own agent
+
+Obsidian mobile has no Node, so Pi's coding agent cannot run there. The mobile backend is ICAP's own agent loop (Pi's `pi-agent-core`) on Pi's provider adapters (`pi-ai`), with the same protocol, prompts and ICAP tools. The runtime does not know which one it talks to (`AgentBackend`); what differs is stated once, as capabilities:
+
+| On mobile | Why |
+|---|---|
+| Isolated only, ICAP's tools only: no file tools, shell, extensions, skills or MCP | none of these exist without Node and the learner's `~/.pi`. The icap-visual rules are written into the system prompt instead of read from a skill |
+| An API key per provider, or a custom endpoint; no subscription login, Bedrock or Vertex | OAuth flows and AWS/Google cloud SDKs need Node. Keys live in Obsidian's keychain on the device (`app.secretStorage`, ids `icap-<provider>`, `icap-endpoint-<slug>`), never in plugin data, so they never sync; endpoint definitions live in plugin data with the key held by reference |
+| No session cache, no `/compact` | every run replays the block's transcript, which is what the note already is the source of (§3) |
+| Its own model choice | keys differ per device; the desktop's Pi model may not exist on the phone |
+
+**One fixed rule for how requests travel.** Built-in providers allow cross-origin requests, so they stream through the WebView's `fetch`. A custom endpoint is probed once, when it is saved: a request with an invalid key that reads back any status means it streams too; a refused request means it goes through Obsidian's `requestUrl`, which is not subject to CORS but returns a reply only whole and cannot be aborted. Nothing falls back at run time. A whole reply is honest about it: the phase line says "waiting for the complete reply" (no simulated typing), and the stop control says it only stops the wait, since the provider still bills the request.
+
+**Interrupted, not failed.** When iOS suspends Obsidian, the connection dies mid-reply. That is recorded as an interruption, like a task Obsidian closed on, and **continue** resumes it from the block. There is no keep-alive.
+
 ### Knowledge comes from the vault, on demand
 
 There is no import step and no separate source library. The vault is the source. Finding knowledge is something the agent does while working, not a stage the learner starts: before explaining a term, it might check the term's backlinks and whether the learner has written about it. Nothing scans the whole vault, and there is no vector database or knowledge graph.
@@ -132,7 +157,7 @@ These are capabilities, not a required procedure.
 
 **Many documents, read like a person reads them.** The agent opens a book's table of contents and reads the chapters it needs, instead of retrieving fragments by similarity. A document's structure comes from its bookmarks, its EPUB table of contents or its Word heading styles; a PDF without bookmarks gets it from its layout: body size is the most common one, headings are larger, or bold and set apart, or numbered, and size, weight, capitals and numbering rank them into levels. No model is involved, so preparing documents costs nothing and runs in the background. Summaries per part are the one thing that needs a model, so they are a setting, off by default; whether they are worth their tokens is the learner's call.
 
-The structure and text are cached in the vault's visible `icap/docs/` (FORMAT.md, "Document cache"), keyed by content, so every device and every task reads a document once. It is visible, not a dot-folder, because Obsidian Sync skips dot-folders.
+The structure and text are cached in the plugin's own folder (`docs/` next to its settings; FORMAT.md, "Document cache"), keyed by content, so every task reads a document once. Not in the vault: the learner's vault holds nothing they did not put there, not even a hidden folder that other sync tools would carry. It can always be rebuilt, so a device without it just prepares its own.
 
 ### Calibration: the evidence is in the notes
 
@@ -146,14 +171,14 @@ The same explanation that helps a beginner burdens an expert (the expertise reve
 | Notes the learner wrote | they may understand parts of it | medium |
 | Completed recalls and checks (their words, the verdict, the date) | what they actually understand | strong |
 
-- **Provenance makes this work.** The agent must tell the learner's writing from its own, or it would read its own notes as proof of understanding. ICAP records the minimum: notes from `create_note` carry `generated-by: icap-agent` (the learner can turn this off), kept explanations are `gloss` callouts, and kept recalls carry `feedback` and `practice`.
+- **Provenance makes this work.** The agent must tell the learner's writing from its own, or it would read its own notes as proof of understanding. ICAP records the minimum: notes from `create_note` carry `generated-by: icap-agent` (the learner can turn this off), kept explanations are `gloss` callouts, and kept recalls and checks carry `feedback`, and kept quizzes carry `practice`.
 - **The learning record is the notes.** There is no hidden learner model; the evidence is Markdown the learner can read, edit and delete. A kept recall, check or quiz says when it was kept and how it went, in its callout title and in a comment above it (FORMAT.md), so the record carries its own dates without the plugin's data.
 - **Calibration stays local** to a concept or a note. There is no global level and no long-term knowledge tracing.
 - **Diagnosis stays light.** The explanation always comes first. Only when evidence is missing and levels would differ a lot does the agent offer a fork, such as "if you already know X, start from Y". At first, with no recall evidence, explanations are more generic; implicit feedback and forks move past that quickly.
 
 ### Preferences and conventions
 
-- **Learning preferences** live in ICAP's settings: background, how the learner likes to learn (language, style, depth), and where new notes go. They are separate from any `AGENTS.md` the learner wrote for other agents.
+- **Learning preferences** live in ICAP's settings: background, how the learner likes to learn (language, style, depth), and where new notes go (empty, the default: the agent places each note as the learner would, by the vault's `AGENTS.md` and where related notes are, so a vault's own layout is kept rather than a folder imposed). They are separate from any `AGENTS.md` the learner wrote for other agents.
 - **This vault's conventions.** Most learners don't know what an `AGENTS.md` is, so the wizard never says the word. It asks what the vault is for (a course, books, research, a language, programming, or blank), the topic, where the sources are, and which folders are off limits. Each choice brings a preset: how notes are organised and how the agent behaves here (for example, hints before solutions, and never writing the learner's reflections). It also adds general rules: look for an existing note before creating one, link only to notes that exist, never invent a source. The learner edits a preview, and the result is written to the vault root as an ordinary note. The wizard never overwrites an existing file.
 - **Context files stop at the vault.** The Pi CLI collects `AGENTS.md` files from every parent directory. ICAP loads only Pi's global one and those inside the vault, because a parent directory's file (`~/AGENTS.md`, a repository the vault sits in) was written for other work.
 - **Language.** The interface follows Obsidian's language, English or Chinese, including the guide. Markers written into notes stay English (callout types, `kind:`, `generated-by`, the *Plainly.* / *Deeper.* headings), so switching languages never breaks existing notes. Labels written for people in kept records follow the interface.
@@ -171,11 +196,11 @@ Sometimes a slider teaches more than a paragraph. The agent may put a hands-on v
 ## 7. Design language
 
 - **Two voices.** The *learner voice* is the note's body text: answers are typed on a borderless writing line in `--font-text` at body size and kept as plain paragraphs. The *agent voice* sits in the same column at about 0.95em, with a 1.5px ink rule in the left gutter and a small-caps label (`gloss · RAII`, `question`, `note`). There is no card, fill or avatar.
-- **One ink.** The plugin's identity is a single annotation colour, a warm madder like a tutor's pencil, derived per theme from Obsidian's variables (lighter in dark mode). It is used only for the ink rule, the explained-term underline, marks on choices and verdict glyphs. Everything else is inherited, so community themes keep working. A setting switches the ink to the theme accent.
-- **Verdicts without shame.** Feedback marks are glyphs in the gutter, not red and green: `✓ holds`, `≈ partly`, `? reconsider`. An error is framed as something to look at again.
-- **State is a sentence, not a badge.** A block ends with a caption in the interface font, such as "waiting for your answer · ⌘↵ to submit" or "reading your answer…". There are no status pills. Phases describe the learner's material, never tools or models. A shortcut in a caption or hint is drawn as keycaps for the platform (⌘ ↵ on macOS, Ctrl ↵ elsewhere), never spelled out in words.
+- **One ink.** The plugin's identity is a single annotation colour, a warm madder like a tutor's pencil, derived per theme from Obsidian's variables (lighter in dark mode). It is used only for the ink rule, the explained-term underline, marks on choices and verdict glyphs. Everything else is inherited, so community themes keep working. One setting, *ICAP style*, covers how the output looks: turned off, the ink is the theme accent and kept callouts take the theme's own callout look.
+- **Verdicts without shame.** Feedback marks are glyphs in the gutter, not red and green: `✓ holds`, `≈ partly`, `? look again` (stored as `reconsider`). An error is framed as something to look at again.
+- **State is a sentence, not a badge.** A block ends with a caption in the interface font, such as "your turn — ⌘↵ to submit" or "reading what you wrote…". There are no status pills. Phases describe the learner's material, never tools or models. A shortcut in a caption or hint is drawn as keycaps for the platform (⌘ ↵ on macOS, Ctrl ↵ elsewhere), never spelled out in words.
 - **Waiting is the ink being drawn.** While the agent works, the ink rule draws down the gutter in a slow loop: a gradient, not a spinner or a glow. With reduced motion it is simply dashed.
-- **Choices are marked like paper.** Options are a lettered list. Choosing draws an ink ring around the letter (single choice) or a tick (multiple).
+- **Choices are marked like paper.** Options are a lettered list. Choosing draws an ink ring around the letter (single choice) or a tick (multiple). The keyboard caret (a wash and an ink rule) shows only once the learner moves with the keys: a question that takes the focus by itself shows none, so its first option never looks chosen.
 
 ## 8. Motion: ink and paper
 
@@ -186,7 +211,8 @@ Motion is part of the interaction, not decoration. It says *who* is writing, *wh
 | `settle` | critically damped, ~0.4 s | content arriving, the page making room, panels |
 | `hand` | ~0.34 s, bounce 0.22 | the learner's marks: rings and ticks, the verdict stamp, the status dot |
 | `quick` | ~0.2 s | captions, presses, small swaps |
-| `leave` / `fade` | faster than arriving | dismissing, folding, closing |
+| `leave` | ~0.26 s, faster than arriving | dismissing, folding, closing |
+| `fade` | 0.14 s tween (not a spring) | words fading out before a frame closes or a control row swaps |
 
 1. **Ink before words.** An agent passage arrives the way a tutor annotates. The ink rule is drawn down the gutter, then the label and paragraphs settle in beneath it. A verdict glyph is stamped into the margin. Streaming keeps finished paragraphs in place, so only the growing tail changes.
 2. **The page makes room.** Inserting, streaming, follow-ups, folding and removal all glide the note below; nothing jumps or wobbles. An interrupted change retargets from the current height.

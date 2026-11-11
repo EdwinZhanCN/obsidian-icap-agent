@@ -1,0 +1,79 @@
+---
+title: Let the agent write notes
+description: Make a concept note, collect the key concepts of a note, compare two concepts, or make a note from an interaction.
+sidebar:
+  order: 7
+---
+
+import AskDemo from "../../../demo/AskDemo.svelte";
+
+The agent can write new study notes for you. Each note has a short core idea, the key details, an example if it helps, and links back to your note and to related concepts. The plugin makes new notes directly. It does not change your existing notes without your decision.
+
+Below, the agent collects the key concepts of a note. It asks which concepts to write, makes the notes, and proposes one link in the note.
+
+<AskDemo client:only="svelte" lang="en" kind="collect" />
+
+## Make a concept note
+
+1. Select the concept in the note.
+2. Open the command palette and run **Create a concept note from selection**. You can also right-click the selection and select **Create a concept note**.
+
+The agent writes one note about the concept. It explains the concept as your note uses it.
+
+## Collect the key concepts of a note
+
+1. Open the note.
+2. Open the command palette and run **Collect key concepts of this note into notes**.
+3. The agent shows a list of concepts. Select the concepts that you want as notes.
+4. Select **submit**.
+
+The agent makes a note for each concept that you selected. If you select none, it makes no notes.
+
+## Write a comparison note
+
+1. Optional: select the first concept.
+2. Open the command palette and run **Write a comparison note…**.
+3. In the **Compare concepts** window, type the first concept in **This**, if it is empty.
+4. Type the second concept in **With**.
+5. Select **Write comparison**.
+
+The note tells what each concept is for, the differences that are important, what the two concepts share, and when to use which.
+
+## Make a note from an interaction
+
+When a recall, a check or a quiz is done, select **make a note** in the block.
+
+The agent writes one note from the interaction. The note has your final words, the misconception that you corrected, and the most important feedback. The agent does not change your words.
+
+## Diagrams, canvases and bases
+
+The agent can also use Obsidian's own formats when a picture or a table shows the material better than text. It uses them in a reply to a request and in new notes. It does not use them in explanations, feedback or questions.
+
+| Format | What the agent makes | When it uses it |
+|---|---|---|
+| Diagram | a `mermaid` code block in a note | a process, a cycle, causes, states, or events in order |
+| Canvas | a new `.canvas` file | a concept map that you arrange and extend |
+| Base | a `base` code block, or a new `.base` file | a table or cards of notes by their properties |
+
+- Diagrams use the colors and fonts of your theme. A node can link to a note.
+- The plugin checks each canvas and base before it writes the file. If the file cannot open in Obsidian, the agent gets the reason and corrects the file.
+- To change an existing canvas or base, the agent proposes the change. You apply it or leave the file as it is.
+
+To ask for one, type the request in a request block, for example "Make a canvas of the concepts in this note".
+
+## When the agent asks or proposes
+
+While it works, the agent can ask you a question in the note, for example which concepts to include. See [Answer the agent's questions](/learn/agent-questions/).
+
+If your note mentions a concept that now has its own note, the agent can propose one link. The block shows the change:
+
+- To add the link, select **apply change**.
+- To keep the note as it is, select **leave the note as is**.
+
+When the agent is done, the block shows the result. Select **keep in note** to keep it as a `note` callout, or **clear** to remove the block.
+
+## Where the notes go
+
+- The agent chooses the folder for each new note: by the rules in your vault's `AGENTS.md`, or next to related notes. To use one folder for all new notes, set **Folder for new notes** (**Settings → ICAP Learning Agent → Files**).
+- With **Mark notes the agent creates** on, each new note has the property `generated-by: icap-agent`. The agent uses this property to tell its notes from yours. It does not take its own notes as proof of what you understand.
+- When the task is done, a notice tells you which notes the agent made. The [activity](/learn/activity/) records each task, with links to the notes.

@@ -1,0 +1,14 @@
+# The docs site is its own pnpm project: the plugin's workspace pins vite to Vite+, Astro brings its own.
+packages: []
+allowBuilds:
+  '@tailwindcss/oxide': true
+  esbuild: true
+  sharp: true
+minimumReleaseAgeExclude:
+  - '@astrojs/internal-helpers@0.13.2'
+  - '@astrojs/markdown-satteri@0.4.8'
+  - '@astrojs/runtime@0.1.0'
+  - '@astrojs/svelte-renderer@0.1.0'
+  - '@astrojs/svelte@9.1.4'
+  - '@astrojs/vite-plugin-astro@0.1.1'
+  - astro@7.4.10

@@ -1,4 +1,5 @@
-import { MarkdownRenderChild, MarkdownView, Menu, Modal, Notice, Platform, Plugin, Setting, TFile, getLanguage, type Editor, type MarkdownFileInfo } from "obsidian";
+import { MarkdownRenderChild, MarkdownView, Menu, Modal, Notice, Platform, Plugin, Setting, TFile, getLanguage, requestUrl, type Editor, type MarkdownFileInfo } from "obsidian";
+import { ACTIVITY_VIEW, ActivityBasesView } from "./activity/view.svelte";
 import { guideNote } from "./guide/guide";
 import { L, setLocale } from "./i18n";
 import { mount, unmount } from "svelte";
@@ -7,10 +8,10 @@ import { selectionMark } from "./editor/selection-mark";
 import { freshField } from "./editor/fresh";
 import { recordComments } from "./editor/record-comments";
 import { LearningRuntime, cmOf, type PersistedRuntime } from "./runtime/runtime";
-import { DEFAULT_SETTINGS, IcapSettingTab, type IcapSettings } from "./settings";
-import { loadPi, type PiSdk } from "./agent/pi-host";
+import { DEFAULT_SETTINGS, IcapSettingTab, type IcapSettings } from "./settings/settings";
+import type { AgentBackend } from "./agent/backend";
 import { UiHost } from "./genui/host";
-import { RulesModal, VAULT_RULES } from "./ui/rules-modal";
+import { RulesModal, VAULT_RULES } from "./settings/rules-modal";
 import AskView from "./ui/AskView.svelte";
 import Ledger from "./ui/Ledger.svelte";
 import LedgerMark from "./ui/LedgerMark.svelte";
@@ -39,15 +40,24 @@ class SvelteChild extends MarkdownRenderChild {
 export default class IcapPlugin extends Plugin {
 	settings: IcapSettings = { ...DEFAULT_SETTINGS };
 	runtime!: LearningRuntime;
+	/** The agent below the runtime (agent/backend.ts). */
+	backend!: AgentBackend;
 	private mounted: Record<string, unknown>[] = [];
 
 	async onload() {
 		setLocale(this.language());
 		const data = ((await this.loadData()) ?? (await this.legacyData()) ?? {}) as StoredData;
-		this.settings = { ...DEFAULT_SETTINGS, ...(data.settings ?? {}) };
+		const stored = (data.settings ?? {}) as Partial<IcapSettings> & { ink?: string };
+		// Earlier versions let only the ink follow the theme accent; that choice now means the theme's look.
+		if (!stored.style && stored.ink === "accent") stored.style = "theme";
+		delete stored.ink;
+		// Before "record tasks as notes" was a choice, a vault got task notes unasked: one that has them keeps them.
+		if (!stored.taskNotes) stored.taskNotes = stored.activityBaseMade ? "on" : "off";
+		this.settings = { ...DEFAULT_SETTINGS, ...stored };
+		this.backend = await this.chooseBackend();
 		this.runtime = new LearningRuntime(this);
 		this.runtime.load(data);
-		this.applyInk();
+		this.applyStyle();
 
 		const rt = this.runtime;
 
@@ -94,18 +104,42 @@ export default class IcapPlugin extends Plugin {
 
 		this.registerHoverLinkSource("icap-agent", { display: "ICAP Learning Agent", defaultMod: true });
 
-		// Activity: a mark in the status bar that unfolds into the ledger.
-		const bar = this.addStatusBarItem();
-		bar.addClass("icap-statusbar");
-		this.mounted.push(mount(LedgerMark, { target: bar, props: { rt } }));
+		// Activity: a mark in the status bar that unfolds into the ledger. Mobile has no status bar: a ribbon
+		// button (and the command) open it there.
+		if (Platform.isMobile) this.addRibbonIcon("activity", L("Show activity", "显示活动"), () => void rt.showActivity());
+		else {
+			const bar = this.addStatusBarItem();
+			bar.addClass("icap-statusbar");
+			this.mounted.push(mount(LedgerMark, { target: bar, props: { rt } }));
+		}
 		const ledgerHost = document.body.createDiv({ cls: "icap-ledger-host" });
 		this.register(() => ledgerHost.remove());
 		this.mounted.push(mount(Ledger, { target: ledgerHost, props: { rt } }));
+
+		// The activity as a Bases view type: Activity.base opens on it; its table views stay for when the plugin is gone.
+		// Obsidian does not unload a plugin's open Bases views when the plugin is disabled: take them down here.
+		const activityViews = new Set<ActivityBasesView>();
+		this.register(() => {
+			for (const v of activityViews) v.unload();
+			activityViews.clear();
+		});
+		this.registerBasesView(ACTIVITY_VIEW, {
+			name: L("Activity", "活动"),
+			icon: "activity",
+			factory: (controller, el) => {
+				const view = new ActivityBasesView(controller, el, { taskOf: (id) => rt.taskNotes.taskOf(id), openTask: (id, source, request, from) => rt.openTask(id, source, request, from) });
+				activityViews.add(view);
+				view.register(() => activityViews.delete(view));
+				return view;
+			},
+		});
 
 		this.registerCommands();
 		// First install: the guide is the first thing the learner sees — a note to learn in, not a welcome page.
 		this.app.workspace.onLayoutReady(() => {
 			void this.firstRun();
+			// Task notes: what was running when Obsidian closed, and the one-time move of earlier activity into notes.
+			void rt.startTaskNotes();
 			// Pi sessions of request blocks that were kept or cleared elsewhere (another device, a crash).
 			rt.pruneSessions();
 			// What the learner's agent changes in the vault is recorded (after load: startup fires "create" for every file).
@@ -113,13 +147,27 @@ export default class IcapPlugin extends Plugin {
 			this.registerEvent(this.app.vault.on("modify", (f) => rt.onVaultChange("edited", f)));
 			this.registerEvent(this.app.vault.on("delete", (f) => rt.onVaultChange("deleted", f)));
 			this.registerEvent(this.app.vault.on("rename", (f, old) => rt.onVaultChange("edited", f, old)));
-			// Documents (PDF, EPUB, DOCX) are prepared ahead of time into icap/docs/, when that is on.
+			// Documents (PDF, EPUB, DOCX) are prepared ahead of time into the plugin's docs/ folder, when that is on.
 			this.registerEvent(this.app.vault.on("create", (f) => rt.onDocumentChange(f)));
 			this.registerEvent(this.app.vault.on("modify", (f) => rt.onDocumentChange(f)));
 			window.setTimeout(() => rt.prepareDocuments(), 5000);
 		});
 		this.registerEvent(this.app.workspace.on("editor-menu", (menu, editor, info) => this.editorMenu(menu, editor, info)));
 		this.addSettingTab(new IcapSettingTab(this.app, this));
+	}
+
+	/**
+	 * The one place a backend is chosen. Each sits behind a dynamic import evaluated only on its platform:
+	 * the desktop one reaches Node (fs, child_process, Pi), which does not exist on mobile. Keyed on
+	 * isMobile, so the desktop app's mobile emulation (app.emulateMobile) runs the mobile backend too.
+	 */
+	private async chooseBackend(): Promise<AgentBackend> {
+		if (!Platform.isMobile) {
+			const { DesktopBackend } = await import("./agent/desktop/desktop-backend");
+			return new DesktopBackend(this.app, { pluginDir: () => this.pluginPath(), externalFolders: () => this.settings.externalFolders });
+		}
+		const { MobileBackend } = await import("./agent/mobile/mobile-backend");
+		return new MobileBackend(this.app, { settings: () => this.settings, save: () => this.saveSettings(), requestUrl });
 	}
 
 	private async firstRun() {
@@ -143,17 +191,11 @@ export default class IcapPlugin extends Plugin {
 		return (this.app.vault.adapter as unknown as { getBasePath?: () => string }).getBasePath?.();
 	}
 
-	/** This plugin's folder on disk (its data, and request blocks' Pi sessions). */
+	/** This plugin's folder on disk (its data, main.js, and request blocks' Pi sessions). */
 	pluginPath(): string | undefined {
 		const base = this.vaultPath();
 		if (!base) return undefined;
 		return `${base}/${this.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.manifest.id}`}`;
-	}
-
-	/** Pi's SDK, bundled into main.js and loaded on first use (agent/pi-host.ts). */
-	pi(): Promise<PiSdk> {
-		const dir = this.pluginPath();
-		return loadPi(dir ? `${dir}/main.js` : undefined);
 	}
 
 	/** Open the guide note; recreate it if it was deleted. */
@@ -175,7 +217,7 @@ export default class IcapPlugin extends Plugin {
 		this.runtime?.dispose();
 		for (const m of this.mounted) void unmount(m);
 		this.mounted = [];
-		document.body.removeClass("icap-ink-accent");
+		document.body.removeClass("icap-style-theme");
 		document.querySelectorAll(".icap-veiled").forEach((e) => e.classList.remove("icap-veiled"));
 	}
 
@@ -190,8 +232,8 @@ export default class IcapPlugin extends Plugin {
 		await this.saveData(data);
 	}
 
-	applyInk() {
-		document.body.toggleClass("icap-ink-accent", this.settings.ink === "accent");
+	applyStyle() {
+		document.body.toggleClass("icap-style-theme", this.settings.style === "theme");
 	}
 
 	/**
@@ -227,11 +269,12 @@ export default class IcapPlugin extends Plugin {
 		}
 	}
 
+	/** An editor command (so it can sit in the mobile toolbar): available in a note's editor. */
 	private withEditor(fn: (editor: Editor, file: TFile) => void) {
-		return (checking: boolean) => {
-			const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-			if (!view?.file || !cmOf(view.editor)) return false;
-			if (!checking) fn(view.editor, view.file);
+		return (checking: boolean, editor: Editor, ctx: MarkdownView | MarkdownFileInfo) => {
+			const file = ctx.file;
+			if (!file || !cmOf(editor)) return false;
+			if (!checking) fn(editor, file);
 			return true;
 		};
 	}
@@ -240,38 +283,45 @@ export default class IcapPlugin extends Plugin {
 		const rt = this.runtime;
 		this.addCommand({
 			id: "ask-agent",
+			icon: "message-circle-question",
 			name: L("Ask the agent here", "在这里向 Agent 提问"),
-			checkCallback: this.withEditor((e, f) => void rt.request(e, f)),
+			editorCheckCallback: this.withEditor((e, f) => void rt.request(e, f)),
 		});
 		this.addCommand({
 			id: "explain-selection",
+			icon: "lightbulb",
 			name: L("Explain selection in context", "在上下文中解释选中内容"),
-			checkCallback: this.withEditor((e, f) => rt.explain(e, f)),
+			editorCheckCallback: this.withEditor((e, f) => rt.explain(e, f)),
 		});
 		this.addCommand({
 			id: "recall-from-memory",
+			icon: "brain",
 			name: L("Recall from memory (this section)", "凭记忆复述（本节）"),
-			checkCallback: this.withEditor((e, f) => void rt.recall(e, f)),
+			editorCheckCallback: this.withEditor((e, f) => void rt.recall(e, f)),
 		});
 		this.addCommand({
 			id: "check-my-words",
+			icon: "spell-check",
 			name: L("Check what I wrote (selection or paragraph)", "检查我写的内容（选中内容或段落）"),
-			checkCallback: this.withEditor((e, f) => void rt.checkWriting(e, f)),
+			editorCheckCallback: this.withEditor((e, f) => void rt.checkWriting(e, f)),
 		});
 		this.addCommand({
 			id: "quiz-section",
+			icon: "list-checks",
 			name: L("Check my understanding of this section", "检验我对本节的理解"),
-			checkCallback: this.withEditor((e, f) => void rt.quiz(e, f, "section")),
+			editorCheckCallback: this.withEditor((e, f) => void rt.quiz(e, f, "section")),
 		});
 		this.addCommand({
 			id: "quiz-note",
+			icon: "clipboard-check",
 			name: L("Check my understanding of this note", "检验我对整篇笔记的理解"),
-			checkCallback: this.withEditor((e, f) => void rt.quiz(e, f, "note")),
+			editorCheckCallback: this.withEditor((e, f) => void rt.quiz(e, f, "note")),
 		});
 		this.addCommand({
 			id: "concept-note",
+			icon: "file-plus-2",
 			name: L("Create a concept note from selection", "用选中内容新建概念笔记"),
-			checkCallback: this.withEditor((e, f) => {
+			editorCheckCallback: this.withEditor((e, f) => {
 				const s = e.getSelection().trim();
 				if (!s) return void new Notice(L("Select the concept first.", "请先选中一个概念。"));
 				void rt.noteTask("concept", f, s, e);
@@ -279,18 +329,21 @@ export default class IcapPlugin extends Plugin {
 		});
 		this.addCommand({
 			id: "collect-concepts",
+			icon: "files",
 			name: L("Collect key concepts of this note into notes", "把本笔记的关键概念整理成笔记"),
-			checkCallback: this.withEditor((e, f) => void rt.noteTask("collect", f, "", e)),
+			editorCheckCallback: this.withEditor((e, f) => void rt.noteTask("collect", f, "", e)),
 		});
 		this.addCommand({
 			id: "compare-concepts",
+			icon: "columns-2",
 			name: L("Write a comparison note…", "写一篇对比笔记…"),
-			checkCallback: this.withEditor((e, f) => {
+			editorCheckCallback: this.withEditor((e, f) => {
 				new CompareModal(this, e.getSelection().trim(), (v) => void rt.noteTask("compare", f, v, e)).open();
 			}),
 		});
 		this.addCommand({
 			id: "focus-interaction",
+			icon: "corner-down-right",
 			name: L("Move into the nearest explanation or question", "进入最近的解释或问题"),
 			editorCallback: (_e, info) => {
 				if (info instanceof MarkdownView) rt.focusNearestInteraction(info);
@@ -298,16 +351,25 @@ export default class IcapPlugin extends Plugin {
 		});
 		this.addCommand({
 			id: "show-activity",
+			icon: "activity",
 			name: L("Show activity", "显示活动"),
-			callback: () => (rt.ledger.open = true),
+			callback: () => void rt.showActivity(),
+		});
+		this.addCommand({
+			id: "rebuild-task-notes",
+			icon: "list-restart",
+			name: L("Rebuild task notes from recent activity", "从最近的活动重建任务笔记"),
+			callback: () => void rt.rebuildTaskNotes(),
 		});
 		this.addCommand({
 			id: "open-guide",
+			icon: "book-open",
 			name: L("Open the guide", "打开指南"),
 			callback: () => void this.openGuide(),
 		});
 		this.addCommand({
 			id: "vault-conventions",
+			icon: "scroll-text",
 			name: L("This vault's conventions (AGENTS.md)", "这个库的约定（AGENTS.md）"),
 			callback: () => void this.openVaultRules(),
 		});

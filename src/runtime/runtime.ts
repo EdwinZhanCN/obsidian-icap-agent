@@ -1,22 +1,18 @@
-import { FileSystemAdapter, MarkdownView, Notice, TFile, type App, type Editor, type TAbstractFile } from "obsidian";
+import { MarkdownView, Notice, TFile, TFolder, parseYaml, type App, type Editor, type TAbstractFile } from "obsidian";
 import { EditorView } from "@codemirror/view";
 import { mount, unmount } from "svelte";
 import { SvelteMap } from "svelte/reactivity";
 import type IcapPlugin from "../main";
-import { PiSession, probeCommands, probeModels, type AgentPhase, type Control, type DialogAnswer, type DialogRequest } from "../agent/pi-session";
-import { ensureDir, removeSessions, reusable, sessionExists, sessionId, sessionSig } from "../agent/session-cache";
-import { ensureSkills } from "../agent/icap-skills";
+import { SetupNeeded, type AgentBackend, type AgentConfig, type AgentPhase, type Control, type DialogAnswer, type DialogRequest, type SessionCache } from "../agent/backend";
 import { extractLinks } from "../dsl/links";
 import { THINKING_LEVELS, isIcapCommand, parseCommand, type CommandProvider, type IcapCommandName, type SlashCommand } from "../dsl/commands";
 import { L } from "../i18n";
-import { GENERATED_BY } from "../settings";
+import { GENERATED_BY } from "../settings/settings";
 import { glossLabelUI } from "../ui/phrases";
-import { vaultCommand } from "../agent/vault-tools";
-import { DocStore, CACHE_DIR, formatOf, type Loaded } from "../docs/store";
-import { documentsCommand, readDocument } from "../docs/tools";
-import { applySummaries, documentPrompt, parseSummaries, summaryBatches } from "../docs/summaries";
-import { homedir } from "os";
-import { join } from "path";
+import { vaultCommand } from "../agent/tools/vault-tools";
+import { DocStore, LEGACY_DIR, formatOf, type Loaded } from "../documents/store";
+import { documentsCommand, readDocument } from "../documents/tools";
+import { applySummaries, documentPrompt, parseSummaries, summaryBatches } from "../documents/summaries";
 import {
 	blockContext,
 	commandContext,
@@ -24,6 +20,8 @@ import {
 	explainPrompt,
 	followUpPrompt,
 	notePrompt,
+	offeredSkills,
+	type Placement,
 	quizPrompt,
 	recallPrompt,
 	requestPrompt,
@@ -31,13 +29,17 @@ import {
 	type GlossMode,
 	type NoteTaskKind,
 } from "../agent/prompts";
-import { buildContext } from "../context";
-import { answerText, coveredTranscript, transcriptOf, withReply } from "./transcript";
-import { calloutBlock, editProblem, evidenceCallout, findAskBlock, isoDate, parseAskSource, parseAuthored, requestRecord, type AskSource, glossCallout, newId, serializeAsk, splitSources, tidyOptionLabel, tidyQuestion, verdictGlyph, dialogTitle, type Depth } from "../dsl/blocks";
+import { addUsage } from "../agent/usage";
+import { buildContext } from "./context";
+import { TaskNotes, announceMigration, basesEnabled } from "./task-notes";
+import { keptMarkdown } from "./kept";
+import { coveredTranscript, reusable, sessionSig, transcriptOf, withReply } from "./transcript";
+import { editProblem, findAskBlock, findRequestRecord, isoDate, parseAskSource, parseAuthored, type AskSource, glossCallout, newId, serializeAsk, splitSources, tidyOptionLabel, tidyQuestion, dialogTitle, type Depth } from "../dsl/blocks";
 import { askReplacement, blockInsertion, editorFor, spliceFile, uniqueNotePath, type Splice } from "../dsl/doc-ops";
+import { NOTE_EXT, baseProblem, canvasProblem, noteTypeOf, type NoteType } from "../dsl/structures";
 import { flashRange } from "../editor/fresh";
 import { clearCues, cue, withdrawCue } from "../editor/cue";
-import { glossAnchor, paragraphBounds, sectionBounds, stripFrontmatter } from "../dsl/text";
+import { glossAnchor, paragraphBounds, sectionBounds, stripFrontmatter, shortTitle } from "../dsl/text";
 import { addGloss, anchorsIn, glossField, removeGloss, type GlossAnchor, type GlossFieldType, type GlossHost } from "../editor/gloss-field";
 import GlossView from "../ui/GlossView.svelte";
 import { acknowledge } from "../ui/motion";
@@ -63,6 +65,9 @@ const TOOL_GRACE_MS = 3000;
 /** Artifacts that describe files the agent touched, kept whatever the task's own result is. */
 const FILE_KINDS = new Set<Artifact["kind"]>(["created", "edited", "deleted"]);
 
+/** The connection to the model failed mid-run (mobile: the app went to the background): resumable. */
+class Interrupted extends Error {}
+
 class Cancelled extends Error {
 	constructor() {
 		super(L("Stopped", "已停止"));
@@ -78,12 +83,13 @@ interface RunExtras {
 	/** This block's own model / thinking; empty = the plugin settings. */
 	model?: string;
 	thinking?: string;
-	session?: { id: string; dir: string };
+	/** A cached session to resume or create (SessionCache.id). */
+	session?: string;
 	/** A runtime control (compact) instead of a prompt. */
 	control?: Control;
 }
 
-/** The command catalog is asked of Pi at most this often (new skills show up without a restart). */
+/** The command catalog is asked of the agent at most this often (new skills show up without a restart). */
 const CATALOG_TTL_MS = 5 * 60 * 1000;
 
 export interface PersistedRuntime {
@@ -102,10 +108,12 @@ export class LearningRuntime {
 	private saveTimer: number | null = null;
 	/** Blocks that should take focus the first time they render. */
 	focusOnMount = new Set<string>();
-	/** The document cache (icap/docs/) behind read_document and documents. */
+	/** The document cache (the plugin's own docs/) behind read_document and documents. */
 	docs: DocStore;
 	/** Documents whose summaries are being written (by content hash). */
 	private summarizing = new Set<string>();
+	/** Request and note tasks as notes with `icap-*` properties (FORMAT.md v4); Activity.base lists them. */
+	taskNotes: TaskNotes;
 	private prepQueue: string[] = [];
 	private preparing = false;
 
@@ -128,7 +136,32 @@ export class LearningRuntime {
 			},
 		};
 		this.field = glossField(host);
-		this.docs = new DocStore(plugin.app);
+		this.docs = new DocStore(plugin.app, plugin.backend.files ?? null, `${plugin.manifest.dir ?? `${plugin.app.vault.configDir}/plugins/${plugin.manifest.id}`}/docs`);
+		this.taskNotes = new TaskNotes({
+			app: plugin.app,
+			home: () => this.settings.homeFolder,
+			tasks: () => this.ledger.tasks,
+			block: (id) => (id ? this.blocks.get(id) : undefined),
+			beingEdited: (path) => this.isBeingEdited(path),
+			baseMade: () => this.settings.activityBaseMade,
+			setBaseMade: () => {
+				if (this.settings.activityBaseMade) return;
+				this.settings.activityBaseMade = true;
+				this.persist();
+			},
+			viewAdded: () => this.settings.activityViewAdded,
+			setViewAdded: () => {
+				if (this.settings.activityViewAdded) return;
+				this.settings.activityViewAdded = true;
+				this.persist();
+			},
+			recording: () => this.settings.taskNotes === "on",
+		});
+	}
+
+	/** The agent below the runtime (agent/backend.ts). */
+	get backend(): AgentBackend {
+		return this.plugin.backend;
 	}
 
 	get app(): App {
@@ -175,6 +208,8 @@ export class LearningRuntime {
 	}
 
 	persist() {
+		// Every change of a task's state passes here: its note follows (written only if something differs).
+		void this.taskNotes.sync();
 		if (this.saveTimer) window.clearTimeout(this.saveTimer);
 		this.saveTimer = window.setTimeout(() => {
 			this.saveTimer = null;
@@ -183,6 +218,7 @@ export class LearningRuntime {
 	}
 
 	dispose() {
+		this.taskNotes.dispose();
 		clearCues();
 		for (const t of this.ledger.active) t.cancel?.();
 	}
@@ -203,17 +239,9 @@ export class LearningRuntime {
 		};
 	}
 
-	/** The vault plus the folders the learner allowed outside it (enforced in isolated mode). */
-	private allowedRoots(): string[] {
-		const home = homedir();
-		const extra = this.settings.externalFolders.map((f) => (f === "~" ? home : f.startsWith("~/") ? home + f.slice(1) : f));
-		return [this.vaultRoot(), ...extra];
-	}
-
-	private vaultRoot(): string {
-		const a = this.app.vault.adapter;
-		if (a instanceof FileSystemAdapter) return a.getBasePath();
-		throw new Error(L("This plugin needs the desktop app (a vault on disk).", "此插件需要桌面版（Vault 在本地磁盘上）。"));
+	/** The agent setup tasks run with: the learner's choice, when the backend can run their own. */
+	agentConfig(): AgentConfig {
+		return this.backend.capabilities.ownSetup ? this.settings.agentConfig : "isolated";
 	}
 
 	private async runAgent(
@@ -233,62 +261,100 @@ export class LearningRuntime {
 		const release = await this.slot();
 		try {
 			if (cancelledEarly) throw new Cancelled();
-			const pi = await this.plugin.pi();
-			if (cancelledEarly) throw new Cancelled();
-			const config = this.settings.agentConfig;
-			const roots = this.allowedRoots();
+			const config = this.agentConfig();
 			const visuals = this.settings.visuals;
-			const session = new PiSession({
-				pi,
-				cwd: this.vaultRoot(),
-				config,
-				allowedRoots: roots,
-				skillPaths: visuals !== "off" ? this.icapSkills() : [],
-				systemPrompt: systemPrompt(config, this.settings.preferences, visuals) + (opts.systemExtra ? `\n\n${opts.systemExtra}` : ""),
-				prompt: opts.prompt,
-				tools: opts.tools,
-				model: opts.model || this.settings.model,
-				thinking: opts.thinking || this.settings.thinking,
-				session: opts.session,
-				control: opts.control,
-				onText: opts.onText,
-				onStep: (tool, detail) => {
-					task.addStep(tool, detail);
-					this.persist();
+			const run = this.backend.run(
+				{
+					config,
+					icapSkills: offeredSkills(visuals),
+					systemPrompt: systemPrompt(config, this.settings.preferences, visuals, { fileTools: this.backend.capabilities.fileTools, skills: this.backend.capabilities.skillFiles }) + (opts.systemExtra ? `\n\n${opts.systemExtra}` : ""),
+					prompt: opts.prompt,
+					tools: opts.tools,
+					model: opts.model || this.defaultModel(),
+					thinking: opts.thinking || this.settings.thinking,
+					session: opts.session,
+					control: opts.control,
 				},
-				onTool: (running) => {
-					task.toolsRunning = Math.max(0, task.toolsRunning + (running ? 1 : -1));
-					if (!running) task.toolEndedAt = Date.now();
+				{
+					onText: opts.onText,
+					onStep: (tool, detail) => {
+						task.addStep(tool, detail);
+						this.persist();
+					},
+					onUsage: (used, model) => {
+						if (used) task.usage = addUsage(task.usage, used);
+						if (model) task.model = model;
+						this.persist();
+					},
+					onTool: (running) => {
+						task.toolsRunning = Math.max(0, task.toolsRunning + (running ? 1 : -1));
+						if (!running) {
+							task.toolEndedAt = Date.now();
+							task.endStep(task.toolEndedAt);
+						}
+					},
+					onPhase: (p) => {
+						task.phase = p;
+						if (p === "waiting") task.status = "waiting";
+						else if (task.status === "waiting") task.status = "processing";
+						opts.onPhase?.(p);
+					},
+					onBridge: async (op, p) => {
+						// The read-only vault tools work in every task; the rest depends on the task.
+						if (op === "vault") return vaultCommand(this.app, p);
+						if (op === "read_document" || op === "documents") return this.documentTool(op, p, config === "isolated");
+						return opts.onBridge ? opts.onBridge(op, p) : { status: "error", message: "Not available for this task." };
+					},
+					// A dialog from one of the learner's own extensions is asked in the task's block.
+					...(this.backend.capabilities.extensionDialogs ? { onDialog: (req: DialogRequest, signal: AbortSignal) => this.dialog(task, req, signal) } : {}),
 				},
-				onPhase: (p) => {
-					task.phase = p;
-					if (p === "waiting") task.status = "waiting";
-					else if (task.status === "waiting") task.status = "processing";
-					opts.onPhase?.(p);
-				},
-				onBridge: async (op, p) => {
-					// The read-only vault tools work in every task; the rest depends on the task.
-					if (op === "vault") return vaultCommand(this.app, p);
-					if (op === "read_document" || op === "documents") return this.documentTool(op, p, config === "isolated" ? roots : null, roots.slice(1));
-					return opts.onBridge ? opts.onBridge(op, p) : { status: "error", message: "Not available for this task." };
-				},
-				// A dialog from one of the learner's own extensions is asked in the task's block.
-				onDialog: (req, signal) => this.dialog(task, req, signal),
-			});
-			task.cancel = () => session.cancel();
-			const result = await session.run();
+			);
+			task.cancel = () => run.cancel();
+			const result = await run.result;
 			if (result.aborted) throw new Cancelled();
+			if (result.interrupted) throw new Interrupted(result.interrupted);
 			return result.text;
 		} finally {
 			release();
 		}
 	}
 
-	private finishWithError(task: Task, err: unknown, outcomeOnFail: string): "cancelled" | "failed" {
+	/** The model the settings choose on this device (each backend has its own; empty = its default). */
+	defaultModel(): string {
+		return this.backend.platform === "mobile" ? this.settings.mobileModel : this.settings.model;
+	}
+
+	/** Open ICAP's settings tab (a task that cannot run until something is set up). */
+	openSettings() {
+		const setting = (this.app as unknown as { setting?: { open(): void; openTabById(id: string): void } }).setting;
+		setting?.open();
+		setting?.openTabById(this.plugin.manifest.id);
+	}
+
+	private finishWithError(task: Task, err: unknown, outcomeOnFail: string): "cancelled" | "failed" | "interrupted" {
 		if (err instanceof Cancelled) {
 			// Keep the task's own title ("Explaining “heap”"); the ledger's status word says "stopped".
 			task.end("cancelled");
 			return "cancelled";
+		}
+		if (err instanceof Interrupted) {
+			// Resumable like a task Obsidian closed on (resume()); the reason is kept for the ledger.
+			task.interrupted = true;
+			task.end("cancelled", undefined, L("The connection to the model was lost (the app may have gone to the background).", "与模型的连接中断了（应用可能被切到了后台）。"));
+			return "interrupted";
+		}
+		if (err instanceof SetupNeeded) {
+			// The direct way into the settings, from wherever the task was started.
+			const notice = new Notice(
+				createFragment((f) => {
+					f.createDiv({ text: err.message });
+					f.createEl("button", { text: L("Open settings", "打开设置"), cls: "mod-cta icap-notice-action" }).addEventListener("click", () => {
+						notice.hide();
+						this.openSettings();
+					});
+				}),
+				0,
+			);
 		}
 		const msg = humanError(err);
 		task.end("failed", outcomeOnFail, msg);
@@ -299,39 +365,42 @@ export class LearningRuntime {
 		task.cancel?.();
 	}
 
-	/* ───────────── The `/` catalog: Pi's commands + ICAP's runtime commands ───────────── */
+	/* ───────────── The `/` catalog: the agent's commands + ICAP's runtime commands ───────────── */
 
 	private commandCache: { key: string; at: number; list: Promise<SlashCommand[]> } | null = null;
 	private modelCache: { key: string; at: number; list: Promise<string[]> } | null = null;
 
-	/** Settings changed (agent setup): ask Pi again next time. */
+	/** Settings changed (agent setup): ask the agent again next time. */
 	invalidateCatalog() {
 		this.commandCache = null;
 		this.modelCache = null;
 	}
 
 	private catalogKey() {
-		return this.settings.agentConfig;
+		return this.agentConfig();
 	}
 
 	private icapCommands(): SlashCommand[] {
-		return [
+		const commands: SlashCommand[] = [
 			{ name: "model", source: "icap", description: L("Model for this block only (/model default goes back)", "仅用于这个块的模型（/model default 恢复默认）") },
 			{ name: "thinking", source: "icap", description: L("Thinking level for this block only", "仅用于这个块的思考强度") },
 			{ name: "compact", source: "icap", description: L("Summarize the earlier rounds for the agent; the note stays as it is", "为 Agent 压缩前面的轮次；笔记保持不变") },
 		];
+		// Only a backend that keeps sessions can compact one.
+		return this.backend.capabilities.compact ? commands : commands.filter((c) => c.name !== "compact");
 	}
 
 	/** Every command a request block offers. The learner's own come from their Pi (cached). */
 	async slashCommands(): Promise<SlashCommand[]> {
 		const own = this.icapCommands();
 		// "ICAP only" runs Pi without extensions, skills and prompt templates: there is nothing to ask.
-		if (this.settings.agentConfig === "isolated") return own;
+		const probe = this.backend.probeCommands?.bind(this.backend);
+		if (this.agentConfig() === "isolated" || !probe || !this.backend.capabilities.commandProbe) return own;
 		const key = this.catalogKey();
 		const c = this.commandCache;
 		if (!c || c.key !== key || Date.now() - c.at > CATALOG_TTL_MS) {
 			const list = (async () => {
-				const found = await probeCommands(await this.plugin.pi(), this.vaultRoot());
+				const found = await probe();
 				return found.map((x): SlashCommand => ({ name: x.name, description: x.description, source: x.source }));
 			})();
 			const entry = { key, at: Date.now(), list };
@@ -348,11 +417,13 @@ export class LearningRuntime {
 
 	/** Models with credentials in the learner's Pi (for /model). */
 	async modelChoices(): Promise<string[]> {
+		const probe = this.backend.probeModels?.bind(this.backend);
+		if (!probe || !this.backend.capabilities.modelProbe) return [];
 		const key = this.catalogKey();
 		const c = this.modelCache;
 		if (!c || c.key !== key || Date.now() - c.at > CATALOG_TTL_MS) {
 			const list = (async () => {
-				return (await probeModels(await this.plugin.pi(), this.vaultRoot(), this.settings.agentConfig)).available;
+				return (await probe(this.agentConfig())).available;
 			})();
 			const entry = { key, at: Date.now(), list };
 			this.modelCache = entry;
@@ -365,58 +436,41 @@ export class LearningRuntime {
 
 	/** What a request block's writing line offers after "/". Learning blocks get none: see AskView. */
 	commandProvider(): CommandProvider {
-		const settings = this.settings;
+		const config = () => this.agentConfig();
 		return {
 			list: () => this.slashCommands(),
 			args: (name) =>
 				name === "model" ? this.modelChoices().then((m) => ["default", ...m]) : name === "thinking" ? Promise.resolve(["default", ...THINKING_LEVELS]) : null,
 			// Read when shown, so a change of agent setup is reflected without re-rendering the block.
 			get note() {
-				return settings.agentConfig === "isolated"
+				return config() === "isolated"
 					? L("Your own Pi skills and commands are off in “ICAP only” mode (settings → Agent setup).", "“仅 ICAP”模式下不加载你自己的 Pi skills 和命令（设置 → Agent 配置）。")
 					: undefined;
 			},
 		};
 	}
 
-	/* ───────────── Request blocks' Pi sessions (a cache of the conversation, agent/session-cache.ts) ───────────── */
+	/* ───────────── Request blocks' sessions (a cache of the conversation, SessionCache in agent/backend.ts) ───────────── */
 
-	/** Where request blocks' Pi sessions live: next to the plugin, out of the vault's notes. */
-	private sessionDir(): string | null {
-		const dir = this.plugin.pluginPath();
-		if (!dir) return null;
-		try {
-			return ensureDir(join(dir, "sessions"));
-		} catch {
-			return null;
-		}
-	}
-
-	/** ICAP's own skills, written into the plugin folder (inside the vault, readable in isolated mode). */
-	private icapSkills(): string[] {
-		const dir = this.plugin.pluginPath();
-		if (!dir) return [];
-		try {
-			return ensureSkills(dir);
-		} catch {
-			return [];
-		}
+	/** The backend's session cache, when it has one and it can be used now. */
+	private sessionCache(): SessionCache | null {
+		const cache = this.backend.sessions;
+		return cache && this.backend.capabilities.sessionCache && cache.ready() ? cache : null;
 	}
 
 	/** What a session was made under; a session made under another setup is not resumed. */
 	private sessionSetup(): string {
-		return `${this.settings.agentConfig}|${this.vaultRoot()}`;
+		const config = this.agentConfig();
+		return this.backend.sessions?.setup(config) ?? config;
 	}
 
 	private dropSessions(blockId: string) {
-		const dir = this.sessionDir();
-		if (dir) removeSessions(dir, { block: blockId });
+		this.sessionCache()?.remove({ block: blockId });
 	}
 
 	/** Remove the sessions of blocks that are no longer open (kept, cleared, or gone with their note). */
 	pruneSessions() {
-		const dir = this.sessionDir();
-		if (dir) removeSessions(dir, { keep: new Set(this.blocks.keys()) });
+		this.sessionCache()?.remove({ keep: new Set(this.blocks.keys()) });
 	}
 
 	/* ───────────── Documents: preparing ahead, summaries ───────────── */
@@ -427,12 +481,13 @@ export class LearningRuntime {
 	 */
 	/**
 	 * The agent's document tools: `read_document` (structure, a node, pages) and `documents` (list,
-	 * search). `allowed` limits reading to those roots (isolated mode); `extra` are folders outside the
-	 * vault whose documents are listed.
+	 * search). `restrict` (isolated mode): an absolute path only inside the vault and the folders the
+	 * learner allowed; documents in those folders are listed either way.
 	 */
-	async documentTool(op: "read_document" | "documents", p: Record<string, unknown>, allowed: string[] | null = null, extra: string[] = []) {
-		if (op === "documents") return documentsCommand(this.app, this.docs, p, extra);
-		const r = await readDocument(this.app, this.docs, p, allowed);
+	async documentTool(op: "read_document" | "documents", p: Record<string, unknown>, restrict = false) {
+		const files = this.backend.files ?? null;
+		if (op === "documents") return documentsCommand(this.app, this.docs, files, p);
+		const r = await readDocument(this.app, this.docs, files, p, restrict);
 		if (typeof r.path === "string") void this.summarizeLater(r.path);
 		return r;
 	}
@@ -441,7 +496,7 @@ export class LearningRuntime {
 		if (!this.settings.prepareDocuments && !this.settings.documentSummaries) return;
 		const all = this.app.vault
 			.getFiles()
-			.filter((f) => formatOf(f.path) && !f.path.startsWith(CACHE_DIR + "/"))
+			.filter((f) => formatOf(f.path))
 			.map((f) => f.path);
 		for (const p of all) if (!this.prepQueue.includes(p)) this.prepQueue.push(p);
 		void this.drainPrep(true);
@@ -449,7 +504,7 @@ export class LearningRuntime {
 
 	/** A document was added or changed in the vault: prepare it (when the setting is on). */
 	onDocumentChange(file: TAbstractFile) {
-		if (!this.settings.prepareDocuments || !(file instanceof TFile) || !formatOf(file.path) || file.path.startsWith(CACHE_DIR + "/")) return;
+		if (!this.settings.prepareDocuments || !(file instanceof TFile) || !formatOf(file.path)) return;
 		if (!this.prepQueue.includes(file.path)) this.prepQueue.push(file.path);
 		void this.drainPrep(false);
 	}
@@ -503,7 +558,7 @@ export class LearningRuntime {
 				await this.docs.writeTree(tree);
 			}
 			tree.summary = (await this.runAgent(task, { prompt: documentPrompt(tree), tools: [] })).replace(/\s+/g, " ").trim();
-			tree.summarized_by = this.settings.model || "Pi default";
+			tree.summarized_by = this.defaultModel() || (this.backend.platform === "mobile" ? "default" : "Pi default");
 			await this.docs.writeTree(tree);
 			setResult(task, { kind: "kept", path: doc.path, label: name });
 			task.end("completed", L(`Summarized “${name}”`, `已为“${name}”写好摘要`));
@@ -635,7 +690,7 @@ export class LearningRuntime {
 			task.end("completed", mode === "explain" ? L(`Explained “${gloss.term}”`, `已解释“${gloss.term}”`) : `${glossLabelUI(mode, compareWith)} — “${gloss.term}”`);
 		} catch (e) {
 			const r = this.finishWithError(task, e, L(`Could not explain “${gloss.term}”`, `无法解释“${gloss.term}”`));
-			section.status = r;
+			section.status = r === "interrupted" ? "failed" : r;
 			section.error = task.error ?? undefined;
 			if (r === "cancelled" && !section.text.trim()) gloss.sections.splice(gloss.sections.indexOf(section), 1);
 			task.retry = () => {
@@ -828,7 +883,7 @@ export class LearningRuntime {
 	 *
 	 * The block's visible turns are the conversation. If the Pi session that produced the last reply
 	 * still covers exactly those turns, it is resumed and only the new request is sent; otherwise a
-	 * fresh session starts from a replay of the turns (see agent/session-cache.ts).
+	 * fresh session starts from a replay of the turns (SessionCache in agent/backend.ts).
 	 *
 	 * A request starting with "/" is a command. ICAP's own (/model, /thinking, /compact) are handled
 	 * here; any other is sent to Pi verbatim — Pi expands prompt templates and skills, and runs
@@ -856,16 +911,16 @@ export class LearningRuntime {
 		const pointed = extractLinks(request).map((link) => ({ link, path: this.app.metadataCache.getFirstLinkpathDest(link, block.notePath)?.path ?? null }));
 
 		// The session: resumed only if it covers exactly the history; an interrupted round never is.
-		const dir = this.settings.rememberContext ? this.sessionDir() : null;
+		const cache = this.settings.rememberContext ? this.sessionCache() : null;
 		const setup = this.sessionSetup();
-		const resumed = !!dir && !sofar.trim() && reusable(block.session, setup, history) && sessionExists(dir, block.session.id) ? block.session : null;
-		let session: { id: string; dir: string } | undefined;
-		if (dir) {
-			if (resumed) session = { id: resumed.id, dir };
+		const resumed = !!cache && !sofar.trim() && reusable(block.session, setup, history) && cache.exists(block.session.id) ? block.session : null;
+		let session: string | undefined;
+		if (cache) {
+			if (resumed) session = resumed.id;
 			else {
-				removeSessions(dir, { block: block.id });
+				cache.remove({ block: block.id });
 				block.sessionSeq++;
-				session = { id: sessionId(block.id, block.sessionSeq), dir };
+				session = cache.id(block.id, block.sessionSeq);
 			}
 		}
 		// From here on the old session no longer matches the block — until this round succeeds.
@@ -881,22 +936,28 @@ export class LearningRuntime {
 			prompt = followUpPrompt(request, pointed);
 			systemExtra = blockContext(ctx, block.quote);
 		} else {
-			prompt = requestPrompt(ctx, block.quote, history, request, pointed) + interrupted;
+			prompt = requestPrompt(ctx, block.quote, history, request, pointed, this.placementFor(file)) + interrupted;
 		}
 		// One request block = one ledger line, which keeps the files (and steps) of every round.
 		const prev = block.taskId ? this.ledger.get(block.taskId) : undefined;
 		if (prev && !prev.active) this.ledger.remove(prev.id);
 		const task = this.ledger.add(new Task(newId("t"), "request", `“${short(request)}”`, block.notePath));
+		// One request block = one task note, named after its first request.
+		// (Its first: the note may only be written at a later round, once the conversation amounts to a task.)
+		this.taskNotes.adopt(task, block.id, block.turns.find((t) => t.request && !t.control)?.answer?.text?.trim() || request, "request");
 		task.artifacts = prev ? [...prev.artifacts] : [];
 		task.steps = prev ? [...prev.steps] : [];
 		task.stepsDropped = prev?.stepsDropped ?? 0;
+		// What the conversation has cost so far: the task note's cost is the whole block's.
+		task.usage = prev?.usage ? { ...prev.usage } : null;
+		task.model = prev?.model ?? null;
 		// The session is resumable only if its own messages hold the whole conversation. A command in a
 		// fresh session got the earlier turns through the system prompt, which Pi does not store.
 		const selfContained = !cmd || !!resumed || (!history.trim() && !sofar.trim());
 		await this.runBlockTask(block, task, prompt, REQUEST_TOOLS, L(`Done — “${short(request)}”`, `完成——“${short(request)}”`), {
 			extras: { session, systemExtra, model: block.model, thinking: block.thinking },
 			onSuccess: () => {
-				if (session && selfContained) block.session = { id: session.id, sig: sessionSig(setup, coveredTranscript(block)) };
+				if (session && selfContained) block.session = { id: session, sig: sessionSig(setup, coveredTranscript(block)) };
 			},
 		});
 	}
@@ -917,7 +978,7 @@ export class LearningRuntime {
 		switch (name) {
 			case "model": {
 				if (!args) {
-					const shown = block.model || this.settings.model || L("Pi's default", "Pi 默认");
+					const shown = block.model || this.defaultModel() || L("the default", "默认");
 					return done(L(`This block uses **${shown}**. Type \`/model\` and a name to change it here; \`/model default\` follows the settings again.`, `这个块使用 **${shown}**。输入 \`/model\` 加模型名即可只在这里更换；\`/model default\` 恢复为设置中的模型。`));
 				}
 				block.model = reset ? "" : args;
@@ -941,15 +1002,18 @@ export class LearningRuntime {
 				return done(reset ? L("Back to the thinking level in the settings.", "已恢复为设置中的思考强度。") : L(`From the next request on, thinking here is **${block.thinking}**.`, `从下一个请求起，这里的思考强度为 **${block.thinking}**。`));
 			}
 			case "compact": {
-				const dir = this.sessionDir();
+				const cache = this.backend.capabilities.compact ? this.sessionCache() : null;
 				const s = block.session;
-				if (!dir || !s || !sessionExists(dir, s.id))
+				if (!cache || !s || !cache.exists(s.id))
 					return done(L("Nothing to compact: this block's conversation is read from the note itself each time.", "没有可压缩的内容：这个块的对话每次都直接从笔记中读取。"));
 				const prev = block.taskId ? this.ledger.get(block.taskId) : undefined;
 				if (prev && !prev.active) this.ledger.remove(prev.id);
 				const task = this.ledger.add(new Task(newId("t"), "request", L(`Compacting “${block.topic}”`, `正在压缩“${block.topic}”`), block.notePath));
+				this.taskNotes.adopt(task, block.id, block.topic, "request");
 				task.artifacts = prev ? [...prev.artifacts] : [];
 				task.steps = prev ? [...prev.steps] : [];
+				task.usage = prev?.usage ? { ...prev.usage } : null;
+				task.model = prev?.model ?? null;
 				task.blockId = block.id;
 				block.taskId = task.id;
 				block.phase = "thinking";
@@ -961,7 +1025,7 @@ export class LearningRuntime {
 						prompt: "",
 						tools: REQUEST_TOOLS,
 						control: { type: "compact", ...(args ? { customInstructions: args } : {}) },
-						session: { id: s.id, dir },
+						session: s.id,
 						model: block.model,
 						thinking: block.thinking,
 						onPhase: (p) => (block.agentPhase = p),
@@ -988,9 +1052,13 @@ export class LearningRuntime {
 	 * agent is running a tool call — the learner's own shell, write or edit tools, or MCP — or just finished one.
 	 */
 	onVaultChange(kind: "created" | "edited" | "deleted", file: TAbstractFile, oldPath?: string) {
-		if (this.settings.agentConfig !== "mine" || !(file instanceof TFile)) return;
-		// The document cache is the plugin's own (written while read_document runs), never the agent's.
-		if (file.path.startsWith(CACHE_DIR + "/")) return;
+		if (this.agentConfig() !== "mine" || !(file instanceof TFile)) return;
+		// The document cache is the plugin's own, never the agent's. Its folder (in the plugin's own, or
+		// `.icap/docs/` before) raises no vault events; the visible folder of earlier versions does, while
+		// it is being moved.
+		if (file.path.startsWith(LEGACY_DIR + "/")) return;
+		// Task notes and Activity.base are the plugin's own record of a task, not something its agent changed.
+		if (this.taskNotes.owns(file.path) || (oldPath && this.taskNotes.owns(oldPath))) return;
 		const now = Date.now();
 		const tasks = this.ledger.tasks.filter((t) => t.toolsRunning > 0 || now - t.toolEndedAt < TOOL_GRACE_MS);
 		if (!tasks.length) return;
@@ -1247,7 +1315,7 @@ export class LearningRuntime {
 			if (block.current?.dialog && !block.current.answer) block.turns.pop();
 			block.agentPhase = null;
 			block.phase = r;
-			block.error = r === "failed" ? task.error : null;
+			block.error = r === "cancelled" ? null : task.error;
 			task.retry = () => void this.resume(block);
 		}
 		this.persist();
@@ -1526,16 +1594,53 @@ export class LearningRuntime {
 		n.messageEl.addEventListener("click", () => void this.reveal(task));
 	}
 
+	/**
+	 * Where new notes from a task in `file` go (prompts.ts, placementRule): the learner's folder if they
+	 * set one; else the agent chooses, told where related notes are and how the vault is laid out.
+	 */
+	placementFor(file: TFile): Placement {
+		const here = file.parent?.path === "/" ? "" : (file.parent?.path ?? "");
+		const fixed = this.settings.notesFolder;
+		if (fixed) return { fixed, here, near: [], folders: [] };
+		const near = new Set<string>();
+		for (const l of this.app.metadataCache.getFileCache(file)?.links ?? []) {
+			const to = this.app.metadataCache.getFirstLinkpathDest(l.link.split("#")[0], file.path);
+			const dir = to?.parent?.path;
+			if (to && dir !== undefined) near.add(dir === "/" ? "" : dir);
+			if (near.size >= 8) break;
+		}
+		// Two levels deep, at most 40: the plugin's own folder (task notes) is not a place for study notes.
+		const own = this.settings.taskNotes === "on" ? this.taskNotes.home : null;
+		const folders: string[] = [];
+		const walk = (f: TFolder, depth: number) => {
+			for (const c of f.children) {
+				if (!(c instanceof TFolder) || c.name.startsWith(".") || c.path === own || folders.length >= 40) continue;
+				folders.push(c.path);
+				if (depth < 2) walk(c, depth + 1);
+			}
+		};
+		walk(this.app.vault.getRoot(), 1);
+		return { fixed: "", here, near: [...near].filter((d) => d !== own), folders };
+	}
+
 	private async createNote(task: Task, p: Json): Promise<Json> {
 		const title = String(p.title ?? "").trim();
-		const content = String(p.content ?? "");
+		const type: NoteType = p.type === "canvas" || p.type === "base" ? p.type : "note";
+		let content = String(p.content ?? "");
 		if (!title || !content.trim()) return { status: "error", message: "title and content are required" };
+		if (type !== "note") {
+			// The file itself, not a note about it: a fence around it would make it unreadable.
+			content = content.trim().replace(/^```[\w-]*\n([\s\S]*?)\n```$/, "$1");
+			const problem = structureProblem(type, content);
+			if (problem) return { status: "error", message: `Not created: ${problem}` };
+			if (type === "canvas") content = JSON.stringify(JSON.parse(content), null, "\t");
+		}
 		const here = this.fileOf(task.notePath);
 		const folder = String(p.folder ?? "").trim() || this.settings.notesFolder || here?.parent?.path || "";
-		const path = await uniqueNotePath(this.app, folder === "/" ? "" : folder, title);
+		const path = await uniqueNotePath(this.app, folder === "/" ? "" : folder, title, NOTE_EXT[type]);
 		const created = await this.app.vault.create(path, content.trimEnd() + "\n");
 		// Tool-level metadata only: later explanations must not take this note for the learner's own words.
-		if (this.settings.markGenerated) await this.app.fileManager.processFrontMatter(created, (fm) => void (fm["generated-by"] = GENERATED_BY)).catch(() => undefined);
+		if (type === "note" && this.settings.markGenerated) await this.app.fileManager.processFrontMatter(created, (fm) => void (fm["generated-by"] = GENERATED_BY)).catch(() => undefined);
 		addArtifact(task, { kind: "created", path, label: basename(path) });
 		this.persist();
 		return { status: "created", path, link: `[[${basename(path)}]]` };
@@ -1549,6 +1654,13 @@ export class LearningRuntime {
 		const text = await this.textOf(file.path);
 		if (find && !text.includes(find)) return { status: "error", message: "The text to replace was not found in the note." };
 		const replace = String(p.replace ?? "");
+		// A canvas or base must still open after the edit.
+		const kind = noteTypeOf(file.path);
+		if (kind !== "note") {
+			const after = find ? text.replace(find, () => replace) : text + replace;
+			const broken = structureProblem(kind, after);
+			if (broken) return { status: "error", message: `After this edit the ${kind} would not open: ${broken}` };
+		}
 		// Refused before the learner sees anything: the rules the prompt states, enforced.
 		const problem = editProblem(text, find, replace);
 		if (problem === "visual")
@@ -1697,6 +1809,8 @@ export class LearningRuntime {
 			"from-interaction": L(`Turning an interaction into a note — “${file.basename}”`, `正在把交互写成笔记——“${file.basename}”`),
 		};
 		const task = this.ledger.add(new Task(newId("t"), "note", titles[kind], file.path));
+		// Carried out inside a request block, it is that block's task; otherwise a task of its own.
+		this.taskNotes.adopt(task, into?.kind === "request" ? into.id : task.id, noteTaskName(kind, file.basename, input), into?.kind === "request" ? "request" : "note");
 		const text = editor ? editor.getValue() : await this.textOf(file.path);
 		let at = editor ? editor.posToOffset(editor.getCursor("to")) : text.length;
 		if (into) {
@@ -1710,8 +1824,7 @@ export class LearningRuntime {
 		}
 		this.agentAnchor.set(task.id, editor ? glossAnchor(text, at) : text.length);
 		const ctx = buildContext(this.app, file, text, at, at, this.settings.background);
-		const folder = this.settings.notesFolder || file.parent?.path || "";
-		const prompt = notePrompt(ctx, kind, input, folder);
+		const prompt = notePrompt(ctx, kind, input, this.placementFor(file));
 		try {
 			const out = await this.runAgent(task, {
 				prompt,
@@ -1733,7 +1846,7 @@ export class LearningRuntime {
 			task.end("completed", outcome);
 			if (created.length) {
 				const n = new Notice(outcome + L(". Open the activity ledger to see them.", "。打开活动面板查看。"), 5000);
-				n.messageEl.addEventListener("click", () => (this.ledger.open = true));
+				n.messageEl.addEventListener("click", () => void this.showActivity());
 			}
 		} catch (e) {
 			this.finishWithError(task, e, L("Could not create the notes", "无法新建笔记"));
@@ -1749,6 +1862,69 @@ export class LearningRuntime {
 
 	/* ───────────────────────── Navigation ───────────────────────── */
 
+	/**
+	 * Show the activity: Activity.base, where request and note tasks are listed as notes. Something that
+	 * waits for the learner and has no note (a recall, a check, a quiz) is where "activity" leads first.
+	 * Without the Bases core plugin, the plugin's own list opens instead.
+	 */
+	async showActivity() {
+		const waiting = this.ledger.waiting.find((t) => !this.taskNotes.has(t));
+		if (waiting) return this.reveal(waiting);
+		// Without Bases, or in a vault that does not record tasks as notes, the plugin's own list.
+		if (!basesEnabled(this.app) || this.settings.taskNotes !== "on") return void (this.ledger.open = !this.ledger.open);
+		const file = await this.taskNotes.ensureBase(true).catch(() => null);
+		if (!file) return void (this.ledger.open = !this.ledger.open);
+		// By the leaf's state, not its view: a tab not shown since startup has no view yet.
+		const open = this.app.workspace.getLeavesOfType("bases").find((l) => l.getViewState().state?.file === file.path);
+		if (open) return void this.app.workspace.setActiveLeaf(open, { focus: true });
+		await this.app.workspace.getLeaf("tab").openFile(file);
+	}
+
+	/** The learner asks for the task notes of recent activity that are missing (deleted, or never written). */
+	async rebuildTaskNotes() {
+		if (this.settings.taskNotes !== "on")
+			return void new Notice(L("Tasks are not recorded as notes in this vault. Turn on Record tasks as notes in the settings (Files).", "这个库没有把任务记录成笔记。请在设置的「文件」中打开「把任务记录成笔记」。"));
+		const made = await this.taskNotes.restore(this.ledger.tasks).catch((e) => {
+			console.error("ICAP: could not rebuild task notes", e);
+			return -1;
+		});
+		if (made < 0) return void new Notice(L("Could not rebuild the task notes; see the console.", "无法重建任务笔记，详见控制台。"));
+		new Notice(
+			made
+				? L(`Rebuilt ${made} task ${made === 1 ? "note" : "notes"} in “${this.taskNotes.folder}”.`, `已在“${this.taskNotes.folder}”重建 ${made} 篇任务笔记。`)
+				: L("No task note is missing for the recent activity (the latest 60 tasks are kept).", "最近的活动没有缺失的任务笔记（只保留最近 60 个任务）。"),
+		);
+	}
+
+	/**
+	 * After load: record tasks this device was running when Obsidian closed, and, once per vault, turn the
+	 * activity earlier versions kept in plugin data into task notes.
+	 */
+	async startTaskNotes() {
+		this.taskNotes.adoptInterrupted();
+		await this.taskNotes.sync();
+		// The activity of earlier versions becomes task notes only in a vault that records them.
+		if (this.settings.taskNotes !== "on") return;
+		await this.taskNotes.addActivityView().catch((e) => console.error("ICAP: could not add the activity view to Activity.base", e));
+		if (this.settings.taskNotesMigrated) return;
+		const made = await this.taskNotes.migrate(this.ledger.tasks).catch((e) => {
+			console.error("ICAP: could not migrate the activity to task notes", e);
+			return -1;
+		});
+		if (made < 0) return;
+		this.settings.taskNotesMigrated = true;
+		this.persist();
+		if (made) announceMigration(this.taskNotes.folder, made);
+	}
+
+	/** Recording was turned on: the recent tasks it skipped get their notes, and Activity.base is made. */
+	async startRecording() {
+		this.settings.taskNotesMigrated = true;
+		this.persist();
+		await this.taskNotes.restore(this.ledger.tasks).catch((e) => console.error("ICAP: could not write task notes", e));
+		await this.taskNotes.ensureBase(true).catch((e) => console.error("ICAP: could not make Activity.base", e));
+	}
+
 	async reveal(task: Task) {
 		const path = task.artifacts.find((a) => a.kind === "created")?.path ?? task.notePath;
 		await this.openAt(path, task.blockId, task.glossId);
@@ -1758,7 +1934,22 @@ export class LearningRuntime {
 		await this.openAt(path, null, null);
 	}
 
-	private async openAt(path: string, blockId: string | null, glossId: string | null) {
+	/**
+	 * The activity: a task leads back to where it was asked, in the note it came from: its block while
+	 * the block is there, else the record kept in its place, else the note itself. `source` is the task
+	 * note's link to that note, `request` its name (the request). False when there is no such note.
+	 */
+	async openTask(id: string, source: string | null, request: string, from = ""): Promise<boolean> {
+		const task = this.taskNotes.taskOf(id);
+		const path = task?.notePath ?? (source ? this.app.metadataCache.getFirstLinkpathDest(source, from)?.path : undefined);
+		if (!path || !this.fileOf(path)) return false;
+		const blockId = task?.blockId ?? id;
+		await this.openAt(path, this.blocks.has(blockId) ? blockId : null, null, (text) => findRequestRecord(text, request));
+		return true;
+	}
+
+	/** Open a note at a block, a gloss, or (`find`) a place in its text. */
+	private async openAt(path: string, blockId: string | null, glossId: string | null, find?: (text: string) => number | null) {
 		const file = this.fileOf(path);
 		if (!file) return void new Notice(L("That note no longer exists.", "那篇笔记已经不存在了。"));
 		let view = this.app.workspace.getActiveViewOfType(MarkdownView);
@@ -1770,8 +1961,8 @@ export class LearningRuntime {
 		if (!view) return;
 		const editor = view.editor;
 		const text = editor.getValue();
-		let offset: number | null = null;
-		if (blockId && this.blocks.has(blockId)) offset = findAskBlock(text, blockId)?.from ?? null;
+		let offset: number | null = find?.(text) ?? null;
+		if (blockId && this.blocks.has(blockId)) offset = findAskBlock(text, blockId)?.from ?? offset;
 		const g = glossId ? this.glosses.get(glossId) : undefined;
 		if (g) offset = g.anchor;
 		if (offset === null) return;
@@ -1794,14 +1985,23 @@ export function cmOf(editor: Editor): EditorView | null {
 	return ((editor as unknown as { cm?: EditorView }).cm ?? null) as EditorView | null;
 }
 
+/** What makes a canvas's or a base's text unreadable for Obsidian, or null. */
+function structureProblem(type: "canvas" | "base", text: string): string | null {
+	if (type === "canvas") return canvasProblem(text);
+	let data: unknown;
+	try {
+		data = parseYaml(text);
+	} catch (e) {
+		return `The base is not valid YAML: ${(e as Error).message}`;
+	}
+	return baseProblem(data);
+}
+
 function basename(path: string) {
 	return path.split("/").pop()!.replace(/\.md$/, "");
 }
 
-function short(s: string) {
-	const t = s.replace(/\s+/g, " ").trim();
-	return t.length > 40 ? t.slice(0, 38) + "…" : t;
-}
+const short = (s: string) => shortTitle(s);
 
 function firstSentence(s: string) {
 	const t = s.replace(/\s+/g, " ").trim();
@@ -1815,8 +2015,8 @@ function escapeMd(s: string) {
 
 export function humanError(e: unknown): string {
 	const msg = e instanceof Error ? e.message : String(e);
-	if (/ENOENT|not found/i.test(msg) && /pi\b/i.test(msg)) return L("Pi was not found — check the path in settings.", "找不到 Pi——请检查设置中的路径。");
-	if (/api key|unauthor|401|403/i.test(msg)) return L("The model provider refused the request — check Pi's credentials.", "模型服务商拒绝了请求——请检查 Pi 的凭证。");
+	if (e instanceof SetupNeeded) return msg;
+	if (/api key|unauthor|401|403/i.test(msg)) return L("The model provider refused the request — check the credentials (Model providers, in the settings).", "模型服务商拒绝了请求——请检查凭证（设置中的“模型服务商”）。");
 	if (/ETIMEDOUT|ECONNRESET|network|fetch failed/i.test(msg)) return L("Network problem reaching the model.", "连接模型时出现网络问题。");
 	return msg.replace(/\s+/g, " ").slice(0, 220);
 }
@@ -1837,54 +2037,16 @@ function addArtifact(task: Task, a: Artifact) {
 	task.artifacts = [...task.artifacts.filter((x) => !(a.kind === "deleted" && x.kind === "edited" && x.path === a.path)), a];
 }
 
-/** A request block as it stays in the note: each request with its reply, and the files touched. */
-function requestMarkdown(block: AskBlock, artifacts: Artifact[]): string {
-	const rounds: { request: string; reply: string }[] = [];
-	for (const t of block.turns) {
-		if (t.control) continue;
-		if (t.request) rounds.push({ request: t.answer?.text ?? "", reply: "" });
-		if (t.reply && rounds.length) rounds[rounds.length - 1].reply = t.reply;
+/** What a note-making task is called as a task note: its subject, without the progressive verb of the ledger line. */
+function noteTaskName(kind: NoteTaskKind, noteName: string, input: string): string {
+	switch (kind) {
+		case "concept":
+			return L(`Concept note — ${short(input)}`, `概念笔记——${short(input)}`);
+		case "collect":
+			return L(`Key concepts — ${noteName}`, `关键概念——${noteName}`);
+		case "compare":
+			return L(`Comparison — ${short(input)}`, `对比——${short(input)}`);
+		case "from-interaction":
+			return L(`Note from an interaction — ${noteName}`, `交互整理成的笔记——${noteName}`);
 	}
-	if (rounds.length && block.summary.trim()) rounds[rounds.length - 1].reply = block.summary.trim();
-	return requestRecord(block.topic, rounds, artifacts);
-}
-
-/**
- * What a settled block leaves in the note (FORMAT.md). Recalls, checks and quizzes carry their
- * evidence — the kept date and the verdict — in the callout title and in a comment above it, so
- * the note itself is the learning record. `date` is the day of keeping; the turns have no clock.
- */
-export function keptMarkdown(block: AskBlock, artifacts: Artifact[] = [], date = isoDate()): string {
-	if (block.kind === "request") return requestMarkdown(block, artifacts);
-	const summary = block.summary.trim();
-	const verdict = [...block.turns].reverse().find((t) => t.verdict)?.verdict;
-	const title = (k: string) => `${k} — ${block.topic}`;
-	if (block.kind === "recall") {
-		const finalWords =
-			block.turns.find((t) => t.final && t.answer?.text)?.answer?.text?.trim() ??
-			[...block.turns].reverse().find((t) => (t.revise || block.turns.indexOf(t) === 0) && t.answer?.text)?.answer?.text?.trim() ??
-			"";
-		const parts = [finalWords];
-		const fb = summary || block.turns.map((t) => t.feedback).filter(Boolean).join("\n\n");
-		if (fb) parts.push(evidenceCallout("feedback", block.topic, { kind: "recall", id: block.id, date, verdict, topic: block.topic, paragraphs: finalWords ? finalWords.split(/\n[ \t]*\n/).filter((p) => p.trim()).length : undefined }, fb));
-		return parts.filter(Boolean).join("\n\n");
-	}
-	if (block.kind === "check") {
-		const fb = summary || block.turns.map((t) => t.feedback).filter(Boolean).join("\n\n");
-		return evidenceCallout("feedback", block.topic, { kind: "check", id: block.id, date, verdict, topic: block.topic }, fb || L("Checked.", "已检查。"));
-	}
-	if (block.kind === "quiz") {
-		const lines: string[] = [];
-		const counts = { holds: 0, partly: 0, reconsider: 0 };
-		block.turns.forEach((t, i) => {
-			if (!t.answer) return;
-			if (t.verdict) counts[t.verdict]++;
-			lines.push(`**${i + 1}.** ${t.question.trim()}`);
-			lines.push(`*${L("My answer", "我的回答")}:* ${answerText(t)}${t.verdict ? ` ${verdictGlyph(t.verdict)}` : ""}`);
-			lines.push("");
-		});
-		if (summary) lines.push(summary);
-		return evidenceCallout("practice", title(L("Understanding check", "理解检验")), { kind: "quiz", id: block.id, date, counts, topic: block.topic }, lines.join("\n").trim());
-	}
-	return summary ? calloutBlock("note", block.topic, summary) : "";
 }

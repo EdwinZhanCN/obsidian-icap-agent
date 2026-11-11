@@ -4,17 +4,17 @@ Thanks for helping. This file covers setting up, the checks a change must pass, 
 
 ## Requirements
 
-- Node.js 20 or later (macOS, Windows and Linux all work; every script is Node)
-- Desktop Obsidian 1.8.7 or later, to run the plugin
+- Node.js 22.19 or later and pnpm (`corepack enable` picks the version in `package.json`); macOS, Windows and Linux all work
+- Obsidian 1.11.4 or later, to run the plugin (desktop for development; `app.emulateMobile(true)` runs the mobile backend)
 - Obsidian 1.12 or later with **Settings → General → Command line interface** turned on, only if you use `scripts/drive.mjs`
 - A model credential only for trying the agent by hand. The tests need none and spend nothing.
 
 ## Set up
 
 ```bash
-npm install
-npm run build        # Tailwind → styles.css, esbuild → main.js (Pi's SDK is bundled in)
-npm run vault        # create dev-vault/ from test/fixtures/dev-vault/
+pnpm install
+pnpm build           # Vite+: main.js and styles.css (Pi's SDK is bundled in through vp pack)
+pnpm vault           # create dev-vault/ from test/fixtures/dev-vault/
 ```
 
 In Obsidian choose **Open folder as vault**, pick `dev-vault/`, turn off Restricted mode and enable **ICAP Learning Agent**. Connect a model under **Settings → ICAP Learning Agent → Model providers**. The sample note *C++ Memory Management* contains a deliberate misconception under *My understanding*, to try *check my words* on.
@@ -22,7 +22,7 @@ In Obsidian choose **Open folder as vault**, pick `dev-vault/`, turn off Restric
 ## Work on it
 
 ```bash
-npm run dev          # rebuild main.js on every save (styles.css is not watched: run npm run build:css)
+pnpm dev             # rebuild main.js and styles.css on every save
 ```
 
 After a rebuild, reload the plugin: toggle it in Community plugins, or run **Reload app without saving**.
@@ -33,13 +33,13 @@ After a rebuild, reload the plugin: toggle it in Community plugins, or run **Rel
 
 | Command | Effect |
 |---|---|
-| `npm run vault` | Create the vault if it is missing; relink the plugin |
-| `npm run vault -- --reset` | Back to the seed: everything the agent wrote is removed and your plugin settings are kept. The guide note is created again on the next load |
-| `npm run vault -- --clean` | Like `--reset`, but the settings go too: a first-install vault |
+| `pnpm vault` | Create the vault if it is missing; relink the plugin |
+| `pnpm vault --reset` | Back to the seed: everything the agent wrote is removed and your plugin settings are kept. The guide note is created again on the next load |
+| `pnpm vault --clean` | Like `--reset`, but the settings go too: a first-install vault |
 
 Close the vault in Obsidian before `--reset` or `--clean`, or run **Reload app without saving** right after. To change the sample notes or the vault config, edit `test/fixtures/dev-vault/`, never `dev-vault/`. `test/fixtures/dev-vault/.obsidian/themes/Paperline` is a deliberately unusual theme (paper ground, serif, green accent, dark variant) for checking theme compatibility.
 
-On Windows without Developer Mode, symlinks are not allowed, so the script copies the build instead. `npm run dev` keeps the copied `main.js` fresh; after `npm run build:css`, run `npm run vault` again.
+On Windows without Developer Mode, symlinks are not allowed, so the script copies the build instead. `pnpm dev` keeps the copied `main.js` and `styles.css` fresh.
 
 ### Driving Obsidian from the terminal
 
@@ -54,9 +54,9 @@ node scripts/drive.mjs wait && node scripts/drive.mjs shot gloss
 ## Before you open a pull request
 
 ```bash
-npm run check        # tsc + svelte-check
-npm test             # vitest
-npm run build
+pnpm check           # vp check (Oxlint, type-aware, with type checking) + svelte-check
+pnpm test            # vp test: unit (src/**/*.test.ts) and integration (test/integration/)
+pnpm build
 ```
 
 All three must pass. In addition:
@@ -69,6 +69,6 @@ All three must pass. In addition:
 ## Release
 
 1. Bump `version` in `manifest.json` and `package.json`. Add `"<version>": "<minAppVersion>"` to `versions.json`.
-2. `npm run check && npm test && npm run build`
+2. `pnpm check && pnpm test && pnpm build`
 3. Commit, then tag the commit with the bare version, with no `v` prefix (Obsidian looks the release up by the manifest's version): `git tag 1.0.0 && git push --tags`
 4. Create a GitHub release for the tag and attach `main.js`, `manifest.json` and `styles.css` as separate files.

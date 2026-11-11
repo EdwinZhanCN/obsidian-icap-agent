@@ -1,0 +1,16 @@
+{
+  "agentWritten": false,
+  "records": [],
+  "live": [],
+  "task": {
+    "id": "bq9ze7nt9zr",
+    "status": "done",
+    "source": ["Contracts/Acme MSA"],
+    "changed": ["Contracts/Acme MSA", "Learning/Renewal terms"],
+    "started": "2026-11-10T14:02:10",
+    "ended": "2026-11-10T14:06:48",
+    "cost": 0.0421,
+    "tokens": 18452,
+    "cache": 83
+  }
+}

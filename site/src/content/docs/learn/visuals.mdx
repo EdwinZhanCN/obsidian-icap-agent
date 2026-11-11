@@ -1,0 +1,64 @@
+---
+title: Interactive visuals
+description: Move a slider, step through a process, or test a prediction in a visual that the agent writes.
+sidebar:
+  order: 9
+---
+
+import RequestDemo from "../../../demo/RequestDemo.svelte";
+
+Sometimes a slider teaches more than a paragraph. The agent can put an interactive visual in a reply or in a new note: a chart with a slider, a process that you step through, or an exercise where you predict a result and then see it. From a visual, you can ask the agent a follow-up question.
+
+<RequestDemo client:only="svelte" lang="en" kind="visuals" />
+
+## Get a visual
+
+1. Open a request block: run **Ask the agent here**.
+2. Ask for something that you want to try, for example "Show me how lift changes with the angle of attack."
+3. Select **send**.
+
+While the agent writes, the visual shows as *Drawing a visual…*. The visual shows when the reply is complete.
+
+The agent can also put a visual in a note that it makes. It does not add a visual to a note that exists.
+
+## Choose when the agent makes visuals
+
+Set **Interactive visuals** in **Settings → ICAP Learning Agent → In your notes**:
+
+| Option | The agent makes a visual |
+|---|---|
+| **When it helps** | when you can learn by doing something: change a value, step through a process, or predict a result. This is the default. |
+| **Only when I ask** | only when your request asks for one. |
+| **Never** | never. |
+
+A visual does not replace an explanation, feedback, a question or a change to a note.
+
+## Ask from a visual
+
+A visual can have a button that sends a question to the agent. Select the button:
+
+- If the visual is in a request block, the question is a follow-up in that block.
+- If the visual is in a note, the plugin opens a new request block below the visual and sends the question.
+
+A visual can also open a note of your vault, for example from a button.
+
+A visual can send a question or open a note only after you select it. It cannot send a request when it opens, or by itself later. So a visual cannot use tokens without your action.
+
+## What a visual can do
+
+A visual runs in a sandbox. It cannot read your notes, Obsidian or your files, and it has no network access.
+
+A visual uses the colours of your theme, and it changes when you change the theme. If its script has an error, a line below the visual tells you.
+
+## In the note
+
+A visual is an `icap-ui` code block in the note. It contains HTML, with its style and script:
+
+````md
+```icap-ui
+<label>Angle <input id="a" type="range" min="0" max="20"></label>
+<button onclick="icap.ask('Why does the lift fall past 15°?')">Ask</button>
+```
+````
+
+It is ordinary Markdown. If you remove the plugin, the note shows the code. The plugin does not save the state of a visual: when you open the note again, the visual starts from the beginning.

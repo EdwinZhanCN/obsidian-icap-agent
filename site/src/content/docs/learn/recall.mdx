@@ -1,0 +1,47 @@
+---
+title: Explain from memory
+description: Write what you remember of a section, and get feedback on what you wrote.
+sidebar:
+  order: 2
+---
+
+import AskDemo from "../../../demo/AskDemo.svelte";
+
+To recall is to explain a section in your own words, without the text. It helps you remember more than reading the text again. The agent replies to what you wrote. It does not write the answer for you.
+
+<AskDemo client:only="svelte" lang="en" kind="recall" />
+
+## Start a recall
+
+1. Put the cursor in the section.
+2. Open the command palette and run **Recall from memory (this section)**.
+
+A recall block shows below the section, with a question.
+
+## Answer from memory
+
+1. Start to write your answer.
+
+The rest of the note becomes blurred, so that you answer from memory. To remove the blur, press Esc or select **veiled**. To blur the note again, select **veil note**.
+
+2. To submit, press <kbd>⌘</kbd> <kbd>↵</kbd> (on Windows and Linux, <kbd>Ctrl</kbd> <kbd>↵</kbd>).
+
+The agent writes feedback below your answer. Then it asks a follow-up question about a point that is missing or not correct.
+
+3. Answer each follow-up question.
+
+When the agent has no more questions, it writes a summary.
+
+## Keep your explanation
+
+1. Select **write it up**.
+2. Write the explanation that you now agree with. The field starts with your first answer.
+3. Submit.
+
+The plugin replaces the block with your explanation and a `feedback` callout below it. The callout title has the date and the result.
+
+To keep your first answer as it is, select **keep my first answer**.
+
+:::note
+The blur is a setting: **Settings → ICAP Learning Agent → In your notes → Veil the note during recall**.
+:::

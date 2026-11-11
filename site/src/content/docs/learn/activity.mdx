@@ -1,0 +1,43 @@
+---
+title: Activity
+description: The list of the tasks the agent works on, with what each task did and what it cost.
+sidebar:
+  order: 10
+---
+
+import ActivityDemo from "../../../components/ActivityDemo.svelte";
+
+If you turn on **Record tasks as notes** (**Settings → Files**), the plugin records each task in a note in `ICAP/Tasks/`. `ICAP/Activity.base` shows these task notes. Below is the first view of that base. It uses the same component as the plugin.
+
+The setting is off by default. Then the plugin writes nothing into your vault, and the mark in the status bar opens the plugin's own list of recent tasks.
+
+<ActivityDemo client:only="svelte" lang="en" />
+
+## When the plugin records a task
+
+The plugin records a request block as a task when one of these occurs:
+
+- The agent uses a tool.
+- The agent makes, changes or deletes a file.
+- The agent asks you a question.
+- The conversation has more than one round.
+
+The plugin always records a task that makes a note. It does not record explanations, recalls, checks or quizzes.
+
+## Go back to the request
+
+Select the name of a task to open the note where you asked. The note opens at the request block. If you kept the block, the note opens at the `[!request]` record. To open the task note, hold **Ctrl** (**Cmd** on macOS) when you select the name.
+
+## How to read a row
+
+- **The dot** shows the status. A filled dot that pulses: the agent works. A ring: the agent waits for you. Grey: done. Red: failed.
+- **The line below the request** shows the model, the note of the task, the changed files, the time, and the estimated cost.
+- **The strip** shows the steps of the task from left to right. A light colour is a step that reads. A solid colour is a step that changes a file. Hatching is a step that waits for you.
+
+To see what a step did, point to it or move the focus to it.
+
+The strip shows only the tasks that run on this device.
+
+## ICAP style
+
+To use the accent colour of your theme, turn off **ICAP style**. In the example above, the checkbox at the top right does the same.

@@ -39,8 +39,9 @@ export interface Playback {
 
 const NONE: Playback = { finished: Promise.resolve(), stop() {} };
 
-const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
-export const reducedMotion = () => mq.matches;
+// Looked up on first use, not on import: the docs site imports these components where there is no window.
+let mq: MediaQueryList | null = null;
+export const reducedMotion = () => (mq ??= window.matchMedia("(prefers-reduced-motion: reduce)")).matches;
 
 /**
  * Run an animation. With reduced motion only opacity survives (as a short linear fade);

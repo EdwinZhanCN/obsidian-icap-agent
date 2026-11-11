@@ -13,8 +13,12 @@ styles.css
 skills-lock.json
 try-vault/
 
-# dev vault: generated from test/fixtures/dev-vault/ by `npm run vault` (scripts/dev-vault.mjs)
+# dev vault: generated from test/fixtures/dev-vault/ by `pnpm vault` (scripts/dev-vault.mjs)
 /dev-vault/
 
 # launch films and trailers: a separate project that is not shipped with the plugin
 /marketing/
+
+# docs site (site/): Astro build output and generated types
+/site/dist/
+/site/.astro/

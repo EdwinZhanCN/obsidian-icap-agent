@@ -53,14 +53,14 @@ export function blockInsertion(text: string, offset: number, block: string): Spl
 	return { from: offset, to: offset, insert: lead + block + trail };
 }
 
-export async function uniqueNotePath(app: App, folder: string, title: string): Promise<string> {
+export async function uniqueNotePath(app: App, folder: string, title: string, ext = "md"): Promise<string> {
 	const clean = title.replace(/[\\/:*?"<>|#^[\]]/g, " ").replace(/\s+/g, " ").trim() || "Untitled";
 	const dir = folder ? normalizePath(folder) : "";
 	if (dir && !app.vault.getAbstractFileByPath(dir)) await app.vault.createFolder(dir).catch(() => undefined);
 	let n = 0;
 	for (;;) {
 		const name = n === 0 ? clean : `${clean} ${n + 1}`;
-		const path = normalizePath(dir ? `${dir}/${name}.md` : `${name}.md`);
+		const path = normalizePath(dir ? `${dir}/${name}.${ext}` : `${name}.${ext}`);
 		if (!app.vault.getAbstractFileByPath(path)) return path;
 		n++;
 	}

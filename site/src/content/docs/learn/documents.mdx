@@ -1,0 +1,62 @@
+---
+title: Read sources
+description: Let the agent read the PDF, EPUB and Word files in your vault, and find the pages that you need.
+sidebar:
+  order: 8
+---
+
+import RequestDemo from "../../../demo/RequestDemo.svelte";
+
+The agent can read the PDF, EPUB and Word (DOCX) files in your vault. It reads a document as a person reads a book: first the table of contents, then only the chapters that it needs. When it uses a page of a PDF, it gives a link to that page.
+
+<RequestDemo client:only="svelte" lang="en" kind="documents" />
+
+## Ask about a document
+
+1. Open a request block: run **Ask the agent here**.
+2. Type `@` or `[[`, then a part of the file name.
+3. Select the document in the list.
+4. Write the rest of the request, then select **send**.
+
+You do not have to link the document. The agent can also find documents by itself. A link tells it which document you mean.
+
+The agent can also use your documents when it explains a passage, asks you questions, or writes a note.
+
+## How the agent reads a document
+
+The agent has two tools for documents:
+
+- `documents` lists the documents that the agent can read, with their chapters. It also finds the pages or sections that contain some words, in the documents that the agent read before.
+- `read_document` shows the structure of one document: its parts, with their page or section numbers. Then it reads one part, or a range of pages.
+
+The structure of a document comes from its bookmarks, from the table of contents of an EPUB, or from the heading styles of a Word file. If a PDF has no bookmarks, the plugin finds the headings from the size and weight of the text. No model is used for this, so it costs nothing.
+
+## Open a cited page
+
+The agent cites a page of a PDF as a link, for example `[[Wing.pdf#page=41]]`. Select the link to open the PDF at that page. When you keep a record of the request, the links stay in the note.
+
+## Prepare documents
+
+The first time the agent reads a document, the plugin prepares it. This can take a moment for a large file. The plugin keeps the result in its own folder, `.obsidian/plugins/icap-agent/docs/`, so it reads each document only once. Your vault does not get a new folder.
+
+Two settings in **Settings → ICAP Learning Agent → Documents** change this:
+
+- **Prepare documents ahead of time** prepares all the PDF, EPUB and Word files in the vault in the background, on this device.
+- **Section summaries** lets the model write a one-line summary of each part. This uses about as many input tokens as the document has words. It is off by default.
+
+Each device prepares its own documents. Obsidian Sync does not sync the hidden folder.
+
+## Documents outside the vault
+
+This is for desktop only.
+
+- With **Your Pi setup + ICAP**, the agent uses your own Pi tools and can read files outside the vault.
+- With **ICAP only (isolated)**, the agent reads only the vault and the folders that you allow. Add each folder to **Folders outside the vault** (**Settings → ICAP Learning Agent → Advanced**), with its full path, one per line.
+
+To ask about a document in an allowed folder, write its full path in the request. The `documents` tool also lists the documents in these folders.
+
+On a phone, the agent reads only the documents in the vault.
+
+:::caution
+The agent cannot read a scanned PDF that has no text layer. The plugin does not do text recognition (OCR).
+:::

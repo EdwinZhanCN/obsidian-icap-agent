@@ -1,9 +1,21 @@
-import type { NoteContext } from "../context";
+import type { NoteContext } from "../runtime/context";
 import { UI_LANG as VISUAL_FENCE } from "../genui/widget";
-import type { AgentConfig } from "./pi-session";
+import type { AgentConfig } from "./backend";
+import { VISUAL_SKILL, visualSkill } from "./visual-skill";
+import { STRUCTURE_SKILLS } from "./skills";
 
-/** ICAP's built-in skill for visuals (agent/icap-skills.ts). */
-export const VISUAL_SKILL = "icap-visual";
+export { VISUAL_SKILL };
+
+/**
+ * What the agent has besides ICAP's tools: Pi's file tools (read, grep, find, ls) and skills it reads
+ * on demand (desktop), or neither (mobile: the visual skill's text is then part of the prompt).
+ */
+export interface PromptEnv {
+	fileTools: boolean;
+	skills: boolean;
+}
+
+export const DESKTOP_ENV: PromptEnv = { fileTools: true, skills: true };
 
 const PRINCIPLES = `Principles (ICAP):
 - Make explanations easy to get, but leave the understanding to the learner. Do not do their recall, reasoning or summarising for them unless asked.
@@ -40,8 +52,7 @@ Everything you produce appears directly inside the learner's Markdown note, next
 ${PRINCIPLES}
 
 Tools:
-- read / grep / find / ls work inside the vault (the current folder). Use them sparingly and only when they improve the answer (e.g. to check what the learner already wrote about a related concept).
-- obsidian answers vault questions through Obsidian itself: search, backlinks, links, outline, properties, aliases, tags.
+{{FILE_TOOLS}}- obsidian answers vault questions through Obsidian itself: search, backlinks, links, outline, properties, aliases, tags.
 - documents and read_document read the learner's PDFs, EPUBs and Word documents (see "Working from documents").
 - ask_learner puts one question into the note and waits for the answer.
 - create_note creates a new note. propose_edit proposes a reviewable change to an existing note; never change existing notes any other way.
@@ -69,7 +80,10 @@ ${DOCUMENTS}`;
  */
 export type Visuals = "auto" | "asked" | "off";
 
-function visualsRule(visuals: Visuals): string {
+const FILE_TOOLS_LINE =
+	"- read / grep / find / ls work inside the vault (the current folder). Use them sparingly and only when they improve the answer (e.g. to check what the learner already wrote about a related concept).\n";
+
+function visualsRule(visuals: Visuals, env: PromptEnv): string {
 	if (visuals === "off") return "";
 	const when =
 		visuals === "auto"
@@ -79,13 +93,39 @@ function visualsRule(visuals: Visuals): string {
 
 Interactive visuals:
 - In your reply to a request, or in a note you create, you may include an interactive visual: a fenced ${VISUAL_FENCE} block (an HTML fragment with inline CSS and JavaScript) that the note renders in a sandbox. ${when}
-- Before writing your first ${VISUAL_FENCE} block in a task, read the ${VISUAL_SKILL} skill: it defines the format, the theme and the only two actions a visual can take.
-- Not in explanations, feedback or questions, and never through propose_edit: an edit to an existing note cannot add one.`;
+- ${
+		env.skills
+			? `Before writing your first ${VISUAL_FENCE} block in a task, read the ${VISUAL_SKILL} skill: it defines the format, the theme and the only two actions a visual can take.`
+			: `Write it as the ${VISUAL_SKILL} rules below define: the format, the theme and the only two actions a visual can take.`
+	}
+- Not in explanations, feedback or questions, and never through propose_edit: an edit to an existing note cannot add one.${env.skills ? "" : `\n\n<${VISUAL_SKILL}>\n${visualSkill().replace(/^---[\s\S]*?---\n+/, "").trim()}\n</${VISUAL_SKILL}>`}`;
 }
 
 
-export function systemPrompt(config: AgentConfig, preferences = "", visuals: Visuals = "off"): string {
-	const base = (config === "isolated" ? ISOLATED_PROMPT : APPENDED_PROMPT).replace("No HTML.", visuals === "off" ? "No HTML." : `No HTML outside an ${VISUAL_FENCE} block.`) + visualsRule(visuals);
+/** ICAP's skills a task is offered: the structure skills always, the visual skill unless visuals are off. */
+export function offeredSkills(visuals: Visuals): string[] {
+	return [...STRUCTURE_SKILLS.map((s) => s.name), ...(visuals === "off" ? [] : [VISUAL_SKILL])];
+}
+
+/** Obsidian's own structures: Mermaid diagrams, canvases, bases. Their skills, or (without skill files) their text. */
+function structuresRule(env: PromptEnv): string {
+	const [mermaid, canvas, bases] = STRUCTURE_SKILLS.map((s) => s.name);
+	const how = env.skills
+		? `Before writing one in a task, read its skill: ${mermaid}, ${canvas} or ${bases}.`
+		: "Write them as the rules below define.";
+	const texts = env.skills ? "" : STRUCTURE_SKILLS.map((s) => `\n\n<${s.name}>\n${s.body}\n</${s.name}>`).join("");
+	return `
+
+Obsidian's own structures, in a reply to a request or in a note you create, only when one shows the material better than prose:
+- a diagram (a fenced mermaid block): a process, a cycle, causes, states, a hierarchy, events in order;
+- a canvas (create_note with type "canvas"): a concept map or a board of notes the learner will rearrange and extend;
+- a base (a fenced base block, or create_note with type "base"): a live table or cards of notes by their properties.
+${how} Not in explanations, feedback or questions.${texts}`;
+}
+
+export function systemPrompt(config: AgentConfig, preferences = "", visuals: Visuals = "off", env: PromptEnv = DESKTOP_ENV): string {
+	const head = (config === "isolated" ? ISOLATED_PROMPT : APPENDED_PROMPT).replace("{{FILE_TOOLS}}", env.fileTools ? FILE_TOOLS_LINE : "");
+	const base = head.replace("No HTML.", visuals === "off" ? "No HTML." : `No HTML outside an ${VISUAL_FENCE} block.`) + structuresRule(env) + visualsRule(visuals, env);
 	const prefs = preferences.trim();
 	return prefs ? `${base}\n\nHow the learner likes to learn (written by the learner; follow it unless a task says otherwise):\n${prefs}` : base;
 }
@@ -199,9 +239,38 @@ The learner has just studied ${scopeLabel}. Run a short understanding check insi
 
 export type NoteTaskKind = "concept" | "collect" | "compare" | "from-interaction";
 
-export function notePrompt(ctx: NoteContext, kind: NoteTaskKind, input: string, folder: string): string {
+/** What the agent is told about where new notes go. */
+export interface Placement {
+	/** The learner's folder for new notes (a setting); empty: the agent chooses. */
+	fixed: string;
+	/** The current note's folder ("" = the vault's root). */
+	here: string;
+	/** Folders of the notes the current note links to: where related notes already are. */
+	near: string[];
+	/** The vault's folders, shallow and capped, so the agent knows its layout without a tool call. */
+	folders: string[];
+}
+
+/**
+ * Where new notes go. A vault is the learner's own, often with its own layout and rules, so by default
+ * the agent places a note as the learner would (beside related notes, by the vault's AGENTS.md) instead
+ * of the plugin imposing a folder. A folder the learner set is the default, and their request overrides it.
+ */
+export function placementRule(p: Placement): string {
+	const quote = (f: string) => `"${f || "/"}"`;
+	if (p.fixed) return `Where new notes go: in ${quote(p.fixed)} (the learner's setting), unless the learner asks for another place. Pass it as create_note's folder.`;
+	const lines = [
+		"Where new notes go: choose a folder for each note, as the learner would. Follow the vault's own rules if its AGENTS.md has any; otherwise put it where notes on related topics already are. If nothing fits, put it next to the current note, in " + quote(p.here) + ". Use an existing folder; make a new one only if the learner or the vault's rules ask for it. Pass the folder as create_note's folder.",
+	];
+	if (p.near.length) lines.push(`Folders of the notes this note links to: ${p.near.map(quote).join(", ")}.`);
+	if (p.folders.length) lines.push(`Folders in the vault: ${p.folders.map(quote).join(", ")}.`);
+	return lines.join("\n");
+}
+
+export function notePrompt(ctx: NoteContext, kind: NoteTaskKind, input: string, placement: Placement): string {
 	const head = `${frame(ctx)}\n\n${fence("current_note_excerpt", ctx.note)}`;
-	const common = `Create notes with create_note (folder: "${folder}"). Write them as good study notes: a one-paragraph core idea, the key details as short paragraphs or a list, a small example if useful, and a "Related" line with [[links]] back to "${ctx.title}" and to related concepts. Keep each note focused and under ~350 words. Do not add frontmatter.
+	const common = `${placementRule(placement)}
+Create notes with create_note. Write them as good study notes: a one-paragraph core idea, the key details as short paragraphs or a list, a small example if useful, and a "Related" line with [[links]] back to "${ctx.title}" and to related concepts. Keep each note focused and under ~350 words. Do not add frontmatter.
 If "${ctx.title}" mentions a concept you created a note for but does not link to it yet, you may propose ONE small edit with propose_edit that turns the first plain mention into a [[link]] (find = the exact sentence fragment, replace = the same text with the link). Never change anything else in the learner's note.
 After creating, reply with one short sentence listing what you created. Do not repeat the note content in your reply.`;
 	switch (kind) {
@@ -226,12 +295,14 @@ export function requestPrompt(
 	history: string,
 	request: string,
 	pointed: { link: string; path: string | null }[] = [],
+	placement?: Placement,
 ): string {
 	const parts: string[] = [`The learner wrote this request in the note "${ctx.title}" (${ctx.path})${ctx.headingTrail.length ? `, under: ${ctx.headingTrail.join(" › ")}` : ""}.`];
 	if (quote?.trim()) parts.push(`They had this text selected:\n${fence("selection", quote)}`);
 	if (history.trim()) parts.push(`Earlier in this request block (L = the learner, Q = your question, A = their answer, R = your reply):\n${fence("history", history)}`);
 	parts.push(fence("request", request));
 	if (pointed.length) parts.push(pointedLines(pointed));
+	if (placement) parts.push(placementRule(placement));
 	parts.push(RESULT_RULE);
 	return parts.join("\n\n");
 }

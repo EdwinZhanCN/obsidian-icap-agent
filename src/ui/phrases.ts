@@ -1,10 +1,20 @@
-import type { AgentPhase } from "../agent/pi-session";
+import { cacheHit, formatCost, formatTokens, totalTokens, type RunUsage } from "../agent/usage";
+import type { AgentPhase } from "../agent/backend";
 import type { BlockPhase, TaskStatus } from "../runtime/state.svelte";
 import type { GlossMode } from "../agent/prompts";
 import { L } from "../i18n";
 
 /** Where a caption shows the submit shortcut; the caption's view renders it as keycaps (Keys.svelte). */
 export const SUBMIT_KEYS = "{submit}";
+
+/**
+ * A caption for a touch screen: the keycaps part goes ("your turn — ⌘↵ to submit" → "your turn"),
+ * since the visible button is the way to submit there.
+ */
+export function touchCaption(caption: string): string {
+	const i = caption.indexOf(SUBMIT_KEYS);
+	return i === -1 ? caption : caption.slice(0, i).replace(/[—–-]\s*$/, "").trim();
+}
 const K = SUBMIT_KEYS;
 
 /** Process as a sentence about the learner's material — never about tools or models. */
@@ -21,6 +31,8 @@ export function phaseLine(phase: AgentPhase | null | undefined, kind: "explain" 
 			return kind === "explain" || kind === "request" ? L("writing…", "书写中…") : L("writing feedback…", "正在写反馈…");
 		case "retrying":
 			return L("the model provider returned an error — trying again…", "模型服务商出错，正在重试…");
+		case "awaiting":
+			return L("waiting for the complete reply…", "等待完整回复…");
 		case "waiting":
 			return L("waiting for you", "等你回应");
 		default:
@@ -28,7 +40,16 @@ export function phaseLine(phase: AgentPhase | null | undefined, kind: "explain" 
 	}
 }
 
-export function blockCaption(phase: BlockPhase, kind: string, hasDraft: boolean): string {
+/**
+ * The stop control. A reply that arrives whole ("awaiting") cannot be cancelled on its way: stopping
+ * only discards it, and the provider still bills the request.
+ */
+export function stopLabel(phase: AgentPhase | null | undefined): string {
+	return phase === "awaiting" ? L("stop waiting — this request is still billed", "停止等待——这次请求仍会计费") : L("stop", "停止");
+}
+
+/** `lostConnection`: an interruption by the network (the app went to the background), not by Obsidian closing. */
+export function blockCaption(phase: BlockPhase, kind: string, hasDraft: boolean, lostConnection = false): string {
 	switch (phase) {
 		case "idle":
 			return kind === "recall" ? L(`from memory — ${K} when you're done`, `凭记忆书写——写完按 ${K}`) : kind === "request" ? L(`${K} to send`, `${K} 发送`) : L(`your turn — ${K} to submit`, `轮到你了——${K} 提交`);
@@ -43,7 +64,7 @@ export function blockCaption(phase: BlockPhase, kind: string, hasDraft: boolean)
 		case "cancelled":
 			return L("stopped", "已停止");
 		case "interrupted":
-			return L("paused when Obsidian closed", "Obsidian 关闭时已暂停");
+			return lostConnection ? L("paused — the connection was lost", "已暂停——连接中断了") : L("paused when Obsidian closed", "Obsidian 关闭时已暂停");
 		case "failed":
 			return L("couldn't continue", "无法继续");
 		default:
@@ -89,4 +110,17 @@ export function glossLabelUI(mode: GlossMode, compareWith?: string): string {
 		default:
 			return "";
 	}
+}
+
+/**
+ * What a task has used, as one quiet line: "12k tokens · cache 83% · ≈$0.042". The price is an estimate
+ * from list prices (≈) unless the provider reported what it billed; when it cannot be told, it says so.
+ */
+export function usageLine(u: RunUsage | null | undefined): string {
+	if (!u) return "";
+	const parts = [`${formatTokens(totalTokens(u))} tokens`];
+	const hit = cacheHit(u);
+	if (hit !== null) parts.push(L(`cache ${hit}%`, `缓存 ${hit}%`));
+	parts.push(formatCost(u) ?? L("cost unknown", "花费未知"));
+	return parts.join(" · ");
 }

@@ -48,7 +48,9 @@ body {
 	--icap-ink: oklch(0.75 0.1 48);
 	--icap-ink-wash: color-mix(in oklab, var(--icap-ink) 9%, transparent);
 }
-body.icap-ink-accent {
+/* "ICAP style" off: the vault's own look. The ink is the theme accent, and kept callouts are the
+   theme's own (every rule below that restyles them is scoped to body:not(.icap-style-theme)). */
+body.icap-style-theme {
 	--icap-ink: var(--text-accent);
 }
 @media (max-width: 640px) {
@@ -317,7 +319,7 @@ body.icap-ink-accent {
 .markdown-source-view.mod-cm6 .cm-content > .cm-embed-block:has(.icap-ask-host),
 .icap-gloss-host,
 .cm-embed-block:has(.icap-ask-host),
-.cm-embed-block.cm-callout:has(.callout:is([data-callout="gloss"], [data-callout="feedback"], [data-callout="practice"])) {
+body:not(.icap-style-theme) .cm-embed-block.cm-callout:has(.callout:is([data-callout="gloss"], [data-callout="feedback"], [data-callout="practice"])) {
 	contain: none !important;
 	overflow: visible !important;
 }
@@ -406,6 +408,10 @@ body.icap-ink-accent {
 	opacity: 0;
 }
 .cm-embed-block:has(.icap-ask-host):hover .edit-block-button {
+	opacity: 0.45;
+}
+/* A touch screen has no hover: Obsidian's own edit button stays findable. */
+.is-mobile .cm-embed-block:has(.icap-ask-host) .edit-block-button {
 	opacity: 0.45;
 }
 .block-language-icap-ask,
@@ -634,6 +640,11 @@ body.icap-ink-accent {
 	background: var(--icap-ink-wash);
 	box-shadow: inset 2px 0 0 var(--icap-ink);
 }
+/* …but not when the focus came by itself, before the learner touched the keyboard (Choices.svelte). */
+.icap-choices.is-quiet .icap-choice:focus-visible:not(:hover) {
+	background: none;
+	box-shadow: none;
+}
 .icap-choice-mark {
 	@apply tw:relative tw:inline-grid tw:place-items-center tw:font-ui tw:text-muted;
 	width: 1.45em;
@@ -695,15 +706,15 @@ body.icap-ink-accent {
 	margin: 0.15em 0;
 	transition: color 120ms ease;
 }
-.icap-fold-row.icap-fold-row::before {
-	content: "▸";
+.icap-fold-chevron {
 	flex: none;
-	width: 0.8em;
-	font-size: 0.8em;
+	align-self: center;
+	width: 0.9em;
+	height: 0.9em;
 	color: var(--icap-ink-soft);
 	transition: transform 160ms ease;
 }
-.icap-fold-row.icap-fold-row[aria-expanded="true"]::before {
+.icap-fold-row.icap-fold-row[aria-expanded="true"] .icap-fold-chevron {
 	transform: rotate(90deg);
 }
 .icap-fold-row.icap-fold-row:hover {
@@ -822,9 +833,9 @@ body.icap-ink-accent {
 	}
 }
 
-/* ───────────── Kept content: native callouts in the same voice ───────────── */
+/* ───────────── Kept content: native callouts in the same voice (ICAP style only) ───────────── */
 
-.callout:is([data-callout="gloss"], [data-callout="feedback"], [data-callout="practice"]) {
+body:not(.icap-style-theme) .callout:is([data-callout="gloss"], [data-callout="feedback"], [data-callout="practice"]) {
 	--callout-color: 168, 84, 54;
 	--callout-padding: 0;
 	position: relative;
@@ -838,7 +849,7 @@ body.icap-ink-accent {
 	font-size: var(--icap-voice);
 	overflow: visible;
 }
-.callout:is([data-callout="gloss"], [data-callout="feedback"], [data-callout="practice"])::before {
+body:not(.icap-style-theme) .callout:is([data-callout="gloss"], [data-callout="feedback"], [data-callout="practice"])::before {
 	transform: scaleY(var(--icap-rule-scale, 1));
 	transform-origin: top;
 	content: "";
@@ -850,7 +861,7 @@ body.icap-ink-accent {
 	border-radius: 1px;
 	background: var(--icap-ink-soft);
 }
-.callout:is([data-callout="gloss"], [data-callout="feedback"], [data-callout="practice"]) .callout-title {
+body:not(.icap-style-theme) .callout:is([data-callout="gloss"], [data-callout="feedback"], [data-callout="practice"]) .callout-title {
 	@apply tw:font-ui tw:items-baseline tw:gap-2;
 	padding: 0;
 	font-size: var(--tw-text-label, 0.68rem);
@@ -859,23 +870,23 @@ body.icap-ink-accent {
 	color: var(--text-faint);
 	font-weight: 400;
 }
-.callout:is([data-callout="gloss"], [data-callout="feedback"], [data-callout="practice"]) .callout-icon {
+body:not(.icap-style-theme) .callout:is([data-callout="gloss"], [data-callout="feedback"], [data-callout="practice"]) .callout-icon {
 	display: none;
 }
-.callout:is([data-callout="gloss"], [data-callout="feedback"], [data-callout="practice"]) .callout-title::before {
+body:not(.icap-style-theme) .callout:is([data-callout="gloss"], [data-callout="feedback"], [data-callout="practice"]) .callout-title::before {
 	color: var(--icap-ink);
 	font-weight: 600;
 }
-.callout[data-callout="gloss"] .callout-title::before {
+body:not(.icap-style-theme) .callout[data-callout="gloss"] .callout-title::before {
 	content: "gloss";
 }
-.callout[data-callout="feedback"] .callout-title::before {
+body:not(.icap-style-theme) .callout[data-callout="feedback"] .callout-title::before {
 	content: "feedback";
 }
-.callout[data-callout="practice"] .callout-title::before {
+body:not(.icap-style-theme) .callout[data-callout="practice"] .callout-title::before {
 	content: "practice";
 }
-.callout:is([data-callout="gloss"], [data-callout="feedback"], [data-callout="practice"]) .callout-title-inner {
+body:not(.icap-style-theme) .callout:is([data-callout="gloss"], [data-callout="feedback"], [data-callout="practice"]) .callout-title-inner {
 	@apply tw:font-prose tw:text-muted;
 	font-size: 0.86rem;
 	letter-spacing: 0;
@@ -883,12 +894,12 @@ body.icap-ink-accent {
 	font-style: italic;
 	font-weight: 400;
 }
-.callout:is([data-callout="gloss"], [data-callout="feedback"], [data-callout="practice"]) .callout-content {
+body:not(.icap-style-theme) .callout:is([data-callout="gloss"], [data-callout="feedback"], [data-callout="practice"]) .callout-content {
 	padding: 0;
 	margin-top: 0.3em;
 	background: transparent;
 }
-.callout:is([data-callout="gloss"], [data-callout="feedback"], [data-callout="practice"]) .callout-content > :first-child {
+body:not(.icap-style-theme) .callout:is([data-callout="gloss"], [data-callout="feedback"], [data-callout="practice"]) .callout-content > :first-child {
 	margin-top: 0;
 }
 
@@ -933,6 +944,22 @@ body.icap-ink-accent {
 }
 .icap-selmark-sep {
 	color: var(--text-faint);
+}
+/* Docked on a phone or tablet: centred above the mobile toolbar, with room for a finger. */
+.icap-selmark.is-docked {
+	position: fixed;
+	left: 50%;
+	translate: -50% 0;
+	gap: 0.6em;
+	padding: 4px 14px 4px 12px;
+	border-radius: 999px;
+	font-size: 14px;
+	line-height: 1;
+	align-items: center;
+}
+.icap-selmark.is-docked button {
+	min-height: 36px;
+	padding: 0 6px;
 }
 
 /* ───────────── Activity: mark + ledger ───────────── */
@@ -1235,7 +1262,7 @@ button.icap-row-title.icap-row-title:hover {
 /* A second, wider stroke of full ink laid over the rule; invisible at rest, so every rule keeps
    its own resting colour (faint for "holds", solid for a final summary). */
 .icap-voice:not(.is-drawing)::after,
-.callout:is([data-callout="gloss"], [data-callout="feedback"], [data-callout="practice"])::after {
+body:not(.icap-style-theme) .callout:is([data-callout="gloss"], [data-callout="feedback"], [data-callout="practice"])::after {
 	content: "";
 	position: absolute;
 	left: calc(-1 * var(--icap-gutter) - 0.75px);
@@ -1340,8 +1367,35 @@ body {
 	border-color: var(--icap-ink-soft);
 }
 .icap-cue-arrow {
-	display: inline-block;
-	font-weight: 700;
+	display: inline-flex;
+}
+.icap-cue-arrow svg {
+	width: 1em;
+	height: 1em;
+	stroke-width: 2.5;
+}
+/* A link whose label is a Lucide icon (the gloss's compare submit). */
+.icap-icon-link svg {
+	width: 1em;
+	height: 1em;
+	vertical-align: -0.125em;
+}
+/* Icons inside a setting's name or description: a key that is set, a warning. */
+.icap-inline-icon {
+	display: inline-flex;
+	vertical-align: -0.125em;
+	margin-inline: 0.25em;
+}
+.icap-inline-icon svg {
+	width: 1em;
+	height: 1em;
+}
+.icap-inline-icon.is-ok {
+	color: var(--text-success);
+}
+.icap-inline-icon.is-warning {
+	color: var(--text-warning);
+	margin-inline-start: 0;
 }
 
 /* ── Login (settings → Model providers) ── */
@@ -1442,4 +1496,275 @@ body {
 	width: 100%;
 	font-family: var(--font-monospace);
 	font-size: var(--font-ui-smaller);
+}
+
+/* A touch screen: the quiet text links keep their look but get a finger-sized hit area. */
+.is-mobile .icap-link.icap-link {
+	padding-block: 0.6em;
+	margin-block: -0.6em;
+}
+.icap-notice-action {
+	margin-top: 0.6em;
+}
+
+/* What a task used (tokens, cache, price): a fact in the margin, never louder than the reply. */
+.icap-usage {
+	margin: 0.35em 0 0;
+	font-size: var(--font-smallest);
+	color: var(--text-faint);
+	font-variant-numeric: tabular-nums;
+}
+
+/* ───────────── Activity: the icap-activity Bases view ─────────────
+   One ink. A row is a task note: a dot for its state, the request, a muted line of facts, and for
+   this device's tasks a strip of steps on the task's own time: read is a tint, a change is solid,
+   waiting on the learner is hatched. The step running now has a square leading edge and a shine. */
+
+.icap-activity-host {
+	overflow-y: auto;
+}
+.icap-activity {
+	--icap-act-strip: 6px;
+	max-width: 46rem;
+	padding: var(--size-4-3) var(--size-4-4) var(--size-4-8);
+	font-size: var(--font-ui-small);
+	/* Set here, not inherited: the dot is centred on the title's first line by it. */
+	line-height: 1.5;
+	color: var(--text-normal);
+}
+.icap-activity-num {
+	font-variant-numeric: tabular-nums;
+}
+.icap-activity-status {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--size-4-3);
+	margin: 0 0 var(--size-4-3);
+	color: var(--text-muted);
+}
+.icap-activity-status .is-live,
+.icap-activity-status .is-you {
+	color: var(--icap-ink);
+}
+.icap-activity-status .is-live {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.45em;
+}
+.icap-activity-pulse {
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: var(--icap-ink);
+	animation: icap-act-pulse 1.6s ease-in-out infinite;
+}
+@keyframes icap-act-pulse {
+	50% {
+		opacity: 0.35;
+	}
+}
+.icap-activity-group {
+	margin: var(--size-4-5) 0 var(--size-4-1);
+	font-size: var(--font-ui-smaller);
+	font-weight: var(--font-semibold);
+	color: var(--text-muted);
+	letter-spacing: 0.02em;
+}
+.icap-activity-list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+.icap-activity-row {
+	display: grid;
+	grid-template-columns: 0.9rem minmax(0, 1fr);
+	align-items: start;
+	padding: var(--size-4-2) 0;
+	border-top: 1px solid var(--background-modifier-border);
+}
+.icap-activity-row:first-child {
+	border-top: none;
+}
+
+/* The state, as a mark in the margin. */
+.icap-activity-dot {
+	width: 7px;
+	height: 7px;
+	/* Half a line (1.5em) less half the dot: on the middle of the title's first line. */
+	margin-top: calc(0.75em - 3.5px);
+	border-radius: 50%;
+	background: var(--text-faint);
+}
+[data-tone="live"] > .icap-activity-dot {
+	background: var(--icap-ink);
+	animation: icap-act-pulse 1.6s ease-in-out infinite;
+}
+[data-tone="you"] > .icap-activity-dot {
+	background: transparent;
+	box-shadow: inset 0 0 0 1.5px var(--icap-ink);
+}
+[data-tone="failed"] > .icap-activity-dot {
+	background: var(--text-error);
+}
+[data-tone="stopped"] > .icap-activity-dot,
+[data-tone="idle"] > .icap-activity-dot {
+	background: transparent;
+	box-shadow: inset 0 0 0 1.5px var(--text-faint);
+}
+
+.icap-activity-title {
+	display: flex;
+	align-items: baseline;
+	gap: var(--size-4-2);
+	min-width: 0;
+}
+.icap-activity-title > a {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--text-normal);
+	font-weight: var(--font-medium);
+	text-decoration: none;
+}
+.icap-activity-title > a:hover {
+	text-decoration: underline;
+	text-decoration-color: var(--icap-ink-soft);
+}
+.icap-activity-phase {
+	flex: none;
+	color: var(--icap-ink);
+	font-size: var(--font-ui-smaller);
+}
+.icap-activity-meta {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	margin-top: 2px;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+.icap-activity-meta > * + *::before {
+	content: "·";
+	margin: 0 0.5em;
+	color: var(--text-faint);
+}
+.icap-activity-model {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.35em;
+}
+.icap-activity-mark {
+	width: 1.05em;
+	height: 1.05em;
+	flex: none;
+	color: var(--text-normal);
+}
+.icap-activity-meta a {
+	color: inherit;
+	text-decoration: none;
+}
+.icap-activity-meta a:hover {
+	color: var(--text-normal);
+}
+
+/* The strip: the task's time, left to right. The track itself is the time between calls (thinking). */
+.icap-activity-strip {
+	position: relative;
+	height: var(--icap-act-strip);
+	margin: var(--size-4-2) 0 var(--size-2-1);
+	border-radius: 2px;
+	background: var(--icap-ink-wash);
+	transform-origin: left center;
+}
+.icap-activity .icap-activity-span {
+	all: unset;
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	min-width: 2px;
+	border-radius: 2px;
+	overflow: hidden;
+	cursor: default;
+	background: color-mix(in oklab, var(--icap-ink) 45%, transparent);
+}
+.icap-activity .icap-activity-span[data-kind="write"] {
+	background: var(--icap-ink);
+}
+.icap-activity .icap-activity-span[data-kind="ask"] {
+	background: repeating-linear-gradient(-45deg, var(--icap-ink-soft) 0 2px, transparent 2px 4px);
+}
+.icap-activity .icap-activity-span:hover,
+.icap-activity .icap-activity-span:focus-visible {
+	outline: 1.5px solid var(--icap-ink-soft);
+	outline-offset: 1px;
+}
+.icap-activity .icap-activity-span.is-running {
+	border-radius: 2px 0 0 2px;
+}
+.icap-activity .icap-activity-span.is-running::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--background-primary) 55%, transparent), transparent);
+	transform: translateX(-100%);
+	animation: icap-act-shine 1.4s ease-in-out infinite;
+}
+@keyframes icap-act-shine {
+	to {
+		transform: translateX(100%);
+	}
+}
+
+/* Text only screen readers get: a name that must not be an aria-label (Obsidian shows those as tooltips). */
+.icap-sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	margin: -1px;
+	padding: 0;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+	border: 0;
+}
+
+/* What a step did: one card per strip, gliding between steps. */
+.icap-activity-card {
+	position: absolute;
+	top: calc(100% + 8px);
+	left: 50%;
+	translate: -50% 0;
+	z-index: 2;
+	width: max-content;
+	max-width: min(22rem, 90vw);
+	padding: var(--size-2-3) var(--size-4-2);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	background: var(--background-primary);
+	box-shadow: var(--shadow-s);
+	pointer-events: none;
+}
+.icap-activity-card-what {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--text-normal);
+}
+.icap-activity-card-how {
+	margin-top: 1px;
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+}
+.icap-activity-card-how code {
+	font-size: 0.95em;
+	background: none;
+	padding: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.icap-activity-pulse,
+	[data-tone="live"] > .icap-activity-dot,
+	.icap-activity .icap-activity-span.is-running::after {
+		animation: none;
+	}
 }

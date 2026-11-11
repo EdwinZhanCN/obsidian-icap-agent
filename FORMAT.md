@@ -1,6 +1,6 @@
 # What ICAP writes into notes
 
-Format version **2** (2026-11-07). This is the contract between ICAP and any tool that reads a vault ICAP has worked in. Kept output is plain Obsidian Markdown: it must read well without the plugin, and nothing here depends on plugin data (`data.json`), whose shape is private and may change without notice.
+Format version **6** (2026-11-11). This is the contract between ICAP and any tool that reads a vault ICAP has worked in. Kept output is plain Obsidian Markdown: it must read well without the plugin, and nothing here depends on plugin data (`data.json`), whose shape is private and may change without notice.
 
 Readers must ignore what they do not know: unknown callout types, unknown keys in a comment, unknown `kind:` values. A new key or kind is an additive change; removing or renaming one, or changing a meaning, bumps the version.
 
@@ -120,18 +120,63 @@ Records kept before format 1 have the callout without the comment and without th
 
 `src/dsl/records.ts` (`readRecords`) is the reference reader. `test/fixtures/format/` holds notes in every format, each with the JSON the reader must produce from it; other readers can test against the same pairs.
 
+## Task notes
+
+Since format 4, each note-making task, and each request block that amounts to a task, is also recorded as a note of its own, so that Obsidian's Bases (and any other tool) can list tasks by their properties. A request amounts to a task once its agent used a tool, created or changed a file, asked the learner something, or the conversation went past one round; a single question with a single answer stays in its block only. Explanations, recalls, checks and quizzes never get one. A task note is recognised by `icap: task`, not by where it is: the learner may rename or move it, and the plugin finds it again by `icap-id`.
+
+```markdown
+---
+icap: task
+icap-id: bq9ze7nt9zr
+icap-status: done
+icap-source:
+  - "[[Contracts/Acme MSA]]"
+icap-changed:
+  - "[[Learning/Renewal terms]]"
+icap-started: 2026-11-10T14:02:10
+icap-ended: 2026-11-10T14:06:48
+icap-cost: 0.0421
+icap-tokens: 18452
+icap-cache: 83
+icap-model: anthropic/claude-sonnet-4-5
+---
+
+Summarise the renewal terms of this contract as a section "Renewal".
+
+Asked in [[Contracts/Acme MSA]]; the conversation is in that note.
+```
+
+| Property | Type | Meaning |
+|---|---|---|
+| `icap` | text | `task` |
+| `icap-id` | text | stable id of the task. For a request block it is the block's id: every round of that conversation updates the same note |
+| `icap-status` | text | `running` the agent is working · `needs-you` it asked the learner something and waits · `review` it proposed an edit the learner has not applied or declined yet · `done` · `failed` · `cancelled` stopped by the learner, or it was running when Obsidian closed. `draft` and `queued` are reserved (a task not yet started); the plugin does not write them yet |
+| `icap-source` | list of links | the note the task is about: where its request block is, or the note it was started from |
+| `icap-changed` | list of links | files the task created or changed |
+| `icap-started`, `icap-ended` | date & time, local | the latest run. `icap-ended` is absent while the task is `running`, `needs-you` or `review` |
+| `icap-cost` | number, or the text `unknown` | US dollars for every run of the task so far (all rounds of a request block). An estimate from the model's list prices, unless the provider reported what it billed. `unknown` when it cannot be told: a model without list prices (a custom endpoint), or a task from before costs were recorded. Always present once a task has ended. A subscription login is not billed per token; the number is then what the same use would cost at list prices |
+| `icap-tokens` | number | tokens in and out over those runs, cached ones included |
+| `icap-cache` | number, 0–100 | the share of the prompt that was read from the provider's cache |
+| `icap-model` | text, `provider/id` | the model of the latest run (since format 5). A task runs on its own model: the settings' model is only the default for a task that does not have one yet, and a request block's `/model` changes the model of that task |
+
+A property without a value is absent (the cost is the exception: it says `unknown`). The plugin sets only these properties and leaves any other in the note alone; readers must ignore `icap-*` properties they do not know (`icap-apply`, `icap-scope`, `icap-parent` and others are reserved). The body is for people: the request in the learner's words, and where the conversation is. The conversation itself stays in the source note (the live block, then the `[!request]` record). A task note is never evidence of understanding.
+
+What a task is doing right now (which file it reads, which step) is not in the note; it changes every second and would only create sync conflicts.
+
+Task notes are written only when the learner turns on *Record tasks as notes* (off by default since format 6; a vault that already had `Activity.base` keeps them on). They go to `ICAP/Tasks/` (the folder is a setting), and the plugin generates `ICAP/Activity.base` once: the plugin's own `icap-activity` view first, then three table views over `icap == "task"` that need no plugin; the one over all tasks sums cost and tokens (Bases leaves `unknown` out of a sum). From then on it belongs to the learner and is never rewritten, with one exception: a base generated by format 4 is given the `icap-activity` view, once, as its first view. In a `.base` expression a hyphenated property must be written `note["icap-status"]` (a bare `icap-status` is read as a subtraction); as a column, group or display-name key it is `note.icap-status`.
+
 ## Visuals
 
 An interactive visual is an ```` ```icap-ui ```` fence containing an HTML document, in an agent reply or an agent-created note. It is never evidence. Its state is not saved.
 
 ## Document cache
 
-Not part of any note, but a stable format other tools may read. `icap/docs/` in the vault holds what the plugin learned about each PDF, EPUB and Word document:
+Not part of any note, but a stable format other tools may read. The `docs/` folder in the plugin's own folder (`.obsidian/plugins/icap-agent/docs/`, or wherever the vault's configuration folder is) holds what the plugin learned about each PDF, EPUB and Word document. The vault itself holds nothing of it. Earlier places, with the same contents: the hidden `.icap/docs/` in the vault (formats 3 to 5) and the visible `icap/docs/` (before format 3). The plugin moves an earlier cache the first time it reads a document, and removes the earlier folder when nothing else is in it.
 
 ```
-icap/docs/index.json            {"version": 1, "files": {"<vault path or absolute path>": {"hash", "size", "mtime"}}}
-icap/docs/<sha256>/tree.json    the document's structure
-icap/docs/<sha256>/text.json.gz a gzipped JSON array of strings: the text of each unit, in order
+docs/index.json            {"version": 1, "files": {"<vault path or absolute path>": {"hash", "size", "mtime"}}}
+docs/<sha256>/tree.json    the document's structure
+docs/<sha256>/text.json.gz a gzipped JSON array of strings: the text of each unit, in order
 ```
 
 `<sha256>` is the hash of the file's bytes, so a renamed or copied file reuses its entry. A unit is a page (PDF) or a section (EPUB: a spine document, split where the table of contents points inside it; Word: the text under one heading). `tree.json`:
@@ -146,7 +191,7 @@ icap/docs/<sha256>/text.json.gz a gzipped JSON array of strings: the text of eac
 | `structure` | nodes `{node_id, title, start, end, summary?, nodes?}`; `start` and `end` are 1-based units, inclusive; `node_id` is four digits in reading order |
 | `summary`, `summarized_by` | optional: the document's summary and the model that wrote the summaries |
 
-The index is shared by every device that syncs the vault; entries for paths outside the vault are kept even when a device can't see them.
+Devices that sync the plugin's folder share the index; entries for paths outside the vault are kept even when a device can't see them. The cache can always be rebuilt: deleting it only means documents are read again.
 
 ## Changes
 
@@ -154,3 +199,7 @@ The index is shared by every device that syncs the vault; entries for paths outs
 |---|---|---|
 | 1 | 2026-11-06 | kept recall, check and quiz callouts carry the date and verdict in the title and in an `<!-- icap … -->` comment |
 | 2 | 2026-11-07 | quoted values in the comment; `topic` on every record; `paragraphs` on multi-paragraph recalls; kept glosses get a `gloss` comment with `date` and `depth`; reference reader and fixtures |
+| 3 | 2026-11-10 | the document cache is the hidden `.icap/docs/` (before: the visible `icap/docs/`, same contents; moved on first use) |
+| 4 | 2026-11-10 | task notes (`icap: task` and the `icap-*` properties) for request blocks and note-making tasks, and the generated `Activity.base`; `icap-cost` (a number or `unknown`), `icap-tokens`, `icap-cache` |
+| 5 | 2026-11-10 | `icap-model` on task notes: the model of the latest run, `provider/id` |
+| 6 | 2026-11-11 | the document cache moves to the plugin's own folder (before: `.icap/docs/` in the vault; moved on first use). Task notes are off until the learner turns them on |

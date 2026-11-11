@@ -1,0 +1,12 @@
+---
+title: Question block
+description: Recall, check and quiz blocks, in each of their states.
+sidebar:
+  order: 2
+---
+
+import States from "../../../demo/States.svelte";
+
+Recall, check and quiz use the same block. Each state below is the plugin's own component, held in one state. To see it in use, read [Explain from memory](/learn/recall/).
+
+<States client:only="svelte" lang="en" which="question" />
