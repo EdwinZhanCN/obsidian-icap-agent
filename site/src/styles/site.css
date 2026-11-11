@@ -120,3 +120,135 @@
 	--icap-ink-faint: color-mix(in oklab, var(--icap-ink) 24%, transparent);
 	--icap-ink-wash: color-mix(in oklab, var(--icap-ink) 9%, transparent);
 }
+
+/* ── The note inside a demo pane ── */
+.icap-demo-note {
+	padding: 1rem 1.5rem 1.25rem calc(1.5rem + var(--icap-gutter));
+	font-family: var(--font-text);
+	font-size: 1rem;
+	line-height: 1.65;
+	color: var(--text-normal);
+}
+.icap-demo-note p {
+	margin: 0 0 0.9em;
+}
+.icap-demo-term.is-selected {
+	background: color-mix(in oklab, var(--text-accent) 22%, transparent);
+	border-radius: 2px;
+}
+.icap-demo-explain {
+	margin-left: 0.4em;
+	font-size: 0.82em;
+}
+.icap-demo-mine {
+	border-left: 2px solid var(--background-modifier-border);
+	padding-left: 0.75em;
+}
+.icap-demo-hint {
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
+}
+.icap-demo-widget {
+	margin: 0.25em 0 1em;
+}
+.icap-demo-restart {
+	all: unset;
+	display: inline-flex;
+	align-items: center;
+	gap: 0.3rem;
+	cursor: pointer;
+	color: var(--text-muted);
+}
+.icap-demo-restart:hover {
+	color: var(--text-normal);
+}
+
+/* ── Obsidian's callout, the base the plugin's kept callouts restyle ── */
+.icap-demo .callout {
+	--callout-color: 8, 109, 221;
+	margin: 0.25em 0 1em;
+	padding: 12px 12px 12px 24px;
+	border-radius: 4px;
+	background: rgba(var(--callout-color), 0.1);
+}
+.icap-demo .callout-title {
+	display: flex;
+	gap: 4px;
+	font-weight: 600;
+	color: rgb(var(--callout-color));
+}
+.icap-demo .callout-content > :last-child {
+	margin-bottom: 0;
+}
+.icap-demo-notice {
+	margin: 0;
+	padding: 0.5rem 1rem;
+	border-top: 1px solid var(--background-modifier-border);
+	font-family: var(--font-interface);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+.icap-demo-playing {
+	color: var(--text-faint);
+}
+.icap-demo-playing::before {
+	content: "";
+	display: inline-block;
+	width: 6px;
+	height: 6px;
+	margin: 0 0 1px;
+	border-radius: 50%;
+	background: var(--text-accent);
+	animation: icap-demo-blink 1.6s ease-in-out infinite;
+}
+@keyframes icap-demo-blink {
+	50% {
+		opacity: 0.25;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.icap-demo-playing::before {
+		animation: none;
+	}
+}
+/* a demo plays by itself: the note takes no pointer input */
+.icap-demo-note {
+	pointer-events: none;
+	user-select: none;
+}
+
+/* Text that an applied change wrote into a demo note: washed with ink for a moment, as the plugin
+   shows what it wrote (editor/fresh.ts). */
+.icap-demo-added > p {
+	margin: 0 0 0.9em;
+	animation: icap-demo-fresh 2.4s ease-out;
+	border-radius: 2px;
+}
+@keyframes icap-demo-fresh {
+	from {
+		background: var(--icap-ink-wash);
+	}
+	to {
+		background: transparent;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.icap-demo-added > p {
+		animation-duration: 140ms;
+	}
+}
+
+/* ── the interface gallery: still states, one under another ── */
+.icap-states {
+	display: grid;
+	gap: 1rem;
+	margin-top: 1rem;
+}
+.icap-states-switch {
+	justify-self: end;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+}
+.icap-state {
+	margin: 0;
+}

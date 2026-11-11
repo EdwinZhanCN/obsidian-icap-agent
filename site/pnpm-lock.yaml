@@ -17,12 +17,18 @@ importers:
       '@codemirror/view':
         specifier: 6.43.13
         version: 6.43.13
+      '@lucide/svelte':
+        specifier: 1.67.0
+        version: 1.67.0(svelte@5.57.3)
       '@tailwindcss/vite':
         specifier: 4.3.5
         version: 4.3.5(vite@8.3.7(@types/node@24.19.2)(jiti@2.7.0)(yaml@2.9.1))
       astro:
         specifier: 7.4.10
         version: 7.4.10(@types/node@24.19.2)(jiti@2.7.0)(yaml@2.9.1)
+      marked:
+        specifier: 18.2.0
+        version: 18.2.0
       motion:
         specifier: 14.9.0
         version: 14.9.0
@@ -524,6 +530,11 @@ packages:
 
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
+
+  '@lucide/svelte@1.67.0':
+    resolution: {integrity: sha512-DeqoOkMm3QihcNsrQB5drR/8azWDGuozfagDpm/anIqaJdflLUMhwLFPEANl/W3FLhXx6HmQwEWz7zBtZ6KXcQ==}
+    peerDependencies:
+      svelte: ^5
 
   '@marijn/find-cluster-break@1.0.4':
     resolution: {integrity: sha512-Wy0V7+SGUjnF9/TkiM1hKVDPj7jKXduPNboMVtHTA8dySMURWqfg/JZ9E2Sq8JgSJmkl7k7Qe9FLeMSrSraWmQ==}
@@ -1333,6 +1344,11 @@ packages:
 
   magicast@0.5.5:
     resolution: {integrity: sha512-UicdXN8zQ3JHlxVq+28afMXPr1z7WNY6+7EJnzTdQWkTAlMLF5fNCCKxJHBQwGaNGR11581EiQmQzx73+MvszA==}
+
+  marked@18.2.0:
+    resolution: {integrity: sha512-KaeL+tAbtvI930q7HE2PN5lYXYdT8EiSmxHlN6F3rsfb57wd5mp5W5TLazpdj4inTQBJdgjYwbs40W/0VUGU+Q==}
+    engines: {node: '>= 20'}
+    hasBin: true
 
   mdast-util-directive@3.2.0:
     resolution: {integrity: sha512-Yxq+hH4pBEmtaLIJyMVcNbtBiCIKzdOK3HvDeM+JAqC8XVAT1e5PUYbHBpwFvQLIJuJfO2zCu7aNUXWoyZLmhw==}
@@ -2388,6 +2404,10 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.6.0
 
+  '@lucide/svelte@1.67.0(svelte@5.57.3)':
+    dependencies:
+      svelte: 5.57.3
+
   '@marijn/find-cluster-break@1.0.4': {}
 
   '@napi-rs/wasm-runtime@1.2.7(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)':
@@ -3165,6 +3185,8 @@ snapshots:
       '@babel/parser': 7.29.13
       '@babel/types': 7.29.11
       source-map-js: 1.2.2
+
+  marked@18.2.0: {}
 
   mdast-util-directive@3.2.0:
     dependencies:

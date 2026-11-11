@@ -1,11 +1,15 @@
 ---
 title: Activity
 description: The list of the tasks the agent works on, with what each task did and what it cost.
+sidebar:
+  order: 10
 ---
 
 import ActivityDemo from "../../../components/ActivityDemo.svelte";
 
-The plugin records each task in a note in `ICAP/Tasks/`. `ICAP/Activity.base` shows these task notes. Below is the first view of that base. It uses the same component as the plugin.
+If you turn on **Record tasks as notes** (**Settings → Files**), the plugin records each task in a note in `ICAP/Tasks/`. `ICAP/Activity.base` shows these task notes. Below is the first view of that base. It uses the same component as the plugin.
+
+The setting is off by default. Then the plugin writes nothing into your vault, and the mark in the status bar opens the plugin's own list of recent tasks.
 
 <ActivityDemo client:only="svelte" lang="en" />
 
@@ -19,6 +23,10 @@ The plugin records a request block as a task when one of these occurs:
 - The conversation has more than one round.
 
 The plugin always records a task that makes a note. It does not record explanations, recalls, checks or quizzes.
+
+## Go back to the request
+
+Select the name of a task to open the note where you asked. The note opens at the request block. If you kept the block, the note opens at the `[!request]` record. To open the task note, hold **Ctrl** (**Cmd** on macOS) when you select the name.
 
 ## How to read a row
 

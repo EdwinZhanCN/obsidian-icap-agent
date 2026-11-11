@@ -1,0 +1,35 @@
+---
+title: Check what you wrote
+description: Get feedback on a paragraph that you wrote in your note.
+sidebar:
+  order: 3
+---
+
+import AskDemo from "../../../demo/AskDemo.svelte";
+
+A check reads a paragraph that you wrote, and asks about the points that do not hold. Your words stay in the note. You decide if you change them.
+
+<AskDemo client:only="svelte" lang="en" kind="check" />
+
+## Start a check
+
+1. Select the passage, or put the cursor in the paragraph.
+2. Open the command palette and run **Check what I wrote (selection or paragraph)**.
+
+A check block shows below the paragraph. The agent reads your words, then asks a question.
+
+## Answer the questions
+
+1. Write your answer, then submit it.
+2. Answer each follow-up question.
+
+When the agent has no more questions, it writes a summary of what holds and what to change.
+
+## Use the feedback
+
+Select one of these:
+
+- **revise my words**: write a new version of your paragraph. The plugin replaces your paragraph in the note with it, and keeps the feedback below.
+- **keep feedback**: keep your paragraph as it is, with the feedback below it.
+
+The feedback is a `feedback` callout. Its title has the date and the result.

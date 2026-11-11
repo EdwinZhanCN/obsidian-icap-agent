@@ -1,11 +1,15 @@
 ---
 title: 活动
 description: Agent 做的所有任务，以及每个任务做了什么、花了多少。
+sidebar:
+  order: 10
 ---
 
 import ActivityDemo from "../../../../components/ActivityDemo.svelte";
 
-插件把每个任务记成一篇笔记，放在 `ICAP/Tasks/` 中。`ICAP/Activity.base` 显示这些任务笔记。下面是这个 base 的第一个视图，它和插件用的是同一个组件。
+如果你打开 **把任务记录成笔记**（**设置 → 文件**），插件把每个任务记成一篇笔记，放在 `ICAP/Tasks/` 中。`ICAP/Activity.base` 显示这些任务笔记。下面是这个 base 的第一个视图，它和插件用的是同一个组件。
+
+这一项默认关闭。关闭时插件不往你的库里写任何内容，状态栏中的标记打开插件自己的最近任务列表。
 
 <ActivityDemo client:only="svelte" lang="zh" />
 
@@ -19,6 +23,10 @@ import ActivityDemo from "../../../../components/ActivityDemo.svelte";
 - 对话超过一轮。
 
 做笔记的任务，插件每次都记录。解释、回忆、检查和测验，插件不记录。
+
+## 回到提问的位置
+
+选择任务的名称，打开你提问的那篇笔记。笔记在请求块处打开。如果你保留了这个块，笔记在 `[!request]` 记录处打开。要打开任务笔记，选择名称时按住 **Ctrl**（macOS 上是 **Cmd**）。
 
 ## 怎么读一行
 

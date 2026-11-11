@@ -1,0 +1,33 @@
+---
+title: Answer the agent's questions
+description: When the agent needs a decision, it asks you in the note.
+sidebar:
+  order: 5
+---
+
+import AskDemo from "../../../demo/AskDemo.svelte";
+
+While it works, the agent can ask you a question: which definition to use, which notes to include, or if a change is correct. The question shows in a block in the note. The agent waits until you answer.
+
+<AskDemo client:only="svelte" lang="en" kind="agent" />
+
+## Find a question
+
+When a question waits for you:
+
+- The status bar shows **your turn**.
+- If the note is not open, a notice tells you which note has the question. Select the notice to open the note.
+- In the activity, the task has a ring and the status **Needs you**.
+
+On a phone, open the activity from the ribbon.
+
+## Answer
+
+1. Select an answer, or write one.
+2. Submit.
+
+The agent continues with your answer.
+
+## Stop the task
+
+To stop the task, select **stop** in the block. To continue it later, select **continue**.
