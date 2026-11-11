@@ -47,7 +47,7 @@ export function commandTrigger(text: string, caret: number): CommandTrigger | nu
 	if (lineEnd !== -1 && caret > lineEnd) return null;
 	const before = text.slice(1, caret);
 	const space = before.search(/\s/);
-	if (space === -1) return /^[\w:.\-]*$/.test(before) ? { stage: "name", query: before } : null;
+	if (space === -1) return /^[\w:.-]*$/.test(before) ? { stage: "name", query: before } : null;
 	const name = before.slice(0, space);
 	const rest = before.slice(space + 1);
 	// Argument completion is for one-word arguments (a model, a level), not free text.
@@ -57,7 +57,7 @@ export function commandTrigger(text: string, caret: number): CommandTrigger | nu
 
 export function parseCommand(text: string): { name: string; args: string } | null {
 	const t = text.trim();
-	const m = t.match(/^\/([\w:.\-]+)(?:\s+([\s\S]*))?$/);
+	const m = t.match(/^\/([\w:.-]+)(?:\s+([\s\S]*))?$/);
 	if (!m) return null;
 	return { name: m[1], args: (m[2] ?? "").trim() };
 }
@@ -98,7 +98,7 @@ export function rankArgs(values: string[], query: string, limit = 8): string[] {
 
 /** Replace the name (and keep what follows) with a chosen command; caret goes after "/name ". */
 export function insertCommand(text: string, name: string): { text: string; caret: number } {
-	const m = text.match(/^\/[\w:.\-]*/);
+	const m = text.match(/^\/[\w:.-]*/);
 	const rest = text.slice(m ? m[0].length : 0).replace(/^[^\S\n]*/, "");
 	const head = `/${name} `;
 	return { text: head + rest, caret: head.length };

@@ -34,7 +34,7 @@ export function htmlToText(html: string): string {
 	s = decodeEntities(s);
 	return s
 		.split("\n")
-		.map((l) => l.replace(/[ \t ]+/g, " ").trim())
+		.map((l) => l.replace(/[ \t\u00A0]+/g, " ").trim())
 		.join("\n")
 		.replace(/ \|\s*$/gm, "")
 		.replace(/\n{3,}/g, "\n\n")

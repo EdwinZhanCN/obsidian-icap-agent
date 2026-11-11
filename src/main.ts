@@ -179,11 +179,7 @@ export default class IcapPlugin extends Plugin {
 
 	/** Obsidian's interface language ("en", "zh", "zh-TW"…). */
 	private language(): string {
-		try {
-			return getLanguage();
-		} catch {
-			return window.localStorage.getItem("language") || "en";
-		}
+		return getLanguage();
 	}
 
 	/** The vault's folder on disk. */

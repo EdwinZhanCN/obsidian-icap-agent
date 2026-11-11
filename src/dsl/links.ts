@@ -21,7 +21,7 @@ export function linkTrigger(text: string, caret: number): LinkTrigger | null {
 		const query = before.slice(open + 2);
 		if (!/[\]\n|#]/.test(query)) return { start: open, query };
 	}
-	const at = before.match(/(?:^|[^A-Za-z0-9._%+\-])@([^\s@[\]|#]*)$/);
+	const at = before.match(/(?:^|[^A-Za-z0-9._%+-])@([^\s@[\]|#]*)$/);
 	if (at) return { start: caret - at[1].length - 1, query: at[1] };
 	return null;
 }

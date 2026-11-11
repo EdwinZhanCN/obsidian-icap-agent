@@ -126,7 +126,9 @@ export class IcapSettingTab extends PluginSettingTab {
 		};
 		const add = (g: SettingGroup) => {
 			let setting!: Setting;
-			g.addSetting((x) => (setting = x));
+			g.addSetting((x) => {
+				setting = x;
+			});
 			return setting;
 		};
 		const area = (setting: Setting, value: string, onChange: (v: string) => void, placeholder: string) =>

@@ -178,7 +178,7 @@ export class EndpointModal extends Modal {
 				fields.models = t.inputEl;
 				t.setPlaceholder("gpt-4o-mini").setValue(e.models.join("\n")).onChange((v) => (e.models = parseModelIds(v)));
 				t.inputEl.rows = 3;
-				t.inputEl.setCssStyles({ width: "100%" });
+				t.inputEl.setCssProps({ width: "100%" });
 			});
 		const warn = contentEl.createEl("p", { cls: "setting-item-description mod-warning" });
 		warn.hide();

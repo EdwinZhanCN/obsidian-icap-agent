@@ -46,10 +46,11 @@ export function __icapImport(specifier: unknown): Promise<unknown> {
 	return new Promise((resolve, reject) => {
 		try {
 			const s = specifier instanceof URL ? specifier.href : String(specifier);
-			const mod = require(s.startsWith("file:") ? fileURLToPath(s) : s);
-			resolve(mod && typeof mod === "object" && mod.__esModule ? mod : { ...mod, default: mod });
+			const mod: unknown = require(s.startsWith("file:") ? fileURLToPath(s) : s);
+			const esm = !!mod && typeof mod === "object" && (mod as { __esModule?: unknown }).__esModule;
+			resolve(esm ? mod : { ...(mod as object), default: mod });
 		} catch (e) {
-			reject(e);
+			reject(e instanceof Error ? e : new Error(String(e)));
 		}
 	});
 }
@@ -101,5 +102,5 @@ export async function __icapFetch(input: unknown, init?: Init): Promise<Response
 			url = String(input); // the renderer's URL class
 		}
 	}
-	return (await u.fetch(url as string, { ...options, dispatcher: agent(u) } as never)) as unknown as Response;
+	return (await u.fetch(url as string, { ...options, dispatcher: agent(u) })) as unknown as Response;
 }

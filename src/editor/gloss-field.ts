@@ -36,8 +36,7 @@ class GlossWidget extends WidgetType {
 		return other.id === this.id;
 	}
 	toDOM() {
-		const el = document.createElement("div");
-		el.className = "icap-gloss-host";
+		const el = createDiv({ cls: "icap-gloss-host" });
 		el.dataset.gloss = this.id;
 		this.unmount = this.host.mount(this.id, el);
 		return el;

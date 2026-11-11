@@ -76,7 +76,7 @@ export function keyGuard(node: HTMLElement, initial: KeyGuardOptions) {
 }
 
 const isTextField = (el: Element | null) =>
-	!!el && (el instanceof HTMLTextAreaElement || (el instanceof HTMLInputElement && !["button", "checkbox", "radio", "submit"].includes(el.type)));
+	!!el && (el.instanceOf(HTMLTextAreaElement) || (el.instanceOf(HTMLInputElement) && !["button", "checkbox", "radio", "submit"].includes(el.type)));
 
 /**
  * Glosses and blocks are rendered inside CodeMirror's contenteditable. While a button or option of

@@ -61,7 +61,7 @@ export function canvasProblem(text: string): string | null {
 		}
 		const name = `Edge ${typeof e.id === "string" ? e.id : i}`;
 		claim(e.id, name);
-		for (const k of ["fromNode", "toNode"]) if (typeof e[k] !== "string" || !nodeIds.has(e[k] as string)) problems.push(`${name}: ${k} must be the id of a node in this canvas.`);
+		for (const k of ["fromNode", "toNode"]) if (typeof e[k] !== "string" || !nodeIds.has(e[k])) problems.push(`${name}: ${k} must be the id of a node in this canvas.`);
 		for (const k of ["fromSide", "toSide"]) if (e[k] !== undefined && !SIDES.has(e[k] as string)) problems.push(`${name}: ${k} is top, right, bottom or left.`);
 		for (const k of ["fromEnd", "toEnd"]) if (e[k] !== undefined && !ENDS.has(e[k] as string)) problems.push(`${name}: ${k} is none or arrow.`);
 	}
@@ -85,7 +85,10 @@ export function baseProblem(data: unknown): string | null {
 	const collect = (v: unknown) => {
 		if (typeof v === "string") for (const m of v.matchAll(/\bformula\.([A-Za-z_][\w]*)/g)) refs.add(m[1]);
 		else if (Array.isArray(v)) v.forEach(collect);
-		else if (isObj(v)) for (const [k, x] of Object.entries(v)) collect(k), collect(x);
+		else if (isObj(v)) for (const [k, x] of Object.entries(v)) {
+			collect(k);
+			collect(x);
+		}
 	};
 	collect(data.properties);
 	collect(data.filters);

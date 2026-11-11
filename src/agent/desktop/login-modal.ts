@@ -200,7 +200,7 @@ export class LoginModal extends Modal {
 			open();
 		} else if (e.type === "device_code") {
 			box.createEl("p", { text: L("Enter this code on the provider's page:", "在服务商页面输入这个代码：") });
-			box.createEl("div", { cls: "icap-login-code", text: e.userCode });
+			box.createDiv({ cls: "icap-login-code", text: e.userCode });
 			const row = box.createDiv({ cls: "icap-login-buttons" });
 			new ButtonComponent(row)
 				.setButtonText(L("Copy code and open page", "复制代码并打开页面"))

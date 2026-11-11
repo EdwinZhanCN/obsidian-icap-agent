@@ -34,7 +34,7 @@ export function modelsFile(agentDir: string): string {
 
 function readFile(path: string): Json {
 	if (!existsSync(path)) return {};
-	const text = readFileSync(path, "utf8").replace(/^﻿/, "");
+	const text = readFileSync(path, "utf8").replace(/^\uFEFF/, "");
 	if (!text.trim()) return {};
 	let json: unknown;
 	try {

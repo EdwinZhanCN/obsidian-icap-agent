@@ -30,7 +30,7 @@ export async function readVaultContext(adapter: { exists(path: string): Promise<
 	for (const name of CONTEXT_FILE_NAMES) {
 		try {
 			if (!(await adapter.exists(name))) continue;
-			const content = (await adapter.read(name)).replace(/^﻿/, "");
+			const content = (await adapter.read(name)).replace(/^\uFEFF/, "");
 			return [{ path: name, content }];
 		} catch {
 			// unreadable: try the next name, as Pi does

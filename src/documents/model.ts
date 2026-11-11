@@ -197,9 +197,7 @@ export function outlineText(tree: DocTree, opts: { maxDepth?: number; summaries?
 }
 
 function countNodes(list: DocNode[]): number {
-	let n = 0;
-	for (const _ of walkNodes(list)) n++;
-	return n;
+	return Array.from(walkNodes(list)).length;
 }
 
 /** "PDF · 412 pages · structure from bookmarks". */

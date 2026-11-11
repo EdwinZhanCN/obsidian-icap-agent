@@ -35,7 +35,7 @@ async function bodyOf(body: BodyInit | null | undefined): Promise<string | Array
 	if (body == null) return undefined;
 	if (typeof body === "string") return body;
 	if (body instanceof ArrayBuffer) return body;
-	if (ArrayBuffer.isView(body)) return body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength) as ArrayBuffer;
+	if (ArrayBuffer.isView(body)) return body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength);
 	return await new Response(body).text();
 }
 

@@ -51,9 +51,9 @@ export function play(el: Element | Element[] | null | undefined, kf: DOMKeyframe
 	if (!el || (Array.isArray(el) && !el.length)) return NONE;
 	if (reducedMotion()) {
 		if (kf.opacity === undefined) return NONE;
-		return animate(el, { opacity: kf.opacity }, { duration: 0.14, ease: "linear" }) as unknown as Playback;
+		return animate(el, { opacity: kf.opacity }, { duration: 0.14, ease: "linear" });
 	}
-	return animate(el, kf, opts) as unknown as Playback;
+	return animate(el, kf, opts);
 }
 
 /* ───────────── once-only entrances ───────────── */
@@ -74,7 +74,7 @@ export function acknowledge(keys: Iterable<string>) {
 
 /** Run after the element is attached (CodeMirror and Obsidian mount us before insertion). */
 function whenAttached(node: Element, fn: () => void, tries = 4) {
-	requestAnimationFrame(() => {
+	window.requestAnimationFrame(() => {
 		if (node.isConnected || tries <= 0) fn();
 		else whenAttached(node, fn, tries - 1);
 	});
@@ -102,7 +102,7 @@ export function fluid(node: HTMLElement, key?: string | null) {
 	let shownHeight = -1;
 
 	const release = () => {
-		node.setCssStyles({ height: "", clipPath: "" });
+		node.setCssProps({ height: "", "clip-path": "" });
 		EditorView.findFromDOM(node)?.requestMeasure();
 	};
 
@@ -121,7 +121,7 @@ export function fluid(node: HTMLElement, key?: string | null) {
 			return;
 		}
 		anim?.stop();
-		node.setCssStyles({ clipPath: CLIP });
+		node.setCssProps({ "clip-path": CLIP });
 		const a = play(node, { height: [from, to] }, spring.settle);
 		anim = a;
 		void a.finished.then(() => {
@@ -133,7 +133,7 @@ export function fluid(node: HTMLElement, key?: string | null) {
 	};
 
 	if (introduce(key) && !reducedMotion()) {
-		node.setCssStyles({ height: "0px", clipPath: CLIP });
+		node.setCssProps({ height: "0px", "clip-path": CLIP });
 		target = 0;
 		shownHeight = 0;
 	}
@@ -163,10 +163,10 @@ export async function closeFrame(frame: HTMLElement | null | undefined, voice?: 
 		return;
 	}
 	const h = frame.getBoundingClientRect().height;
-	frame.setCssStyles({ clipPath: CLIP });
+	frame.setCssProps({ "clip-path": CLIP });
 	const kids = voice ? (Array.from(voice.children) as HTMLElement[]) : [];
 	play(kids, { opacity: 0 }, spring.fade);
-	if (voice) play(voice, { "--icap-rule-scale": 0 } as DOMKeyframesDefinition, spring.leave);
+	if (voice) play(voice, { "--icap-rule-scale": 0 }, spring.leave);
 	await play(frame, { height: [h, 0] }, { ...spring.leave, delay: 0.06 }).finished;
 }
 
@@ -187,10 +187,10 @@ export function inkIn(node: HTMLElement, opts: string | { key: string; delay?: n
 		return {};
 	}
 	node.setCssProps({ "--icap-rule-scale": "0" });
-	for (const k of kids) k.setCssStyles({ opacity: "0" });
-	if (verdict) verdict.setCssStyles({ opacity: "0" });
+	for (const k of kids) k.setCssProps({ opacity: "0" });
+	if (verdict) verdict.setCssProps({ opacity: "0" });
 	whenAttached(node, () => {
-		const rule = play(node, { "--icap-rule-scale": [0, 1] } as DOMKeyframesDefinition, { ...spring.settle, delay });
+		const rule = play(node, { "--icap-rule-scale": [0, 1] }, { ...spring.settle, delay });
 		void rule.finished.then(() => node.style.removeProperty("--icap-rule-scale"));
 		play(kids, { opacity: [0, 1], y: [5, 0] }, { ...spring.settle, delay: stagger(0.05, { startDelay: delay + 0.08 }) });
 		if (verdict) play(verdict, { opacity: [0, 1], scale: [0.35, 1], rotate: [-18, 0] }, { ...spring.hand, delay: delay + 0.2 });
@@ -217,7 +217,7 @@ export function drawn(path: SVGPathElement, on: boolean) {
 	const set = (v: boolean, animateIt: boolean) => {
 		current?.stop();
 		if (!animateIt || reducedMotion()) {
-			current = animate(path, { pathLength: v ? 1 : 0, opacity: v ? 1 : 0 }, { duration: 0 }) as unknown as Playback;
+			current = animate(path, { pathLength: v ? 1 : 0, opacity: v ? 1 : 0 }, { duration: 0 });
 			return;
 		}
 		current = v
@@ -238,7 +238,7 @@ export function drawn(path: SVGPathElement, on: boolean) {
 /** A stroke drawn once, the first time its key is seen (e.g. a check mark when a task completes). */
 export function strokeIn(path: SVGPathElement, key: string) {
 	if (!introduce(key) || reducedMotion()) return {};
-	path.setCssStyles({ opacity: "0" });
+	path.setCssProps({ opacity: "0" });
 	whenAttached(path, () => play(path, { pathLength: [0, 1], opacity: [1, 1] }, { ...spring.hand, delay: 0.12 }));
 	return {};
 }
@@ -273,7 +273,7 @@ export function beckon(actions: HTMLElement | null | undefined, delay = 0.15) {
 	if (!primary || reducedMotion()) return;
 	primary.classList.add("is-beckoning");
 	primary.setCssProps({ "--icap-underline": "0" });
-	const draw = play(primary, { "--icap-underline": [0, 1] } as DOMKeyframesDefinition, { ...spring.hand, delay: delay + 0.25 });
+	const draw = play(primary, { "--icap-underline": [0, 1] }, { ...spring.hand, delay: delay + 0.25 });
 	void draw.finished.then(() => {
 		window.setTimeout(() => {
 			primary.classList.remove("is-beckoning");
@@ -282,4 +282,4 @@ export function beckon(actions: HTMLElement | null | undefined, delay = 0.15) {
 	});
 }
 
-export const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
+export const nextFrame = () => new Promise<void>((r) => window.requestAnimationFrame(() => r()));

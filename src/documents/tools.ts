@@ -90,8 +90,7 @@ export async function readDocument(app: App, store: DocStore, files: ExternalFil
 		return { ...base, ...readUnits(tree, units, pages, more) };
 	}
 	// The structure: what to read next.
-	let count = 0;
-	for (const _ of walkNodes(tree.structure)) count++;
+	const count = Array.from(walkNodes(tree.structure)).length;
 	const shallow = count > OUTLINE_NODES;
 	return {
 		...base,

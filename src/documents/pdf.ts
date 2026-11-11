@@ -3,13 +3,37 @@ import { detectHeadings, detectTitle, junkTitle, linesOfItems, pageText, type Pd
 import type { Parsed } from "./epub";
 import type { Heading } from "./model";
 
-/* eslint-disable @typescript-eslint/no-explicit-any -- PDF.js ships no types through Obsidian. */
+/* PDF.js ships no types through Obsidian (loadPdfJs() is `any`): the part of its API this file uses. */
+interface PdfOutlineItem {
+	title?: string;
+	dest?: string | unknown[] | null;
+	items?: PdfOutlineItem[];
+}
+interface PdfPage {
+	getTextContent(): Promise<{ items: unknown[] }>;
+	getOperatorList(): Promise<unknown>;
+	getViewport(o: { scale: number }): { width: number; height: number };
+	commonObjs: { has?(id: string): boolean; get(id: string): { name?: string } | null | undefined };
+	cleanup?(): void;
+}
+interface PdfDocument {
+	numPages: number;
+	getOutline(): Promise<PdfOutlineItem[] | null>;
+	getDestination(id: string): Promise<unknown[] | null>;
+	getPageIndex(ref: unknown): Promise<number>;
+	getPage(n: number): Promise<PdfPage>;
+	getMetadata(): Promise<{ info?: { Title?: unknown } } | null>;
+	destroy?(): Promise<void>;
+}
+interface PdfJs {
+	getDocument(src: { data: Uint8Array }): { promise: Promise<PdfDocument> };
+}
 
 /** The PDF's bookmarks as headings (level = nesting depth). */
-async function bookmarks(doc: any): Promise<Heading[]> {
+async function bookmarks(doc: PdfDocument): Promise<Heading[]> {
 	const items = (await doc.getOutline().catch(() => null)) ?? [];
 	const out: Heading[] = [];
-	const walk = async (list: any[], depth: number) => {
+	const walk = async (list: PdfOutlineItem[], depth: number) => {
 		for (const it of list) {
 			if (out.length >= 2000) return;
 			let unit = 0;
@@ -19,7 +43,7 @@ async function bookmarks(doc: any): Promise<Heading[]> {
 			} catch {
 				unit = 0;
 			}
-			const title = String(it.title ?? "").trim();
+			const title = (it.title ?? "").trim();
 			if (title && unit > 0) out.push({ level: depth, title, unit });
 			if (it.items?.length) await walk(it.items, depth + 1);
 		}
@@ -33,10 +57,10 @@ async function bookmarks(doc: any): Promise<Heading[]> {
  * layout. `onPage` reports progress for long books.
  */
 export async function parsePdf(data: Uint8Array, onPage?: (n: number, total: number) => void): Promise<Parsed> {
-	const pdfjs = await loadPdfJs();
+	const pdfjs = (await loadPdfJs()) as PdfJs;
 	const doc = await pdfjs.getDocument({ data }).promise;
 	try {
-		const total: number = doc.numPages;
+		const total = doc.numPages;
 		const marks = await bookmarks(doc);
 		const units: string[] = [];
 		const lines: PdfLine[] = [];
@@ -52,7 +76,7 @@ export async function parsePdf(data: Uint8Array, onPage?: (n: number, total: num
 				const { width, height } = page.getViewport({ scale: 1 });
 				const isBold = (fontName: string) => {
 					try {
-						const name = String(page.commonObjs.has?.(fontName) ? (page.commonObjs.get(fontName)?.name ?? "") : "");
+						const name = page.commonObjs.has?.(fontName) ? (page.commonObjs.get(fontName)?.name ?? "") : "";
 						return /bold|black|heavy|semibold|demi/i.test(name);
 					} catch {
 						return false;
@@ -63,12 +87,13 @@ export async function parsePdf(data: Uint8Array, onPage?: (n: number, total: num
 			page.cleanup?.();
 			onPage?.(n, total);
 			// Let Obsidian breathe on long books.
-			if (n % 20 === 0) await new Promise((r) => setTimeout(r, 0));
+			if (n % 20 === 0) await new Promise((r) => window.setTimeout(r, 0));
 		}
 		let title = "";
 		try {
 			const meta = await doc.getMetadata();
-			title = String(meta?.info?.Title ?? "").trim();
+			const t = meta?.info?.Title;
+			title = typeof t === "string" ? t.trim() : "";
 		} catch {
 			title = "";
 		}

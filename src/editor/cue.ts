@@ -59,7 +59,7 @@ export function cue(view: EditorView, spec: CueSpec) {
 
 function show(view: EditorView, spec: CueSpec, dir: "up" | "down") {
 	const prev = live.get(view);
-	const el = prev?.el ?? document.createElement("button");
+	const el = prev?.el ?? createEl("button");
 	el.type = "button";
 	el.className = `icap-cue is-${dir}`;
 	el.replaceChildren();
@@ -82,7 +82,7 @@ function show(view: EditorView, spec: CueSpec, dir: "up" | "down") {
 	let frame = 0;
 	const onScroll = () => {
 		if (frame) return;
-		frame = requestAnimationFrame(() => {
+		frame = window.requestAnimationFrame(() => {
 			frame = 0;
 			const cur = live.get(view);
 			const p = cur?.spec.pos();

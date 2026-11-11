@@ -277,7 +277,7 @@ export class PiSession {
 
 	private handle(ev: AgentSessionEvent) {
 		const o = this.opts;
-		const rec = ev as unknown as Record<string, any>;
+		const rec = ev as unknown as PiEventView;
 		switch (rec.type) {
 			case "message_start":
 				if (rec.message?.role === "assistant") this.currentText = "";
@@ -300,7 +300,7 @@ export class PiSession {
 				const used = messageUsage(m.usage);
 				const model = m.provider && m.model ? `${m.provider}/${m.model}` : null;
 				if (used || model) o.onUsage?.(used, model);
-				const text = Array.isArray(m.content) ? m.content.filter((c: any) => c.type === "text").map((c: any) => c.text).join("") : "";
+				const text = Array.isArray(m.content) ? (m.content as PiContent[]).filter((c) => c.type === "text").map((c) => c.text ?? "").join("") : "";
 				if (m.stopReason === "error" || m.stopReason === "aborted") {
 					this.lastError = m.errorMessage || (m.stopReason === "aborted" ? "Stopped." : "The model returned an error.");
 				}
@@ -347,6 +347,29 @@ export class PiSession {
 			if (timer) clearTimeout(timer);
 		}
 	}
+}
+
+/** The fields of Pi's session events that handle() reads, all optional: Pi's union is read loosely. */
+interface PiContent {
+	type?: string;
+	text?: string;
+}
+interface PiEventView {
+	type?: string;
+	message?: {
+		role?: string;
+		usage?: Parameters<typeof messageUsage>[0];
+		provider?: string;
+		model?: string;
+		content?: unknown;
+		stopReason?: string;
+		errorMessage?: string;
+	};
+	assistantMessageEvent?: { type?: string; delta?: string };
+	toolName?: unknown;
+	args?: unknown;
+	success?: boolean;
+	finalError?: string;
 }
 
 /* ───────────── Probes: nothing is sent to a model ───────────── */

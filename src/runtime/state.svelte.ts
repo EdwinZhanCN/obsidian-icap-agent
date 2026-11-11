@@ -377,7 +377,7 @@ export class AskBlock {
 			notePath: this.notePath,
 			taskId: this.taskId,
 			instructions: this.instructions,
-			turns: $state.snapshot(this.turns) as Turn[],
+			turns: $state.snapshot(this.turns),
 			phase: this.phase,
 			summary: this.summary,
 			error: this.error,

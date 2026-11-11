@@ -29,7 +29,7 @@ export const freshField = StateField.define<DecorationSet>({
 				deco = deco.update({ add: ranges, sort: true });
 			} else if (e.is(drop)) {
 				const id = e.value;
-				deco = deco.update({ filter: (_f, _t, v) => v.spec.id !== id });
+				deco = deco.update({ filter: (_f, _t, v) => (v.spec as { id?: number }).id !== id });
 			}
 		}
 		return deco;
@@ -45,8 +45,8 @@ export function flashRange(view: EditorView, from: number, to: number) {
 	const id = ++seq;
 	view.dispatch({ effects: add.of({ id, from, to: Math.min(to, view.state.doc.length) }) });
 	// Rendered blocks (callouts, embeds) whose source lies in the range.
-	requestAnimationFrame(() =>
-		requestAnimationFrame(() => {
+	window.requestAnimationFrame(() =>
+		window.requestAnimationFrame(() => {
 			for (const el of Array.from(view.dom.querySelectorAll<HTMLElement>(".cm-embed-block"))) {
 				let pos: number;
 				try {

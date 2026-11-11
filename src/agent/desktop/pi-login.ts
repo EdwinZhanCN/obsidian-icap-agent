@@ -62,7 +62,7 @@ export async function loginChoices(pi: PiSdk): Promise<LoginChoice[]> {
 /** Providers with credentials, and which of those are stored in auth.json. */
 export async function providerStates(pi: PiSdk): Promise<ProviderState[]> {
 	const runtime = await modelRuntime(pi);
-	const stored = new Map((await runtime.listCredentials({ signal: AbortSignal.timeout(15_000) })).map((c) => [c.providerId, c.type as AuthKind]));
+	const stored = new Map((await runtime.listCredentials({ signal: AbortSignal.timeout(15_000) })).map((c) => [c.providerId, c.type]));
 	const out: ProviderState[] = [];
 	for (const p of runtime.getProviders()) {
 		const status = runtime.getProviderAuthStatus(p.id);

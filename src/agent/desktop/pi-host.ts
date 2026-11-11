@@ -56,7 +56,7 @@ export function oldNode(version: string): string | null {
 function run(cmd: string, args: string[], timeout = 8000): Promise<string> {
 	return new Promise((resolve, reject) => {
 		execFile(cmd, args, { timeout, maxBuffer: 1024 * 1024 }, (err, stdout) => {
-			if (err) reject(err);
+			if (err) reject(err instanceof Error ? err : new Error(String(err)));
 			else resolve(String(stdout));
 		});
 	});

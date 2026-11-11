@@ -51,15 +51,12 @@ export function selectionMark(host: SelectionMarkHost) {
 			};
 
 			constructor(readonly view: EditorView) {
-				this.el = document.createElement("div");
-				this.el.className = "icap-selmark";
+				this.el = createDiv({ cls: "icap-selmark" });
 				this.el.setAttribute("role", "toolbar");
 				this.el.setAttribute("aria-label", L("Learning actions for selection", "对选中内容的学习操作"));
 				const mk = (label: string, title: string, fn: () => void) => {
-					const b = document.createElement("button");
+					const b = createEl("button", { text: label, attr: { title } });
 					b.type = "button";
-					b.textContent = label;
-					b.title = title;
 					// Keep the selection and the editor's focus: on touch, preventing pointerdown also stops
 					// the mousedown that would move the focus (the click still comes).
 					b.addEventListener("pointerdown", (e) => e.preventDefault());
@@ -71,9 +68,7 @@ export function selectionMark(host: SelectionMarkHost) {
 					});
 					return b;
 				};
-				const sep = document.createElement("span");
-				sep.className = "icap-selmark-sep";
-				sep.textContent = "·";
+				const sep = createSpan({ cls: "icap-selmark-sep", text: "·" });
 				this.el.append(
 					mk(L("explain", "解释"), L("Explain this in context", "在上下文中解释这段内容"), () => host.explain(this.view)),
 					sep,
@@ -144,9 +139,7 @@ export function selectionMark(host: SelectionMarkHost) {
 				const bottomOfView = vv ? vv.offsetTop + vv.height : window.innerHeight;
 				const above = toolbar ? Math.min(toolbar.getBoundingClientRect().top, bottomOfView) : bottomOfView;
 				const gap = Math.max(0, window.innerHeight - above) + 8;
-				this.el.style.left = "";
-				this.el.style.top = "";
-				this.el.style.bottom = toolbar ? `${gap}px` : `calc(${gap}px + env(safe-area-inset-bottom))`;
+				this.el.setCssProps({ left: "", top: "", bottom: toolbar ? `${gap}px` : `calc(${gap}px + env(safe-area-inset-bottom))` });
 			}
 
 			/** Layout is read in CodeMirror's measure phase (never during an update). */
@@ -169,9 +162,7 @@ export function selectionMark(host: SelectionMarkHost) {
 					},
 					write: (at) => {
 						if (!at) return void this.el.classList.remove("is-shown");
-						this.el.style.bottom = "";
-						this.el.style.left = `${at.left}px`;
-						this.el.style.top = `${at.top}px`;
+						this.el.setCssProps({ bottom: "", left: `${at.left}px`, top: `${at.top}px` });
 					},
 				});
 			}

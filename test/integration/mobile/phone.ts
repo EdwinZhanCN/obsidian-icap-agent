@@ -53,6 +53,9 @@ function obsidianDom(win: any) {
 		return el;
 	};
 	N.createEl = make;
+	N.instanceOf = function (type: any) {
+		return this instanceof type;
+	};
 	N.createDiv = function (o?: any, cb?: any) {
 		return make.call(this, "div", o, cb);
 	};
@@ -124,6 +127,7 @@ function obsidianDom(win: any) {
 	};
 	win.createDiv = (o?: any, cb?: any) => make.call(win.document.createDocumentFragment(), "div", o, cb);
 	win.createEl = (tag: string, o?: any, cb?: any) => make.call(win.document.createDocumentFragment(), tag, o, cb);
+	win.createSpan = (o?: any, cb?: any) => make.call(win.document.createDocumentFragment(), "span", o, cb);
 	win.activeWindow = win;
 	win.activeDocument = win.document;
 }

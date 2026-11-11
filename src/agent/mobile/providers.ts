@@ -93,7 +93,7 @@ export function endpointModel(e: MobileEndpoint, id: string): Model<Api> {
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 		contextWindow: 128000,
 		maxTokens: 8192,
-	} as Model<Api>;
+	};
 }
 
 /** The one rule for how a provider's requests travel: built-in providers stream; an endpoint uses what its probe found. */

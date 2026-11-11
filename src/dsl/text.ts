@@ -45,7 +45,7 @@ export function frontmatterEnd(lines: Line[]): number {
 
 /** Map of line index → true for lines inside fenced code (including fence lines). */
 export function fencedLines(lines: Line[]): boolean[] {
-	const inside: boolean[] = new Array(lines.length).fill(false);
+	const inside = new Array<boolean>(lines.length).fill(false);
 	let open: string | null = null;
 	for (let i = 0; i < lines.length; i++) {
 		const m = lines[i].text.match(FENCE);

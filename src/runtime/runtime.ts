@@ -1640,7 +1640,7 @@ export class LearningRuntime {
 		const path = await uniqueNotePath(this.app, folder === "/" ? "" : folder, title, NOTE_EXT[type]);
 		const created = await this.app.vault.create(path, content.trimEnd() + "\n");
 		// Tool-level metadata only: later explanations must not take this note for the learner's own words.
-		if (type === "note" && this.settings.markGenerated) await this.app.fileManager.processFrontMatter(created, (fm) => void (fm["generated-by"] = GENERATED_BY)).catch(() => undefined);
+		if (type === "note" && this.settings.markGenerated) await this.app.fileManager.processFrontMatter(created, (fm: Record<string, unknown>) => void (fm["generated-by"] = GENERATED_BY)).catch(() => undefined);
 		addArtifact(task, { kind: "created", path, label: basename(path) });
 		this.persist();
 		return { status: "created", path, link: `[[${basename(path)}]]` };
@@ -1704,7 +1704,7 @@ export class LearningRuntime {
 	private async writeAndShow(path: string, mode: "follow" | "point", compute: (text: string) => Splice | null): Promise<boolean> {
 		let applied = null as Splice | null;
 		const ok = await spliceFile(this.app, path, (t) => (applied = compute(t)));
-		const s = applied as Splice | null;
+		const s = applied;
 		if (!ok || !s) return ok;
 		const editor = editorFor(this.app, path);
 		const cm = editor ? cmOf(editor) : null;
@@ -1970,7 +1970,7 @@ export class LearningRuntime {
 		editor.scrollIntoView({ from: pos, to: pos }, true);
 		if (blockId) {
 			window.setTimeout(() => {
-				const el = view!.containerEl.querySelector<HTMLElement>(`[data-ask="${blockId}"]`);
+				const el = view.containerEl.querySelector<HTMLElement>(`[data-ask="${blockId}"]`);
 				el?.querySelector<HTMLElement>("textarea, [role=radio], [role=checkbox], button.icap-primary")?.focus();
 				el?.dispatchEvent(new CustomEvent("icap-arrive")); // the view marks where to look
 			}, 120);
@@ -1982,7 +1982,7 @@ export class LearningRuntime {
 /* ───────────────────────── pure helpers ───────────────────────── */
 
 export function cmOf(editor: Editor): EditorView | null {
-	return ((editor as unknown as { cm?: EditorView }).cm ?? null) as EditorView | null;
+	return ((editor as unknown as { cm?: EditorView }).cm ?? null);
 }
 
 /** What makes a canvas's or a base's text unreadable for Obsidian, or null. */

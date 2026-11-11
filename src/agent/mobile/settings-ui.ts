@@ -80,12 +80,12 @@ export function renderAccounts(app: App, el: HTMLElement, ctx: Ctx) {
 		});
 		if (e.hasKey) keySetting(app, custom, ctx, e.id, L(`Key for ${e.name}`, `${e.name} 的 Key`), endpointSecretId(e.id));
 	}
-	custom.addSetting((row) =>
+	custom.addSetting((row) => {
 		row
 			.setName(L("Add endpoint", "添加端点"))
 			.setDesc(L("Ollama, LM Studio, a proxy, any OpenAI- or Anthropic-compatible API.", "Ollama、LM Studio、中转站，任何兼容 OpenAI 或 Anthropic 的 API。"))
-			.addButton((b) => b.setButtonText(L("Add…", "添加…")).onClick(() => new EndpointModal(app, ctx).open())),
-	);
+			.addButton((b) => b.setButtonText(L("Add…", "添加…")).onClick(() => new EndpointModal(app, ctx).open()));
+	});
 }
 
 /** Add or edit a custom endpoint. Saving measures how its requests travel (probeTransport), once. */
