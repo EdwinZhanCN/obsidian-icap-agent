@@ -166,9 +166,9 @@ What ends up in notes is a contract other tools read: [FORMAT.md](FORMAT.md). Ch
 
 The bundle is CJS with `PI_BUNDLED_NODE`. `import.meta.url` maps to `globalThis.__ICAP_PI_URL`, and Pi's package.json and photon's wasm are embedded. Like Pi's standalone binary, the entry registers the OAuth flows and Bedrock statically.
 
-`pi-node.ts` gives Pi's code, through rolldown's `define` + `transform.inject`, Node's fetch (undici, honouring `HTTP(S)_PROXY`, no CORS), timers, web streams, Blob/File and performance. Obsidian's own globals are untouched.
+`pi-node.ts` gives Pi's code, through rolldown's `define` + `transform.inject`, Node's fetch (undici, honouring `HTTP(S)_PROXY`, no CORS), timers, web streams, Blob/File and performance. Obsidian's own globals are untouched. The learner's extensions get the same names: jiti evaluates each of their modules, and each plain CommonJS module they require (which it would otherwise hand to Node's `require`), inside a function whose parameters are those names (the jiti patch in `piPatches`). In the renderer the globals are Chromium's, and Node code breaks on them: a timer called as a method throws *Illegal invocation*, and an extension's own undici mixes the two stream implementations and stalls the renderer (#3). Only `globalThis.fetch` and the like, and native ES modules an extension imports, still reach Chromium's.
 
-`piPatches` in `tooling/pi-bundle.ts` patches specific upstream files (Pi's config.js, photon's wasm loader, undici's `install()`, runtime `import()` in pi-ai and jiti) and **throw when upstream changes**. When bumping `@earendil-works/pi-*` (pinned to an exact version in `package.json`), expect to update them.
+`piPatches` in `tooling/pi-bundle.ts` patches specific upstream files (Pi's config.js, photon's wasm loader, undici's `install()`, runtime `import()` in pi-ai and jiti, jiti's module evaluation) and **throw when upstream changes**. When bumping `@earendil-works/pi-*` (pinned to an exact version in `package.json`), expect to update them.
 
 ## Legacy ICPA formats
 
@@ -187,7 +187,7 @@ The plugin used to be spelled ICPA (`icpa-agent`). Formats that outlive a versio
 - `main.js` is about 13 MB: Pi with its providers (including the AWS SDK for Bedrock), jiti for the learner's TypeScript extensions and photon, all behind the desktop's lazy import; plus pi-agent-core and the five pi-ai adapters the mobile agent uses (which desktop's Pi bundle also contains: they are in main.js twice, uncompressed).
 - Desktop needs Node 22.18 or later. Node comes with Obsidian's installer, not its in-app updates: installer 1.9.10 and later (Electron 37+, Node 22.18+) run Pi; 1.8.9 and earlier (Electron 34, Node 20) do not, and the settings say to reinstall (`oldNode` in `pi-host.ts`). Obsidian never shipped Electron 35 or 36. Pi and undici declare 22.19; 22.18 was checked with a full session.
 - Mobile: isolated only with ICAP's tools; API keys or custom endpoints only (no OAuth, Bedrock, Vertex); no session cache (each run replays the transcript) and no `/compact`; no documents outside the vault. A custom endpoint without CORS replies whole through `requestUrl`, which cannot be aborted: stopping discards the reply, the provider still bills it.
-- Only Pi's own code gets Node's fetch. A learner's extension calling `fetch` itself runs in the renderer and is subject to CORS, unlike in the Pi CLI. Pi's codemode (QuickJS in a worker) is not bundled.
+- A learner's extension sees Node's globals by name only (see "Pi inside Obsidian"): through `globalThis.` or `window.`, or in a native ES module it imports, it gets Chromium's, unlike in the Pi CLI. Pi's codemode (QuickJS in a worker) is not bundled.
 - The selection mark exists in Live Preview and Source mode only. An unkept gloss disappears on plugin reload; blocks persist and resume.
 - An interrupted turn resumes by replaying the transcript into a fresh session, so the next question may be phrased differently.
 - A visual's state is not saved. In Reading view, a visual in a note without a request block asks through a new request block, which needs the note to be editable.

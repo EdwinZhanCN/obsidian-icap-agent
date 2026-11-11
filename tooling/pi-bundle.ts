@@ -35,6 +35,25 @@ export function piPatches(): Plugin {
         if (!src.includes(assign)) throw new Error("undici changed install(); update piPatches");
         return src.replace(assign, "Object.assign(globalThis, { fetch: module.exports.fetch })");
       }
+      if (id.endsWith("jiti/dist/jiti.cjs")) {
+        // The learner's extensions and the modules they require are evaluated by jiti in the renderer, where these
+        // globals are Chromium's. Wrap each module in a function whose
+        // parameters are the same names, called with Node's versions (the define below rewrites the arguments), so
+        // an extension sees what it sees under the Pi CLI. Outside the module's own function, so its own
+        // \`const { setTimeout } = require("timers")\` still shadows them.
+        const src = await readFile(id, "utf8");
+        const evaluate = "runInThisContext(F,{filename:c,lineOffset:0,displayErrors:!1})";
+        if (src.split(evaluate).length !== 2) throw new Error("jiti changed how it evaluates a module; update piPatches");
+        // A plain CommonJS file (undici in an extension's node_modules) needs no transform, so jiti hands it to
+        // Node's require, whose module wrapper sees the renderer's globals. Evaluate it in jiti's wrapper too,
+        // untransformed; only a native ES module that is imported still loads natively.
+        const native = 'else{if(debug(t,"[native]",n.async?"[import]":"[require]",c),n.async)return Promise.resolve(nativeImportOrRequire(t,c,n.async)).catch(e=>(debug(t,"Native import error:",e),debug(t,"[fallback]",c),eval_evalModule(t,i,{...n,forceTranspile:!0})));try{return nativeImportOrRequire(t,c,n.async)}catch(e){debug(t,"Native require error:",e),debug(t,"[fallback]",c),i=transform(t,{filename:c,source:i,ts:E,async:n.async??!1,jsx:t.opts.jsx})}}';
+        if (src.split(native).length !== 2) throw new Error("jiti changed when it requires a module natively; update piPatches");
+        const params = Object.keys(names).join(", ");
+        return src
+          .replace(native, 'else if(w&&n.async)return debug(t,"[native]","[import]",c),Promise.resolve(nativeImportOrRequire(t,c,!0)).catch(e=>(debug(t,"Native import error:",e),debug(t,"[fallback]",c),eval_evalModule(t,i,{...n,forceTranspile:!0})));')
+          .replace(evaluate, `runInThisContext("(function (${params}) { return " + F.slice(0, -1) + "; })",{filename:c,lineOffset:0,displayErrors:!1})(${params})`);
+      }
       if (/(pi-ai\/dist\/(env-api-keys|auth\/context|auth\/oauth\/load|api\/bedrock-converse-stream\.lazy)\.js|jiti\/lib\/jiti(-static|-native)?\.mjs)$/.test(id)) {
         const src = await readFile(id, "utf8");
         const out = src.replace(/(?<![\w$."'`])import\((?!["'`])/g, "__icapImport(");
