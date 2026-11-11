@@ -78,6 +78,7 @@ describe.skipIf(!existsSync(MAIN))("main.js on a phone (no Node)", () => {
 		// Mobile has no status bar: the activity opens from the ribbon.
 		expect(phone.plugin.statusBar).toBe(0);
 		expect(phone.plugin.ribbon.map((r: any) => r.icon)).toContain("activity");
+		expect([...phone.plugin.basesViews.keys()]).toEqual(["icap-activity"]);
 		// Every command has an icon (the mobile toolbar shows icons); task commands are editor commands.
 		for (const c of phone.plugin.commands) expect(c.icon, c.id).toBeTruthy();
 		for (const id of ["ask-agent", "explain-selection", "recall-from-memory", "check-my-words", "quiz-section", "quiz-note", "concept-note"])
@@ -186,8 +187,9 @@ describe.skipIf(!existsSync(MAIN))("main.js on a phone (no Node)", () => {
 		const el = phone.window.document.createElement("div");
 		phone.plugin.backend.accounts.render(el, () => undefined);
 		const names = [...el.querySelectorAll(".setting-item-name")].map((n: any) => n.textContent);
-		expect(names).toEqual(expect.arrayContaining(["Anthropic ✓", "OpenAI", "Google Gemini", "OpenRouter", "DeepSeek", "Mistral", "Groq", "xAI", "Custom endpoints"]));
-		expect(el.textContent).toContain("Stored on this device only.");
+		expect(names).toEqual(expect.arrayContaining(["Anthropic", "OpenAI", "Google Gemini", "OpenRouter", "DeepSeek", "Mistral", "Groq", "xAI", "API keys", "Custom endpoints", "Add endpoint"]));
+		expect(el.textContent).toContain("Get a key");
+		expect(el.querySelectorAll(".icap-inline-icon.is-ok")).toHaveLength(1);
 		const models = await phone.plugin.backend.probeModels("isolated");
 		expect(models.current).toMatch(/^anthropic\//);
 		expect(models.available.every((m: string) => m.startsWith("anthropic/"))).toBe(true);

@@ -298,7 +298,8 @@ export class PiSession {
 				const m = rec.message;
 				if (m?.role !== "assistant") return;
 				const used = messageUsage(m.usage);
-				if (used) o.onUsage?.(used);
+				const model = m.provider && m.model ? `${m.provider}/${m.model}` : null;
+				if (used || model) o.onUsage?.(used, model);
 				const text = Array.isArray(m.content) ? m.content.filter((c: any) => c.type === "text").map((c: any) => c.text).join("") : "";
 				if (m.stopReason === "error" || m.stopReason === "aborted") {
 					this.lastError = m.errorMessage || (m.stopReason === "aborted" ? "Stopped." : "The model returned an error.");

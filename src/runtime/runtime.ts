@@ -145,6 +145,12 @@ export class LearningRuntime {
 				this.settings.activityBaseMade = true;
 				this.persist();
 			},
+			viewAdded: () => this.settings.activityViewAdded,
+			setViewAdded: () => {
+				if (this.settings.activityViewAdded) return;
+				this.settings.activityViewAdded = true;
+				this.persist();
+			},
 		});
 	}
 
@@ -270,13 +276,17 @@ export class LearningRuntime {
 						task.addStep(tool, detail);
 						this.persist();
 					},
-					onUsage: (used) => {
-						task.usage = addUsage(task.usage, used);
+					onUsage: (used, model) => {
+						if (used) task.usage = addUsage(task.usage, used);
+						if (model) task.model = model;
 						this.persist();
 					},
 					onTool: (running) => {
 						task.toolsRunning = Math.max(0, task.toolsRunning + (running ? 1 : -1));
-						if (!running) task.toolEndedAt = Date.now();
+						if (!running) {
+							task.toolEndedAt = Date.now();
+							task.endStep(task.toolEndedAt);
+						}
 					},
 					onPhase: (p) => {
 						task.phase = p;
@@ -935,6 +945,7 @@ export class LearningRuntime {
 		task.stepsDropped = prev?.stepsDropped ?? 0;
 		// What the conversation has cost so far: the task note's cost is the whole block's.
 		task.usage = prev?.usage ? { ...prev.usage } : null;
+		task.model = prev?.model ?? null;
 		// The session is resumable only if its own messages hold the whole conversation. A command in a
 		// fresh session got the earlier turns through the system prompt, which Pi does not store.
 		const selfContained = !cmd || !!resumed || (!history.trim() && !sofar.trim());
@@ -997,6 +1008,7 @@ export class LearningRuntime {
 				task.artifacts = prev ? [...prev.artifacts] : [];
 				task.steps = prev ? [...prev.steps] : [];
 				task.usage = prev?.usage ? { ...prev.usage } : null;
+				task.model = prev?.model ?? null;
 				task.blockId = block.id;
 				block.taskId = task.id;
 				block.phase = "thinking";
@@ -1839,6 +1851,7 @@ export class LearningRuntime {
 	async startTaskNotes() {
 		this.taskNotes.adoptInterrupted();
 		await this.taskNotes.sync();
+		await this.taskNotes.addActivityView().catch((e) => console.error("ICAP: could not add the activity view to Activity.base", e));
 		if (this.settings.taskNotesMigrated) return;
 		const made = await this.taskNotes.migrate(this.ledger.tasks).catch((e) => {
 			console.error("ICAP: could not migrate the activity to task notes", e);

@@ -1,5 +1,5 @@
 /**
- * Task notes (FORMAT.md, version 4): a request or a note-making task as a Markdown note with `icap-*`
+ * Task notes (FORMAT.md, version 5): a request or a note-making task as a Markdown note with `icap-*`
  * properties, so Obsidian's Bases can list them. Pure: what a task note says, and the Activity base.
  *
  * Property keys and status values are English markers (other tools read them); only the display names in
@@ -7,6 +7,9 @@
  */
 
 export const TASK_MARK = "task";
+
+/** The Bases view type the plugin registers for the activity (src/activity/view.svelte.ts). */
+export const ACTIVITY_VIEW_TYPE = "icap-activity";
 
 /** The eight values of `icap-status`. `draft` and `queued` are not written yet (no dispatch in this version). */
 export const TASK_STATUSES = ["draft", "queued", "running", "needs-you", "review", "done", "failed", "cancelled"] as const;
@@ -59,6 +62,11 @@ export interface TaskNote {
 	tokens: number | null;
 	/** Share of the prompt read from the cache, 0–100; null when unknown. */
 	cache: number | null;
+	/**
+	 * The model of the latest run, `provider/id`; null before a model answered. The same property is the
+	 * task's choice of model: a task runs on its own model, the settings' model is only the default.
+	 */
+	model: string | null;
 }
 
 export const COST_UNKNOWN = "unknown";
@@ -93,11 +101,12 @@ export function taskProperties(n: TaskNote): Record<string, string | number | st
 	else if (n.ended !== null) p["icap-cost"] = COST_UNKNOWN;
 	if (n.tokens !== null) p["icap-tokens"] = n.tokens;
 	if (n.cache !== null) p["icap-cache"] = n.cache;
+	if (n.model) p["icap-model"] = n.model;
 	return p;
 }
 
 /** Properties this version owns: on update they are set, or removed when they have no value. */
-export const OWNED_PROPERTIES = ["icap", "icap-id", "icap-status", "icap-source", "icap-changed", "icap-started", "icap-ended", "icap-cost", "icap-tokens", "icap-cache"] as const;
+export const OWNED_PROPERTIES = ["icap", "icap-id", "icap-status", "icap-source", "icap-changed", "icap-started", "icap-ended", "icap-cost", "icap-tokens", "icap-cache", "icap-model"] as const;
 
 /** Bring a note's frontmatter up to date; true if anything changed. Properties of other tools are left alone. */
 export function applyTaskProperties(fm: Record<string, unknown>, n: TaskNote): boolean {
@@ -150,6 +159,21 @@ export function taskFileName(title: string): string {
 	return (s.length > 60 ? s.slice(0, 60).trim() : s) || "Task";
 }
 
+/**
+ * An Activity.base from before the activity view (FORMAT 4), with that view put first: the one change the
+ * plugin ever makes to a base it generated, once. Everything else in the file is the learner's and stays as
+ * it is; a base without a `views:` list, or one that already has the view, comes back unchanged.
+ */
+export function withActivityView(base: string, name: string): string {
+	if (/^\s*-\s*type:\s*["']?icap-activity\b/m.test(base)) return base;
+	const m = /^views:[ \t]*\r?\n/m.exec(base);
+	if (!m) return base;
+	const at = m.index + m[0].length;
+	const indent = /^([ \t]*)-/.exec(base.slice(at))?.[1] ?? "  ";
+	const view = [`${indent}- type: ${ACTIVITY_VIEW_TYPE}`, `${indent}  name: ${JSON.stringify(name)}`, `${indent}  sort:`, `${indent}    - property: note.icap-started`, `${indent}      direction: DESC`, ""].join("\n");
+	return base.slice(0, at) + view + base.slice(at);
+}
+
 export interface BaseLabels {
 	status: string;
 	source: string;
@@ -160,6 +184,7 @@ export interface BaseLabels {
 	cost: string;
 	tokens: string;
 	cache: string;
+	activity: string;
 	needsMe: string;
 	inProgress: string;
 	all: string;
@@ -169,6 +194,7 @@ export interface BaseLabels {
  * Activity.base. Bases reads a bare `icap-status` in an expression as a subtraction, so filters and
  * formulas use `note["icap-status"]`; columns, grouping and display names use `note.icap-status`
  * (verified in Obsidian 1.15). The cost column sums: Bases leaves the text `unknown` out of a Sum.
+ * The first view is the plugin's `icap-activity`; the tables after it read the same notes without the plugin.
  */
 export function activityBase(l: BaseLabels): string {
 	const q = (s: string) => JSON.stringify(s);
@@ -197,6 +223,11 @@ properties:
   note.icap-cache:
     displayName: ${q(l.cache)}
 views:
+  - type: ${ACTIVITY_VIEW_TYPE}
+    name: ${q(l.activity)}
+    sort:
+      - property: note.icap-started
+        direction: DESC
   - type: table
     name: ${q(l.needsMe)}
     filters:

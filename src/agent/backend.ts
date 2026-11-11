@@ -116,8 +116,11 @@ export interface AgentEvents {
 	onTool?: (running: boolean) => void;
 	/** A tool call started: its name and a one-line gist of its arguments (for the activity's steps). */
 	onStep?: (tool: string, detail: string) => void;
-	/** An assistant message ended: the tokens and price it reports (agent/usage.ts). Summed by the runtime. */
-	onUsage?: (usage: RunUsage) => void;
+	/**
+	 * An assistant message ended: the tokens and price it reports (agent/usage.ts), summed by the runtime, and
+	 * the model that wrote it as `provider/id` (what the task records in `icap-model`).
+	 */
+	onUsage?: (usage: RunUsage | null, model: string | null) => void;
 	/** ICAP's tools. */
 	onBridge: BridgeHandler;
 	/** A dialog from one of the learner's extensions; absent = dismiss it. Aborted on timeout. */
@@ -199,7 +202,7 @@ export interface BackendAccounts {
 	login?(done: () => void): Promise<void>;
 	/** Open the custom endpoint dialog (`customEndpoints`). */
 	endpoints?(done: () => void): Promise<void>;
-	/** Keys and endpoints edited right in the settings tab (instead of dialogs); `done` runs after a change. */
+	/** Keys and endpoints edited right in the settings tab (instead of dialogs), appended to `el`; `done` runs after a change. */
 	render?(el: HTMLElement, done: () => void): void;
 }
 

@@ -63,6 +63,12 @@ function vault(initial: Record<string, string> = {}) {
 				writes++;
 				return handle(p);
 			},
+			process: async (f: TFile, fn: (text: string) => string) => {
+				const next = fn(files.get(f.path)!);
+				if (next !== files.get(f.path)) writes++;
+				files.set(f.path, next);
+				return next;
+			},
 		},
 		metadataCache: { getFileCache: (f: TFile) => ({ frontmatter: frontmatter(files.get(f.path) ?? "") }) },
 		fileManager: {
@@ -98,8 +104,9 @@ function task(over: Partial<Task>): Task {
 	return t;
 }
 
-function setup(v: ReturnType<typeof vault>, tasks: Task[], opts: { editing?: () => boolean; blocks?: Record<string, AskBlock> } = {}) {
-	let baseMade = false;
+function setup(v: ReturnType<typeof vault>, tasks: Task[], opts: { editing?: () => boolean; blocks?: Record<string, AskBlock>; baseMade?: boolean } = {}) {
+	let baseMade = opts.baseMade ?? false;
+	let viewAdded = false;
 	const host: TaskNotesHost = {
 		app: v.app,
 		home: () => "ICAP",
@@ -108,6 +115,8 @@ function setup(v: ReturnType<typeof vault>, tasks: Task[], opts: { editing?: () 
 		beingEdited: () => opts.editing?.() ?? false,
 		baseMade: () => baseMade,
 		setBaseMade: () => void (baseMade = true),
+		viewAdded: () => viewAdded,
+		setViewAdded: () => void (viewAdded = true),
 	};
 	return new TaskNotes(host);
 }
@@ -278,6 +287,31 @@ describe("Activity.base", () => {
 		// Deleted: writing a task does not bring it back; asking for the activity does.
 		expect(await notes.ensureBase()).toBeNull();
 		expect(await notes.ensureBase(true)).toBeTruthy();
+	});
+
+	it("gives a base from before the activity view that view, once, and nothing else", async () => {
+		const v = vault();
+		const old = "filters:\n  and:\n    - 'note[\"icap\"] == \"task\"'\nviews:\n  - type: table\n    name: Mine\n";
+		v.files.set(`ICAP/${BASE_NAME}`, old);
+		const notes = setup(v, [], { baseMade: true });
+		await notes.addActivityView();
+		const now = v.files.get(`ICAP/${BASE_NAME}`)!;
+		expect(now.startsWith(old.slice(0, old.indexOf("  - type: table")) + "  - type: icap-activity\n")).toBe(true);
+		expect(now.endsWith("  - type: table\n    name: Mine\n")).toBe(true);
+		// The learner takes it out again: it stays out.
+		v.files.set(`ICAP/${BASE_NAME}`, old);
+		await notes.addActivityView();
+		expect(v.files.get(`ICAP/${BASE_NAME}`)).toBe(old);
+	});
+
+	it("is generated with the activity view and never given it twice", async () => {
+		const v = vault();
+		const notes = setup(v, []);
+		await notes.ensureBase();
+		const made = v.files.get(`ICAP/${BASE_NAME}`)!;
+		expect(made.match(/type: icap-activity/g)?.length).toBe(1);
+		await notes.addActivityView();
+		expect(v.files.get(`ICAP/${BASE_NAME}`)).toBe(made);
 	});
 });
 

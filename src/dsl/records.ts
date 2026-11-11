@@ -32,6 +32,8 @@ export interface TaskRecord {
 	tokens?: number;
 	/** Share of the prompt read from the cache, 0–100. */
 	cache?: number;
+	/** Format 5: the model, `provider/id`. */
+	model?: string;
 }
 
 export interface KeptRecord {
@@ -124,6 +126,8 @@ function readTask(frontmatter: string[]): TaskRecord | undefined {
 	const cache = num("icap-cache");
 	if (tokens !== undefined) task.tokens = tokens;
 	if (cache !== undefined) task.cache = cache;
+	const model = one("icap-model");
+	if (model) task.model = model;
 	return task;
 }
 

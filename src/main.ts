@@ -1,4 +1,5 @@
 import { MarkdownRenderChild, MarkdownView, Menu, Modal, Notice, Platform, Plugin, Setting, TFile, getLanguage, requestUrl, type Editor, type MarkdownFileInfo } from "obsidian";
+import { ACTIVITY_VIEW, ActivityBasesView } from "./activity/view.svelte";
 import { guideNote } from "./guide/guide";
 import { L, setLocale } from "./i18n";
 import { mount, unmount } from "svelte";
@@ -46,11 +47,15 @@ export default class IcapPlugin extends Plugin {
 	async onload() {
 		setLocale(this.language());
 		const data = ((await this.loadData()) ?? (await this.legacyData()) ?? {}) as StoredData;
-		this.settings = { ...DEFAULT_SETTINGS, ...(data.settings ?? {}) };
+		const stored = (data.settings ?? {}) as Partial<IcapSettings> & { ink?: string };
+		// Earlier versions let only the ink follow the theme accent; that choice now means the theme's look.
+		if (!stored.style && stored.ink === "accent") stored.style = "theme";
+		delete stored.ink;
+		this.settings = { ...DEFAULT_SETTINGS, ...stored };
 		this.backend = await this.chooseBackend();
 		this.runtime = new LearningRuntime(this);
 		this.runtime.load(data);
-		this.applyInk();
+		this.applyStyle();
 
 		const rt = this.runtime;
 
@@ -108,6 +113,24 @@ export default class IcapPlugin extends Plugin {
 		const ledgerHost = document.body.createDiv({ cls: "icap-ledger-host" });
 		this.register(() => ledgerHost.remove());
 		this.mounted.push(mount(Ledger, { target: ledgerHost, props: { rt } }));
+
+		// The activity as a Bases view type: Activity.base opens on it; its table views stay for when the plugin is gone.
+		// Obsidian does not unload a plugin's open Bases views when the plugin is disabled: take them down here.
+		const activityViews = new Set<ActivityBasesView>();
+		this.register(() => {
+			for (const v of activityViews) v.unload();
+			activityViews.clear();
+		});
+		this.registerBasesView(ACTIVITY_VIEW, {
+			name: L("Activity", "活动"),
+			icon: "activity",
+			factory: (controller, el) => {
+				const view = new ActivityBasesView(controller, el, { taskOf: (id) => rt.taskNotes.taskOf(id) });
+				activityViews.add(view);
+				view.register(() => activityViews.delete(view));
+				return view;
+			},
+		});
 
 		this.registerCommands();
 		// First install: the guide is the first thing the learner sees — a note to learn in, not a welcome page.
@@ -192,7 +215,7 @@ export default class IcapPlugin extends Plugin {
 		this.runtime?.dispose();
 		for (const m of this.mounted) void unmount(m);
 		this.mounted = [];
-		document.body.removeClass("icap-ink-accent");
+		document.body.removeClass("icap-style-theme");
 		document.querySelectorAll(".icap-veiled").forEach((e) => e.classList.remove("icap-veiled"));
 	}
 
@@ -207,8 +230,8 @@ export default class IcapPlugin extends Plugin {
 		await this.saveData(data);
 	}
 
-	applyInk() {
-		document.body.toggleClass("icap-ink-accent", this.settings.ink === "accent");
+	applyStyle() {
+		document.body.toggleClass("icap-style-theme", this.settings.style === "theme");
 	}
 
 	/**

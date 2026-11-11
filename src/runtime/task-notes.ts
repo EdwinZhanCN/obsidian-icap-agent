@@ -1,7 +1,7 @@
 import { Notice, TFile, normalizePath, type App } from "obsidian";
 import { uniqueNotePath } from "../dsl/doc-ops";
 import { cacheHit, roundCost, totalTokens } from "../agent/usage";
-import { COST_UNKNOWN, TASK_MARK, activityBase, applyTaskProperties, linkTo, renderTaskNote, taskFileName, taskStatus, type TaskNote } from "../dsl/task-notes";
+import { COST_UNKNOWN, TASK_MARK, activityBase, applyTaskProperties, withActivityView, linkTo, renderTaskNote, taskFileName, taskStatus, type TaskNote } from "../dsl/task-notes";
 import { L } from "../i18n";
 import type { AskBlock, Task } from "./state.svelte";
 
@@ -21,6 +21,9 @@ export interface TaskNotesHost {
 	/** Activity.base has been generated once for this vault; from then on it is the learner's. */
 	baseMade(): boolean;
 	setBaseMade(): void;
+	/** The activity view has been put into this vault's Activity.base (generated with it, or added once). */
+	viewAdded(): boolean;
+	setViewAdded(): void;
 }
 
 interface Adopted {
@@ -81,6 +84,12 @@ export class TaskNotes {
 	/** This device runs `task`: from now on its state is recorded in the note with `noteId`. */
 	adopt(task: Task, noteId: string, request: string, origin: Adopted["origin"]) {
 		this.adopted.set(task.id, { noteId, request, origin });
+	}
+
+	/** The task on this device whose note has `icap-id` = `id` (a request block's id, or the task's own). */
+	taskOf(id: string): Task | undefined {
+		if (!id) return undefined;
+		return this.host.tasks().find((t) => (t.kind === "request" && t.blockId ? t.blockId : t.id) === id);
 	}
 
 	has(task: Task): boolean {
@@ -192,6 +201,7 @@ export class TaskNotes {
 			cost: !task.usage ? null : task.usage.costKnown ? roundCost(task.usage.cost) : COST_UNKNOWN,
 			tokens: task.usage ? totalTokens(task.usage) : null,
 			cache: task.usage ? cacheHit(task.usage) : null,
+			model: task.model,
 		};
 	}
 
@@ -259,6 +269,17 @@ export class TaskNotes {
 	 * Activity.base, generated once and then the learner's: an existing file is never rewritten.
 	 * `force` recreates one the learner deleted (they asked to see the activity).
 	 */
+	/**
+	 * A base generated before the activity view gets it, once, as its first view. If the learner has moved,
+	 * renamed or deleted the base, or removes the view afterwards, nothing is added again.
+	 */
+	async addActivityView(): Promise<void> {
+		if (this.host.viewAdded() || !this.host.baseMade()) return;
+		const file = this.host.app.vault.getAbstractFileByPath(this.basePath);
+		if (file instanceof TFile) await this.host.app.vault.process(file, (text) => withActivityView(text, L("Activity", "活动")));
+		this.host.setViewAdded();
+	}
+
 	async ensureBase(force = false): Promise<TFile | null> {
 		const { app } = this.host;
 		const existing = app.vault.getAbstractFileByPath(this.basePath);
@@ -280,12 +301,14 @@ export class TaskNotes {
 				cost: L("Cost ($)", "花费（$）"),
 				tokens: L("Tokens", "Tokens"),
 				cache: L("Cache hit (%)", "缓存命中（%）"),
+				activity: L("Activity", "活动"),
 				needsMe: L("Needs me", "需要我"),
 				inProgress: L("In progress", "进行中"),
 				all: L("All", "全部"),
 			}),
 		);
 		this.host.setBaseMade();
+		this.host.setViewAdded();
 		return file;
 	}
 

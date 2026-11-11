@@ -190,7 +190,8 @@ export class MobileSession {
 				const m = ev.message;
 				if (m.role !== "assistant") return;
 				const used = messageUsage(m.usage);
-				if (used) o.onUsage?.(used);
+				const model = m.provider && m.model ? `${m.provider}/${m.model}` : null;
+				if (used || model) o.onUsage?.(used, model);
 				const text = m.content.filter((c) => c.type === "text").map((c) => (c as { text: string }).text).join("");
 				if (m.stopReason === "error" || m.stopReason === "aborted") {
 					this.lastError = m.errorMessage || (m.stopReason === "aborted" ? "Stopped." : "The model returned an error.");

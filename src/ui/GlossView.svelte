@@ -1,4 +1,5 @@
 <script lang="ts">
+	import CornerDownLeft from "@lucide/svelte/icons/corner-down-left";
 	import { L } from "../i18n";
 	import { glossLabelUI } from "./phrases";
 	import { tick } from "svelte";
@@ -223,7 +224,7 @@
 					autocomplete="off"
 					spellcheck="false"
 				/>
-				<button type="submit" class="icap-link" disabled={!compareWith.trim()}>↵</button>
+				<button type="submit" class="icap-link icap-icon-link" disabled={!compareWith.trim()} aria-label={L("Compare", "对比")} title={L("Compare", "对比")}><CornerDownLeft aria-hidden="true" /></button>
 				<button type="button" class="icap-link is-quiet" onclick={() => (comparing = false)}>{L("cancel", "取消")}</button>
 			</form>
 		{:else}

@@ -229,6 +229,12 @@ function obsidianModule(ctx: any, phone: Partial<Phone>, state: { requestUrl: an
 		registerMarkdownPostProcessor() {}
 		registerHoverLinkSource() {}
 		registerView() {}
+		/** Bases views are registered on mobile too; none is opened here. */
+		basesViews = new Map<string, unknown>();
+		registerBasesView(id: string, reg: unknown) {
+			this.basesViews.set(id, reg);
+			return true;
+		}
 		registerObsidianProtocolHandler() {}
 	}
 	class Notice {
@@ -376,6 +382,40 @@ function obsidianModule(ctx: any, phone: Partial<Phone>, state: { requestUrl: an
 			super();
 		}
 	}
+	class BasesView extends Component {
+		app: unknown;
+		constructor(_controller: unknown) {
+			super();
+		}
+	}
+
+	class SettingGroup {
+		groupEl: any;
+		listEl: any;
+		constructor(el: any) {
+			this.groupEl = el.createDiv({ cls: "setting-group" });
+			this.listEl = this.groupEl.createDiv({ cls: "setting-items" });
+		}
+		setHeading(text: any) {
+			const h = this.groupEl.createDiv({ cls: "setting-item setting-item-heading" });
+			h.createDiv({ cls: "setting-item-name", text: typeof text === "string" ? text : "" });
+			this.groupEl.prepend(h);
+			return this;
+		}
+		addClass() {
+			return this;
+		}
+		addSetting(cb: any) {
+			cb(new Setting(this.listEl));
+			return this;
+		}
+		addSearch() {
+			return this;
+		}
+		addExtraButton() {
+			return this;
+		}
+	}
 	class Setting {
 		settingEl: any;
 		nameEl: any;
@@ -480,6 +520,8 @@ function obsidianModule(ctx: any, phone: Partial<Phone>, state: { requestUrl: an
 		Modal,
 		Scope,
 		Setting,
+		SettingGroup,
+		BasesView,
 		PluginSettingTab,
 		MarkdownRenderChild,
 		MarkdownView,

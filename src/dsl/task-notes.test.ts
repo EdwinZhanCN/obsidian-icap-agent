@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vite-plus/test";
 import { readRecords } from "./records";
-import { activityBase, applyTaskProperties, linkPath, linkTo, localDateTime, renderTaskNote, taskFileName, taskProperties, taskStatus, type TaskNote } from "./task-notes";
+import { activityBase, applyTaskProperties, withActivityView, linkPath, linkTo, localDateTime, renderTaskNote, taskFileName, taskProperties, taskStatus, type TaskNote } from "./task-notes";
 
 const at = (h: number, m: number) => new Date(2026, 10, 10, h, m, 5).getTime();
-const note: TaskNote = { id: "b1", status: "running", source: "Contracts/Acme MSA.md", changed: [], started: at(14, 2), ended: null, cost: null, tokens: null, cache: null };
+const note: TaskNote = { id: "b1", status: "running", source: "Contracts/Acme MSA.md", changed: [], started: at(14, 2), ended: null, cost: null, tokens: null, cache: null, model: null };
 
 describe("task status", () => {
 	it("maps the runtime's states onto icap-status", () => {
@@ -68,6 +68,9 @@ describe("a new task note", () => {
 		});
 		const priced = renderTaskNote({ ...done, cost: 0.0421, tokens: 18452, cache: 83 }, "x", "");
 		expect(readRecords(priced).task).toMatchObject({ cost: 0.0421, tokens: 18452, cache: 83 });
+		const withModel = renderTaskNote({ ...done, model: "anthropic/claude-sonnet-4-5" }, "x", "");
+		expect(withModel).toContain('icap-model: "anthropic/claude-sonnet-4-5"');
+		expect(readRecords(withModel).task?.model).toBe("anthropic/claude-sonnet-4-5");
 		expect(md.split("---")[2].trim().startsWith("Summarise the “renewal” terms")).toBe(true);
 	});
 
@@ -79,7 +82,7 @@ describe("a new task note", () => {
 });
 
 describe("Activity.base", () => {
-	const base = activityBase({ status: "状态", source: "笔记", changed: "改动", started: "开始", ended: "结束", minutes: "用时（分）", cost: "花费（$）", tokens: "Tokens", cache: "缓存命中（%）", needsMe: "需要我", inProgress: "进行中", all: "全部" });
+	const base = activityBase({ status: "状态", source: "笔记", changed: "改动", started: "开始", ended: "结束", minutes: "用时（分）", cost: "花费（$）", tokens: "Tokens", cache: "缓存命中（%）", activity: "活动", needsMe: "需要我", inProgress: "进行中", all: "全部" });
 
 	it("never writes a hyphenated property bare in an expression (Bases would subtract)", () => {
 		const expressions = base.split("\n").filter((l) => /==|if\(/.test(l));
@@ -87,11 +90,24 @@ describe("Activity.base", () => {
 		for (const e of expressions) expect(e.replace(/note\["icap(-[a-z]+)?"\]/g, "")).not.toMatch(/icap-/);
 	});
 
-	it("lists only task notes, in three views, with English keys and localized names", () => {
+	it("opens on the activity view, with three tables after it that need no plugin", () => {
 		expect(base).toContain(`'note["icap"] == "task"'`);
+		expect(base.indexOf("- type: icap-activity")).toBeLessThan(base.indexOf("- type: table"));
 		expect(base.match(/- type: table/g)?.length).toBe(3);
 		expect(base).toContain('name: "需要我"');
 		expect(base).toContain("property: note.icap-status");
 		expect(base).toContain("note.icap-cost: Sum");
+	});
+});
+
+describe("adding the activity view to an earlier base", () => {
+	it("puts it first, at the list's own indent, and leaves the rest alone", () => {
+		const old = "views:\n    - type: table\n      name: A\n";
+		expect(withActivityView(old, "Activity")).toBe('views:\n    - type: icap-activity\n      name: "Activity"\n      sort:\n        - property: note.icap-started\n          direction: DESC\n    - type: table\n      name: A\n');
+	});
+	it("changes nothing when the view is there or there is no list of views", () => {
+		const has = "views:\n  - type: icap-activity\n    name: X\n";
+		expect(withActivityView(has, "Activity")).toBe(has);
+		expect(withActivityView("filters: {}\n", "Activity")).toBe("filters: {}\n");
 	});
 });

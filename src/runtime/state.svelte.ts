@@ -17,6 +17,9 @@ export interface Artifact {
 export interface Step {
 	tool: string;
 	detail: string;
+	/** When the call started and ended (ms); `end` is absent while it runs, and on steps from before 1.2. */
+	at?: number;
+	end?: number;
 }
 
 /** Steps kept per task; the earliest ones go first. */
@@ -41,6 +44,8 @@ export interface TaskRecord {
 	stepsDropped?: number;
 	/** Tokens and price of the task's runs so far (every round of a request block). */
 	usage?: RunUsage;
+	/** The model of the latest run, `provider/id`. */
+	model?: string;
 }
 
 export class Task {
@@ -59,6 +64,8 @@ export class Task {
 	stepsDropped = $state(0);
 	/** Tokens and price so far; null until a model has answered (agent/usage.ts). */
 	usage = $state<RunUsage | null>(null);
+	/** The model that answered last, `provider/id`; null until one has. */
+	model = $state<string | null>(null);
 	error = $state<string | null>(null);
 	endedAt = $state<number | null>(null);
 	/** Was live when Obsidian (or the plugin) closed. */
@@ -81,11 +88,20 @@ export class Task {
 		return this.status === "processing" || this.status === "waiting";
 	}
 
-	addStep(tool: string, detail: string) {
-		const next = [...this.steps, { tool, detail }];
+	addStep(tool: string, detail: string, at = Date.now()) {
+		const next = [...this.steps, { tool, detail, at }];
 		const over = next.length - MAX_STEPS;
 		if (over > 0) this.stepsDropped += over;
 		this.steps = over > 0 ? next.slice(over) : next;
+	}
+
+	/** The earliest step still running has ended (tool calls end in the order they started, or near enough). */
+	endStep(at = Date.now()) {
+		const i = this.steps.findIndex((s) => s.at !== undefined && s.end === undefined);
+		if (i < 0) return;
+		const next = [...this.steps];
+		next[i] = { ...next[i], end: at };
+		this.steps = next;
 	}
 
 	end(status: Exclude<TaskStatus, "processing" | "waiting">, outcome?: string, error?: string) {
@@ -114,6 +130,7 @@ export class Task {
 			...(this.steps.length ? { steps: $state.snapshot(this.steps) } : {}),
 			...(this.stepsDropped ? { stepsDropped: this.stepsDropped } : {}),
 			...(this.usage ? { usage: $state.snapshot(this.usage) } : {}),
+			...(this.model ? { model: this.model } : {}),
 		};
 	}
 
@@ -128,6 +145,7 @@ export class Task {
 		t.steps = r.steps ?? [];
 		t.stepsDropped = r.stepsDropped ?? 0;
 		t.usage = r.usage ?? null;
+		t.model = r.model ?? null;
 		t.error = r.error;
 		t.endedAt = r.endedAt ?? r.createdAt;
 		t.blockId = r.blockId;

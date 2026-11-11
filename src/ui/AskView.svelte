@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { L } from "../i18n";
 	import { onMount, tick } from "svelte";
+	import ChevronRight from "@lucide/svelte/icons/chevron-right";
 	import Eye from "@lucide/svelte/icons/eye";
 	import EyeOff from "@lucide/svelte/icons/eye-off";
 	import type { LearningRuntime } from "../runtime/runtime";
@@ -407,7 +408,7 @@
 			<div class="icap-turn" class:is-final={turn.final} data-kind={turn.kind}>
 				{#if turn.kind === "review" && turn.review && turn.answer}
 					<!-- A decided change: its outcome on one line; it can be opened again. -->
-					<button type="button" class="icap-fold-row" aria-expanded={openDiffs.has(turn.id)} onclick={() => (openDiffs.has(turn.id) ? openDiffs.delete(turn.id) : openDiffs.add(turn.id))}>
+					<button type="button" class="icap-fold-row" aria-expanded={openDiffs.has(turn.id)} onclick={() => (openDiffs.has(turn.id) ? openDiffs.delete(turn.id) : openDiffs.add(turn.id))}><ChevronRight class="icap-fold-chevron" aria-hidden="true" />
 						<span class="icap-fold-kind">{L("proposed change", "建议修改")}</span>
 						<span class="icap-fold-text">{turn.review.path.replace(/\.md$/, "")}</span>
 						<span class="icap-fold-meta">{decisionWord(turn)} · {changeStats(turn)}</span>
@@ -416,7 +417,7 @@
 				{#if turn.kind === "review" && turn.review && turn.answer && !openDiffs.has(turn.id)}
 					<!-- folded -->
 				{:else if turn.inNote}
-					<p class="icap-ref">{L("↑ checking the explanation you wrote above", "↑ 正在检查你在上面写的解释")}</p>
+					<p class="icap-ref">{L("Checking the explanation you wrote above", "正在检查你在上面写的解释")}</p>
 				{:else if turn.question}
 					<div class="icap-voice icap-question" use:inkIn={{ key: `q:${turn.id}`, delay: i > 0 ? 0.12 : 0 }}>
 						{#if turn.kind === "review" && turn.review && !turn.answer}
@@ -463,7 +464,7 @@
 					{:else if turn.kind === "review"}
 						<!-- the outcome is on the change's own line -->
 					{:else if turn.kind === "confirm"}
-						<p class="icap-learner icap-decision" use:settleIn={`a:${turn.id}`}>→ {decisionWord(turn)}</p>
+						<p class="icap-learner icap-decision" use:settleIn={`a:${turn.id}`}>{decisionWord(turn)}</p>
 					{:else}
 						<div class="icap-learner" use:settleIn={`a:${turn.id}`}><Markdown app={rt.app} markdown={turn.answer.text ?? ""} {sourcePath} /></div>
 					{/if}
@@ -522,7 +523,7 @@
 			{@const folded = canFold && !opened.has(r.id)}
 			{#if canFold}
 				{@const line = roundLine(r)}
-				<button type="button" class="icap-fold-row" aria-expanded={!folded} onclick={() => toggleRound(r.id)}>
+				<button type="button" class="icap-fold-row" aria-expanded={!folded} onclick={() => toggleRound(r.id)}><ChevronRight class="icap-fold-chevron" aria-hidden="true" />
 					<span class="icap-fold-kind">{line.kind}</span>
 					<span class="icap-fold-text">{line.text}</span>
 					{#if line.meta}<span class="icap-fold-meta">{line.meta}</span>{/if}
@@ -551,7 +552,7 @@
 		{/if}
 
 		{#if files.length > 3}
-			<button type="button" class="icap-fold-row icap-files-sum" aria-expanded={filesOpen} onclick={() => (filesOpen = !filesOpen)}>
+			<button type="button" class="icap-fold-row icap-files-sum" aria-expanded={filesOpen} onclick={() => (filesOpen = !filesOpen)}><ChevronRight class="icap-fold-chevron" aria-hidden="true" />
 				<span class="icap-fold-kind">{L("files", "文件")}</span>
 				<span class="icap-fold-text">{fileCounts}</span>
 			</button>

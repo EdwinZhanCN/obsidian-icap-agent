@@ -1,4 +1,4 @@
-import { Modal, Notice, SecretComponent, Setting, type App } from "obsidian";
+import { Modal, Notice, SecretComponent, Setting, SettingGroup, setIcon, type App } from "obsidian";
 import { L } from "../../i18n";
 import { ENDPOINT_APIS, MOBILE_PROVIDERS, endpointSecretId, providerById, providerSecretId, slugOf, type EndpointApi, type MobileEndpoint } from "./providers";
 import { probeTransport, type RequestUrl } from "./transport";
@@ -23,7 +23,7 @@ function checkedId(id: string): string {
 	return id;
 }
 
-function keySetting(app: App, el: HTMLElement, ctx: Ctx, provider: string, name: string, fallbackId: string, desc: DocumentFragment | string) {
+function keySetting(app: App, group: SettingGroup, ctx: Ctx, provider: string, name: string, fallbackId: string, desc?: DocumentFragment) {
 	const s = ctx.settings();
 	const current = s.mobileSecrets[provider] ?? fallbackId;
 	const has = (() => {
@@ -33,10 +33,14 @@ function keySetting(app: App, el: HTMLElement, ctx: Ctx, provider: string, name:
 			return false;
 		}
 	})();
-	new Setting(el)
-		.setName(name + (has ? " ✓" : ""))
-		.setDesc(desc)
-		.addComponent((c) =>
+	group.addSetting((setting) => {
+		setting.setName(name);
+		if (has) {
+			const mark = setting.nameEl.createSpan({ cls: "icap-inline-icon is-ok", attr: { "aria-label": L("Key set", "已设置 Key") } });
+			setIcon(mark, "check");
+		}
+		if (desc) setting.setDesc(desc);
+		setting.addComponent((c) =>
 			new SecretComponent(app, c).setValue(current).onChange((id) => {
 				try {
 					if (id) s.mobileSecrets[provider] = checkedId(id);
@@ -47,39 +51,41 @@ function keySetting(app: App, el: HTMLElement, ctx: Ctx, provider: string, name:
 				void ctx.save().then(ctx.done);
 			}),
 		);
+	});
 }
 
+/** Appends its groups to `el` (the settings tab, which re-renders as a whole on `done`). */
 export function renderAccounts(app: App, el: HTMLElement, ctx: Ctx) {
-	el.empty();
-	// Said next to every key; the full sentence is in the "Model providers" description above.
-	const onDevice = L("Stored on this device only.", "只保存在这台设备上。");
+	// That keys stay on this device is said once, in the "Model providers" description above.
+	const keys = new SettingGroup(el).setHeading(L("API keys", "API Key"));
 	for (const p of MOBILE_PROVIDERS) {
-		const desc = createFragment((f) => {
-			f.appendText(onDevice + " ");
-			f.createEl("a", { text: L("Get a key", "获取 Key"), href: p.keyUrl });
-		});
-		keySetting(app, el, ctx, p.id, p.name, providerSecretId(p.id), desc);
+		const link = createFragment((f) => void f.createEl("a", { text: L("Get a key", "获取 Key"), href: p.keyUrl }));
+		keySetting(app, keys, ctx, p.id, p.name, providerSecretId(p.id), link);
 	}
-	new Setting(el).setName(L("Custom endpoints", "自定义端点")).setHeading();
-	const endpoints = ctx.settings().mobileEndpoints;
-	for (const e of endpoints) {
+	const custom = new SettingGroup(el).setHeading(L("Custom endpoints", "自定义端点"));
+	for (const e of ctx.settings().mobileEndpoints) {
 		const via = e.transport === "stream" ? L("streams", "流式") : L("replies arrive whole", "整段返回");
-		const row = new Setting(el).setName(e.name).setDesc(`${e.baseUrl} · ${e.models.join(", ")} · ${via}`);
-		row.addButton((b) => b.setButtonText(L("Edit", "编辑")).onClick(() => new EndpointModal(app, ctx, e).open()));
-		row.addButton((b) =>
-			b.setButtonText(L("Remove", "移除")).setWarning().onClick(async () => {
-				const s = ctx.settings();
-				s.mobileEndpoints = s.mobileEndpoints.filter((x) => x !== e);
-				delete s.mobileSecrets[e.id];
-				await ctx.save();
-				ctx.done();
-			}),
-		);
-		if (e.hasKey) keySetting(app, el, ctx, e.id, L(`Key for ${e.name}`, `${e.name} 的 Key`), endpointSecretId(e.id), onDevice);
+		custom.addSetting((row) => {
+			row.setName(e.name).setDesc(`${e.baseUrl} · ${e.models.join(", ")} · ${via}`);
+			row.addButton((b) => b.setButtonText(L("Edit", "编辑")).onClick(() => new EndpointModal(app, ctx, e).open()));
+			row.addButton((b) =>
+				b.setButtonText(L("Remove", "移除")).setWarning().onClick(async () => {
+					const s = ctx.settings();
+					s.mobileEndpoints = s.mobileEndpoints.filter((x) => x !== e);
+					delete s.mobileSecrets[e.id];
+					await ctx.save();
+					ctx.done();
+				}),
+			);
+		});
+		if (e.hasKey) keySetting(app, custom, ctx, e.id, L(`Key for ${e.name}`, `${e.name} 的 Key`), endpointSecretId(e.id));
 	}
-	new Setting(el)
-		.setDesc(L("Ollama or LM Studio on your network, a proxy, any service with an OpenAI- or Anthropic-compatible API.", "局域网里的 Ollama 或 LM Studio、中转站，任何兼容 OpenAI 或 Anthropic 的 API。"))
-		.addButton((b) => b.setButtonText(L("Add endpoint…", "添加端点…")).onClick(() => new EndpointModal(app, ctx).open()));
+	custom.addSetting((row) =>
+		row
+			.setName(L("Add endpoint", "添加端点"))
+			.setDesc(L("Ollama, LM Studio, a proxy, any OpenAI- or Anthropic-compatible API.", "Ollama、LM Studio、中转站，任何兼容 OpenAI 或 Anthropic 的 API。"))
+			.addButton((b) => b.setButtonText(L("Add…", "添加…")).onClick(() => new EndpointModal(app, ctx).open())),
+	);
 }
 
 /** Add or edit a custom endpoint. Saving measures how its requests travel (probeTransport), once. */

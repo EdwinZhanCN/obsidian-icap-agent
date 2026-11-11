@@ -102,10 +102,10 @@ start: 开始`,
 
 ICAP 不自带模型。它内置了 [Pi](https://github.com/earendil-works/pi)，不需要另外安装任何东西，用的是你自己的模型服务商。
 
-- **登录服务商**（设置 → Agent → 模型服务商 → **登录…**）：用已有的订阅**账号登录**（例如 Claude Pro/Max、ChatGPT、GitHub Copilot），或者粘贴一个 **API Key**（例如 DeepSeek）。凭证由 Pi 保存在 ~/.pi/agent/auth.json，和 Pi 命令行（如果你装了）共用，ICAP 自己不留副本；退出登录也在同一个窗口里。在 shell 配置文件里导出的密钥（例如 \`export DEEPSEEK_API_KEY=…\`）也能直接用。设置页会显示正在用哪个模型、哪些模型可用。
-- **Agent 配置**（设置 → Agent）：默认是 *你的 Pi 配置 + ICAP*——你的 skills、扩展、AGENTS.md 和工具照常可用，它可以直接改文件，每处改动都会列在活动里。想要更可预期，就选 *仅 ICAP（隔离）*：只读、没有 shell，只能访问这个库和你授权的文件夹。
-- **这个库的约定**（设置 → Agent → 这个库的约定 → **设置…**，或命令 *这个库的约定（AGENTS.md）*）：告诉 Agent 你在这里学什么、笔记怎么组织、哪些地方不要动。选一种学习方式（课程、读书、论文、语言、编程），回答两三个问题，就会在库根目录生成一篇笔记 AGENTS.md，Agent 每次任务都会读它，你可以像普通笔记一样修改。到哪儿都适用的规矩可以写进 Pi 的 ~/.pi/agent/AGENTS.md（隔离模式不读这一份）。库所在目录之上的 AGENTS.md（比如 ~/AGENTS.md）是写给别的工作的，ICAP 不读。
-- **你喜欢怎样学**（设置 → 你已经知道的）：语言、风格、深浅，每次解释和请求都会遵循。
+- **登录服务商**（设置 → ICAP Learning Agent → 模型服务商 → **登录…**）：用已有的订阅**账号登录**（例如 Claude Pro/Max、ChatGPT、GitHub Copilot），或者粘贴一个 **API Key**（例如 DeepSeek）。凭证由 Pi 保存在 ~/.pi/agent/auth.json，和 Pi 命令行（如果你装了）共用，ICAP 自己不留副本；退出登录也在同一个窗口里。在 shell 配置文件里导出的密钥（例如 \`export DEEPSEEK_API_KEY=…\`）也能直接用。设置页会显示正在用哪个模型、哪些模型可用。
+- **Agent 配置**（设置 → ICAP Learning Agent → 高级）：默认是 *你的 Pi 配置 + ICAP*——你的 skills、扩展、AGENTS.md 和工具照常可用，它可以直接改文件，每处改动都会列在活动里。想要更可预期，就选 *仅 ICAP（隔离）*：只读、没有 shell，只能访问这个库和你授权的文件夹。
+- **这个库的约定**（设置 → ICAP Learning Agent → 关于你 → 这个库的约定 → **设置…**，或命令 *这个库的约定（AGENTS.md）*）：告诉 Agent 你在这里学什么、笔记怎么组织、哪些地方不要动。选一种学习方式（课程、读书、论文、语言、编程），回答两三个问题，就会在库根目录生成一篇笔记 AGENTS.md，Agent 每次任务都会读它，你可以像普通笔记一样修改。到哪儿都适用的规矩可以写进 Pi 的 ~/.pi/agent/AGENTS.md（隔离模式不读这一份）。库所在目录之上的 AGENTS.md（比如 ~/AGENTS.md）是写给别的工作的，ICAP 不读。
+- **你喜欢怎样学**（设置 → ICAP Learning Agent → 关于你）：语言、风格、深浅，每次解释和请求都会遵循。
 
 ## 之后
 
@@ -200,10 +200,10 @@ Everything above is a ready-made action. For anything else, just ask: put the cu
 
 ICAP has no model of its own. [Pi](https://github.com/earendil-works/pi) is built in — nothing else to install — and it uses your own model provider.
 
-- **Log in to a provider** (Settings → Agent → Model providers → **Log in…**): sign in with a subscription you already have (**Account**: e.g. Claude Pro/Max, ChatGPT, GitHub Copilot) or paste an **API key** (e.g. DeepSeek). Pi saves the credential in ~/.pi/agent/auth.json, shared with the Pi command line if you have it; ICAP keeps no copy, and you log out in the same window. A key exported in your shell profile (e.g. \`export ANTHROPIC_API_KEY=…\`) works too. The settings show which model is used and which are available.
-- **Agent setup** (Settings → Agent): by default *Your Pi setup + ICAP* — your skills, extensions, AGENTS.md and tools work as usual; it may change files directly, and every change is listed in Activity. For something more predictable choose *ICAP only (isolated)*: read-only, no shell, only this vault and the folders you allow.
-- **This vault's conventions** (Settings → Agent → This vault's conventions → **Set up…**, or the command *This vault's conventions (AGENTS.md)*): tell the agent what you study here, how your notes are organised and what it must leave alone. Pick a kind of study (a course, a book, papers, a language, programming), answer two or three questions, and a note, AGENTS.md, appears at the vault's root: the agent reads it in every task, and you edit it like any note. Rules for everywhere can go into Pi's ~/.pi/agent/AGENTS.md (isolated mode skips that one). An AGENTS.md above the vault's folder (like ~/AGENTS.md) is written for other work, so ICAP does not read it.
-- **How you like to learn** (Settings → What you already know): language, style, depth — followed in every explanation and request.
+- **Log in to a provider** (Settings → ICAP Learning Agent → Model providers → **Log in…**): sign in with a subscription you already have (**Account**: e.g. Claude Pro/Max, ChatGPT, GitHub Copilot) or paste an **API key** (e.g. DeepSeek). Pi saves the credential in ~/.pi/agent/auth.json, shared with the Pi command line if you have it; ICAP keeps no copy, and you log out in the same window. A key exported in your shell profile (e.g. \`export ANTHROPIC_API_KEY=…\`) works too. The settings show which model is used and which are available.
+- **Agent setup** (Settings → ICAP Learning Agent → Advanced): by default *Your Pi setup + ICAP* — your skills, extensions, AGENTS.md and tools work as usual; it may change files directly, and every change is listed in Activity. For something more predictable choose *ICAP only (isolated)*: read-only, no shell, only this vault and the folders you allow.
+- **This vault's conventions** (Settings → ICAP Learning Agent → About you → This vault's conventions → **Set up…**, or the command *This vault's conventions (AGENTS.md)*): tell the agent what you study here, how your notes are organised and what it must leave alone. Pick a kind of study (a course, a book, papers, a language, programming), answer two or three questions, and a note, AGENTS.md, appears at the vault's root: the agent reads it in every task, and you edit it like any note. Rules for everywhere can go into Pi's ~/.pi/agent/AGENTS.md (isolated mode skips that one). An AGENTS.md above the vault's folder (like ~/AGENTS.md) is written for other work, so ICAP does not read it.
+- **How you like to learn** (Settings → ICAP Learning Agent → About you): language, style, depth — followed in every explanation and request.
 
 ## Afterwards
 
