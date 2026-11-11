@@ -90,11 +90,11 @@ export class DesktopBackend implements AgentBackend {
 	}
 
 	/** ICAP's own skills, written into the plugin folder (inside the vault, readable in isolated mode). */
-	private icapSkills(): string[] {
+	private icapSkills(names: string[]): string[] {
 		const dir = this.opts.pluginDir();
-		if (!dir) return [];
+		if (!dir || !names.length) return [];
 		try {
-			return ensureSkills(dir);
+			return ensureSkills(dir, names);
 		} catch {
 			return [];
 		}
@@ -115,7 +115,7 @@ export class DesktopBackend implements AgentBackend {
 				config: req.config,
 				// Isolated mode: file tools may only reach the vault and the folders the learner allowed.
 				allowedRoots: [cwd, ...this.files.roots()],
-				skillPaths: req.icapSkills ? this.icapSkills() : [],
+				skillPaths: this.icapSkills(req.icapSkills),
 				systemPrompt: req.systemPrompt,
 				prompt: req.prompt,
 				tools: req.tools,

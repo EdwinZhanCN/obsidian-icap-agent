@@ -96,8 +96,8 @@ export interface AgentRequest {
 	 * hidden; the learner's own tools are left alone.
 	 */
 	tools: string[];
-	/** Offer ICAP's own skills (the visual skill). */
-	icapSkills: boolean;
+	/** ICAP's own skills to offer, by name (agent/skills.ts, agent/visual-skill.ts); where there are no skill files, their text is in the system prompt instead. */
+	icapSkills: string[];
 	/** provider/id; empty = the backend's default. */
 	model?: string;
 	thinking?: string;

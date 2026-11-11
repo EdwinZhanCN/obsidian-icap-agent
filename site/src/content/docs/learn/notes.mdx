@@ -45,6 +45,22 @@ When a recall, a check or a quiz is done, select **make a note** in the block.
 
 The agent writes one note from the interaction. The note has your final words, the misconception that you corrected, and the most important feedback. The agent does not change your words.
 
+## Diagrams, canvases and bases
+
+The agent can also use Obsidian's own formats when a picture or a table shows the material better than text. It uses them in a reply to a request and in new notes. It does not use them in explanations, feedback or questions.
+
+| Format | What the agent makes | When it uses it |
+|---|---|---|
+| Diagram | a `mermaid` code block in a note | a process, a cycle, causes, states, or events in order |
+| Canvas | a new `.canvas` file | a concept map that you arrange and extend |
+| Base | a `base` code block, or a new `.base` file | a table or cards of notes by their properties |
+
+- Diagrams use the colors and fonts of your theme. A node can link to a note.
+- The plugin checks each canvas and base before it writes the file. If the file cannot open in Obsidian, the agent gets the reason and corrects the file.
+- To change an existing canvas or base, the agent proposes the change. You apply it or leave the file as it is.
+
+To ask for one, type the request in a request block, for example "Make a canvas of the concepts in this note".
+
 ## When the agent asks or proposes
 
 While it works, the agent can ask you a question in the note, for example which concepts to include. See [Answer the agent's questions](/learn/agent-questions/).

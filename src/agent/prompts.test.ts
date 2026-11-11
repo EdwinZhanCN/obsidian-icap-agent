@@ -35,7 +35,20 @@ describe("the protocol on mobile (no file tools, no skill files)", () => {
 		expect(p).not.toMatch(/read the icap-visual skill/i);
 		expect(systemPrompt("isolated", "", "off", mobile)).not.toContain("icap-visual");
 	});
+	it("carries the Mermaid, Canvas and Bases rules too; desktop points at the skills", () => {
+		const p = systemPrompt("isolated", "", "off", mobile);
+		for (const name of ["icap-mermaid", "icap-canvas", "icap-bases"]) expect(p).toContain(`<${name}>`);
+		const d = systemPrompt("mine", "", "off");
+		expect(d).toContain("read its skill: icap-mermaid, icap-canvas or icap-bases");
+		expect(d).not.toContain("<icap-bases>");
+	});
+	it("offers the structure skills always, the visual skill only with visuals on", () => {
+		expect(offeredSkills("off")).toEqual(["icap-mermaid", "icap-canvas", "icap-bases"]);
+		expect(offeredSkills("auto")).toContain("icap-visual");
+	});
 });
+
+import { offeredSkills } from "./prompts";
 
 import { placementRule } from "./prompts";
 

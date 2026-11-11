@@ -104,7 +104,7 @@ describe("PiSession on the SDK", () => {
 	});
 
 	it("offers ICAP's own skills, and the agent can read them", async () => {
-		const [skill] = ensureSkills(join(vault, ".obsidian", "plugins", "icap-agent"));
+		const [skill] = ensureSkills(join(vault, ".obsidian", "plugins", "icap-agent"), ["icap-visual"]);
 		let system = "";
 		let toolResult = "";
 		faux.setResponses([

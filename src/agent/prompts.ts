@@ -2,6 +2,7 @@ import type { NoteContext } from "../runtime/context";
 import { UI_LANG as VISUAL_FENCE } from "../genui/widget";
 import type { AgentConfig } from "./backend";
 import { VISUAL_SKILL, visualSkill } from "./visual-skill";
+import { STRUCTURE_SKILLS } from "./skills";
 
 export { VISUAL_SKILL };
 
@@ -101,9 +102,30 @@ Interactive visuals:
 }
 
 
+/** ICAP's skills a task is offered: the structure skills always, the visual skill unless visuals are off. */
+export function offeredSkills(visuals: Visuals): string[] {
+	return [...STRUCTURE_SKILLS.map((s) => s.name), ...(visuals === "off" ? [] : [VISUAL_SKILL])];
+}
+
+/** Obsidian's own structures: Mermaid diagrams, canvases, bases. Their skills, or (without skill files) their text. */
+function structuresRule(env: PromptEnv): string {
+	const [mermaid, canvas, bases] = STRUCTURE_SKILLS.map((s) => s.name);
+	const how = env.skills
+		? `Before writing one in a task, read its skill: ${mermaid}, ${canvas} or ${bases}.`
+		: "Write them as the rules below define.";
+	const texts = env.skills ? "" : STRUCTURE_SKILLS.map((s) => `\n\n<${s.name}>\n${s.body}\n</${s.name}>`).join("");
+	return `
+
+Obsidian's own structures, in a reply to a request or in a note you create, only when one shows the material better than prose:
+- a diagram (a fenced mermaid block): a process, a cycle, causes, states, a hierarchy, events in order;
+- a canvas (create_note with type "canvas"): a concept map or a board of notes the learner will rearrange and extend;
+- a base (a fenced base block, or create_note with type "base"): a live table or cards of notes by their properties.
+${how} Not in explanations, feedback or questions.${texts}`;
+}
+
 export function systemPrompt(config: AgentConfig, preferences = "", visuals: Visuals = "off", env: PromptEnv = DESKTOP_ENV): string {
 	const head = (config === "isolated" ? ISOLATED_PROMPT : APPENDED_PROMPT).replace("{{FILE_TOOLS}}", env.fileTools ? FILE_TOOLS_LINE : "");
-	const base = head.replace("No HTML.", visuals === "off" ? "No HTML." : `No HTML outside an ${VISUAL_FENCE} block.`) + visualsRule(visuals, env);
+	const base = head.replace("No HTML.", visuals === "off" ? "No HTML." : `No HTML outside an ${VISUAL_FENCE} block.`) + structuresRule(env) + visualsRule(visuals, env);
 	const prefs = preferences.trim();
 	return prefs ? `${base}\n\nHow the learner likes to learn (written by the learner; follow it unless a task says otherwise):\n${prefs}` : base;
 }

@@ -111,12 +111,17 @@ export function icapTools(Type: typeof TypeBuilder, bridge: BridgeHandler): Icap
 	const CreateNoteParams = Type.Object({
 		title: Type.String({ description: "Note title (becomes the file name). No slashes." }),
 		folder: Type.Optional(Type.String({ description: "Vault folder for the note, chosen as the task says (\"/\" = the vault's root). Omit: the learner's folder for new notes, or next to the current note." })),
-		content: Type.String({ description: "Full Markdown content of the new note. Use [[wikilinks]] to related notes." }),
+		type: Type.Optional(
+			Type.Union([Type.Literal("note"), Type.Literal("canvas"), Type.Literal("base")], {
+				description: 'note (default): a Markdown note. canvas: a .canvas file, content is JSON Canvas (read the icap-canvas skill first). base: a .base file, content is Bases YAML (read the icap-bases skill first).',
+			}),
+		),
+		content: Type.String({ description: "Full content of the new file: Markdown for a note (use [[wikilinks]] to related notes), JSON for a canvas, YAML for a base." }),
 		purpose: Type.String({ description: "One short phrase: why this note exists (shown to the learner)." }),
 	});
 
 	const ProposeEditParams = Type.Object({
-		path: Type.String({ description: "Vault-relative path of an EXISTING note." }),
+		path: Type.String({ description: "Vault-relative path of an EXISTING note, canvas (.canvas) or base (.base)." }),
 		find: Type.String({ description: "Exact text currently in the note to replace. Empty string = append at the end." }),
 		replace: Type.String({ description: "Replacement Markdown." }),
 		summary: Type.String({ description: "One sentence describing the change, shown to the learner for review." }),
@@ -146,8 +151,8 @@ export function icapTools(Type: typeof TypeBuilder, bridge: BridgeHandler): Icap
 			name: "create_note",
 			label: "Create note",
 			description:
-				"Create a NEW Markdown note in the learner's vault. Returns the created path. Never use this to modify existing notes — use propose_edit.",
-			promptSnippet: "create_note: create a new Markdown note in the vault",
+				"Create a NEW note in the learner's vault: Markdown, or with type a canvas or a base. Returns the created path and a link to it. A canvas or base that would not open is refused with the reason. Never use this to modify existing notes — use propose_edit.",
+			promptSnippet: "create_note: create a new note (Markdown, canvas or base) in the vault",
 			parameters: CreateNoteParams,
 			sequential: true,
 			async execute(params) {

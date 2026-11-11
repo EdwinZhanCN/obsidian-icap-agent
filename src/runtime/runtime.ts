@@ -1,4 +1,4 @@
-import { MarkdownView, Notice, TFile, TFolder, type App, type Editor, type TAbstractFile } from "obsidian";
+import { MarkdownView, Notice, TFile, TFolder, parseYaml, type App, type Editor, type TAbstractFile } from "obsidian";
 import { EditorView } from "@codemirror/view";
 import { mount, unmount } from "svelte";
 import { SvelteMap } from "svelte/reactivity";
@@ -20,6 +20,7 @@ import {
 	explainPrompt,
 	followUpPrompt,
 	notePrompt,
+	offeredSkills,
 	type Placement,
 	quizPrompt,
 	recallPrompt,
@@ -35,6 +36,7 @@ import { keptMarkdown } from "./kept";
 import { coveredTranscript, reusable, sessionSig, transcriptOf, withReply } from "./transcript";
 import { editProblem, findAskBlock, findRequestRecord, isoDate, parseAskSource, parseAuthored, type AskSource, glossCallout, newId, serializeAsk, splitSources, tidyOptionLabel, tidyQuestion, dialogTitle, type Depth } from "../dsl/blocks";
 import { askReplacement, blockInsertion, editorFor, spliceFile, uniqueNotePath, type Splice } from "../dsl/doc-ops";
+import { NOTE_EXT, baseProblem, canvasProblem, noteTypeOf, type NoteType } from "../dsl/structures";
 import { flashRange } from "../editor/fresh";
 import { clearCues, cue, withdrawCue } from "../editor/cue";
 import { glossAnchor, paragraphBounds, sectionBounds, stripFrontmatter, shortTitle } from "../dsl/text";
@@ -264,7 +266,7 @@ export class LearningRuntime {
 			const run = this.backend.run(
 				{
 					config,
-					icapSkills: visuals !== "off",
+					icapSkills: offeredSkills(visuals),
 					systemPrompt: systemPrompt(config, this.settings.preferences, visuals, { fileTools: this.backend.capabilities.fileTools, skills: this.backend.capabilities.skillFiles }) + (opts.systemExtra ? `\n\n${opts.systemExtra}` : ""),
 					prompt: opts.prompt,
 					tools: opts.tools,
@@ -1623,14 +1625,22 @@ export class LearningRuntime {
 
 	private async createNote(task: Task, p: Json): Promise<Json> {
 		const title = String(p.title ?? "").trim();
-		const content = String(p.content ?? "");
+		const type: NoteType = p.type === "canvas" || p.type === "base" ? p.type : "note";
+		let content = String(p.content ?? "");
 		if (!title || !content.trim()) return { status: "error", message: "title and content are required" };
+		if (type !== "note") {
+			// The file itself, not a note about it: a fence around it would make it unreadable.
+			content = content.trim().replace(/^```[\w-]*\n([\s\S]*?)\n```$/, "$1");
+			const problem = structureProblem(type, content);
+			if (problem) return { status: "error", message: `Not created: ${problem}` };
+			if (type === "canvas") content = JSON.stringify(JSON.parse(content), null, "\t");
+		}
 		const here = this.fileOf(task.notePath);
 		const folder = String(p.folder ?? "").trim() || this.settings.notesFolder || here?.parent?.path || "";
-		const path = await uniqueNotePath(this.app, folder === "/" ? "" : folder, title);
+		const path = await uniqueNotePath(this.app, folder === "/" ? "" : folder, title, NOTE_EXT[type]);
 		const created = await this.app.vault.create(path, content.trimEnd() + "\n");
 		// Tool-level metadata only: later explanations must not take this note for the learner's own words.
-		if (this.settings.markGenerated) await this.app.fileManager.processFrontMatter(created, (fm) => void (fm["generated-by"] = GENERATED_BY)).catch(() => undefined);
+		if (type === "note" && this.settings.markGenerated) await this.app.fileManager.processFrontMatter(created, (fm) => void (fm["generated-by"] = GENERATED_BY)).catch(() => undefined);
 		addArtifact(task, { kind: "created", path, label: basename(path) });
 		this.persist();
 		return { status: "created", path, link: `[[${basename(path)}]]` };
@@ -1644,6 +1654,13 @@ export class LearningRuntime {
 		const text = await this.textOf(file.path);
 		if (find && !text.includes(find)) return { status: "error", message: "The text to replace was not found in the note." };
 		const replace = String(p.replace ?? "");
+		// A canvas or base must still open after the edit.
+		const kind = noteTypeOf(file.path);
+		if (kind !== "note") {
+			const after = find ? text.replace(find, () => replace) : text + replace;
+			const broken = structureProblem(kind, after);
+			if (broken) return { status: "error", message: `After this edit the ${kind} would not open: ${broken}` };
+		}
 		// Refused before the learner sees anything: the rules the prompt states, enforced.
 		const problem = editProblem(text, find, replace);
 		if (problem === "visual")
@@ -1966,6 +1983,18 @@ export class LearningRuntime {
 
 export function cmOf(editor: Editor): EditorView | null {
 	return ((editor as unknown as { cm?: EditorView }).cm ?? null) as EditorView | null;
+}
+
+/** What makes a canvas's or a base's text unreadable for Obsidian, or null. */
+function structureProblem(type: "canvas" | "base", text: string): string | null {
+	if (type === "canvas") return canvasProblem(text);
+	let data: unknown;
+	try {
+		data = parseYaml(text);
+	} catch (e) {
+		return `The base is not valid YAML: ${(e as Error).message}`;
+	}
+	return baseProblem(data);
 }
 
 function basename(path: string) {

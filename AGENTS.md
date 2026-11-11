@@ -57,6 +57,8 @@ src/agent/prompts.ts      the ICAP protocol (systemPrompt, shaped by PromptEnv: 
 src/agent/usage.ts        pure: RunUsage (tokens, cache, price) from each assistant message's usage, summed per task;
                           cost unknown when a message has tokens but no price; the one-line display
 src/agent/visual-skill.ts the icap-visual skill text: a skill file on desktop, part of the system prompt on mobile
+src/agent/skills.ts       the structure skills, as short: icap-mermaid (Pele, Mermaid 12.1), icap-canvas, icap-bases;
+                          offered on every task (offeredSkills in prompts.ts), the same two ways
 src/agent/tools/icap-tools.ts  ICAP's tools, platform-neutral (name, description, TypeBox schema, execute through
                           the bridge): obsidian, read_document, documents, ask_learner, create_note, propose_edit
 src/agent/tools/vault-tools.ts  the read-only `obsidian` commands (Obsidian CLI surface through the App API); pure
@@ -105,6 +107,8 @@ src/dsl/blocks.ts         the Markdown DSL: ```icap-ask fences (and legacy ```ic
 src/dsl/records.ts        pure: the reference reader of FORMAT.md (readRecords); test/fixtures/format/ pairs each
                           sample note with the JSON it must read as
 src/dsl/task-notes.ts     pure: FORMAT.md v4 task notes: status mapping, properties, the note's text, Activity.base
+src/dsl/structures.ts     pure: canvasProblem / baseProblem, why a canvas or base would not open (create_note
+                          with type canvas / base and propose_edit on one refuse it with the reason)
 src/dsl/text.ts, links.ts, commands.ts   pure helpers: sections and anchors, `[[`/`@` links, the `/` grammar
 src/dsl/doc-ops.ts        writing into notes: spliceFile (through the open editor when there is one), block
                           insertion, unique paths for new notes
