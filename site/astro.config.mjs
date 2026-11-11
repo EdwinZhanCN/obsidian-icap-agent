@@ -11,6 +11,7 @@ const plugin = fileURLToPath(new URL("../src", import.meta.url));
 const obsidian = fileURLToPath(new URL("./src/demo/obsidian.ts", import.meta.url));
 
 export default defineConfig({
+	site: "https://icap.edwinzhan.space",
 	integrations: [
 		starlight({
 			title: "ICAP Learning Agent",
