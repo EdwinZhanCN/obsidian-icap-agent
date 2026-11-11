@@ -110,7 +110,7 @@ export function icapTools(Type: typeof TypeBuilder, bridge: BridgeHandler): Icap
 
 	const CreateNoteParams = Type.Object({
 		title: Type.String({ description: "Note title (becomes the file name). No slashes." }),
-		folder: Type.Optional(Type.String({ description: "Vault folder. Omit to use the learner's default." })),
+		folder: Type.Optional(Type.String({ description: "Vault folder for the note, chosen as the task says (\"/\" = the vault's root). Omit: the learner's folder for new notes, or next to the current note." })),
 		content: Type.String({ description: "Full Markdown content of the new note. Use [[wikilinks]] to related notes." }),
 		purpose: Type.String({ description: "One short phrase: why this note exists (shown to the learner)." }),
 	});

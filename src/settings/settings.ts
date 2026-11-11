@@ -16,6 +16,7 @@ export interface IcapSettings {
 	background: string;
 	/** How the learner likes to be taught (language, style…); appended to the agent's instructions. */
 	preferences: string;
+	/** Where new notes go; empty: the agent chooses (prompts.ts, placementRule). The learner's request overrides it. */
 	notesFolder: string;
 	/** create_note records `generated-by: icap-agent` in the new note's properties. */
 	markGenerated: boolean;
@@ -36,7 +37,7 @@ export interface IcapSettings {
 	rememberContext: boolean;
 	/** Interactive visuals (```icap-ui) in replies and agent-created notes. */
 	visuals: Visuals;
-	/** Read every PDF, EPUB and DOCX in the vault ahead of time, into .icap/docs/ (docs/store.ts). */
+	/** Read every PDF, EPUB and DOCX in the vault ahead of time, into the plugin's own docs/ folder (documents/store.ts). */
 	prepareDocuments: boolean;
 	/** One-sentence summaries of every part of a document, written by the model when it is first read. */
 	documentSummaries: boolean;
@@ -44,10 +45,16 @@ export interface IcapSettings {
 	guideCreated: boolean;
 	/**
 	 * ICAP's own visible folder (runtime/task-notes.ts): Activity.base in it, task notes in its `Tasks/`.
-	 * Visible because Obsidian does not index hidden folders, so Bases could not list notes in `.icap/`.
+	 * Visible because Obsidian does not index hidden folders, so Bases could not list notes kept in one.
 	 * Notes are found by `icap-id`, so moving them is fine.
 	 */
 	homeFolder: string;
+	/**
+	 * Record tasks as notes (task notes and Activity.base, in homeFolder). Off by default, so nothing
+	 * lands in the vault unasked; off, the activity stays in plugin data (the ledger list). A vault that
+	 * already has Activity.base from an earlier version counts as on (main.ts).
+	 */
+	taskNotes: "on" | "off";
 	/** Activity.base was generated once; from then on it is the learner's and never rewritten. */
 	activityBaseMade: boolean;
 	/** Activity.base has the `icap-activity` view: generated with it, or given it once (a base from 1.1). */
@@ -87,6 +94,7 @@ export const DEFAULT_SETTINGS: IcapSettings = {
 	mobileSecrets: {},
 	mobileEndpoints: [],
 	homeFolder: "ICAP",
+	taskNotes: "off",
 	activityBaseMade: false,
 	activityViewAdded: false,
 	taskNotesMigrated: false,
@@ -316,10 +324,10 @@ export class IcapSettingTab extends PluginSettingTab {
 		const files = group(L("Files", "文件"));
 		add(files)
 			.setName(L("Folder for new notes", "新笔记的位置"))
-			.setDesc(L("Where the agent puts the notes it creates. Empty: next to the current note.", "Agent 新建笔记的存放位置。留空则与当前笔记放在一起。"))
+			.setDesc(L("Empty: the agent chooses, by where related notes are and your vault's AGENTS.md. A folder: new notes go there, unless you ask for another place.", "留空：由 Agent 决定，参考相关笔记所在的位置和库中的 AGENTS.md。填写文件夹：新笔记放在那里，除非你另外指定。"))
 			.addText((t) =>
 				t
-					.setPlaceholder("Learning/Concepts")
+					.setPlaceholder(L("The agent chooses", "由 Agent 决定"))
 					.setValue(s.notesFolder)
 					.onChange((v) => {
 						s.notesFolder = folder(v);
@@ -336,6 +344,22 @@ export class IcapSettingTab extends PluginSettingTab {
 				}),
 			);
 		add(files)
+			.setName(L("Record tasks as notes", "把任务记录成笔记"))
+			.setDesc(
+				L(
+					"A request that does more than answer one question gets a note in the ICAP folder, and Activity.base lists these notes. Off: the activity stays in the plugin, and nothing is written to the vault.",
+					"不只是一问一答的请求，会在 ICAP 文件夹里得到一篇笔记，Activity.base 列出这些笔记。关闭：活动只留在插件里，不往库里写任何文件。",
+				),
+			)
+			.addToggle((t) =>
+				t.setValue(s.taskNotes === "on").onChange((v) => {
+					s.taskNotes = v ? "on" : "off";
+					void save();
+					if (v) void this.plugin.runtime?.startRecording();
+					this.display();
+				}),
+			);
+		if (s.taskNotes === "on") add(files)
 			.setName(L("ICAP folder", "ICAP 文件夹"))
 			.setDesc(L("Holds Activity.base, and task notes in its Tasks folder.", "存放 Activity.base，任务笔记放在其中的 Tasks 文件夹。"))
 			.addText((t) =>

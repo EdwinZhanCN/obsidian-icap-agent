@@ -36,3 +36,21 @@ describe("the protocol on mobile (no file tools, no skill files)", () => {
 		expect(systemPrompt("isolated", "", "off", mobile)).not.toContain("icap-visual");
 	});
 });
+
+import { placementRule } from "./prompts";
+
+describe("placementRule", () => {
+	it("lets the agent choose, told where related notes are and how the vault is laid out", () => {
+		const r = placementRule({ fixed: "", here: "Physics", near: ["Physics/Fluids", ""], folders: ["Physics", "Physics/Fluids", "Inbox"] });
+		expect(r).toContain("choose a folder for each note");
+		expect(r).toContain("AGENTS.md");
+		expect(r).toContain('next to the current note, in "Physics"');
+		expect(r).toContain('Folders of the notes this note links to: "Physics/Fluids", "/".');
+		expect(r).toContain('Folders in the vault: "Physics", "Physics/Fluids", "Inbox".');
+	});
+	it("uses the learner's folder when they set one, unless they ask for another place", () => {
+		const r = placementRule({ fixed: "Learning/Concepts", here: "Physics", near: [], folders: [] });
+		expect(r).toContain('in "Learning/Concepts" (the learner\'s setting), unless the learner asks for another place');
+		expect(r).not.toContain("choose a folder");
+	});
+});

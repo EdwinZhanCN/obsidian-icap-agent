@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { L } from "../i18n";
+	import { tick } from "svelte";
 	import type { Task } from "../runtime/state.svelte";
 	import { phaseLine } from "../ui/phrases";
 	import { introduce, play, reducedMotion, spring } from "../ui/motion";
@@ -10,11 +11,14 @@
 		data,
 		live,
 		open,
+		openTask,
 	}: {
 		data: ActivityData;
 		/** This device's task behind a row, for its strip and live phase. */
 		live: (id: string) => Task | undefined;
 		open: (path: string, ev: MouseEvent | KeyboardEvent) => void;
+		/** A task's name leads to where it was asked (without it, to its task note). */
+		openTask?: (row: ActivityRow, ev: MouseEvent | KeyboardEvent) => void;
 	} = $props();
 
 	const rows = $derived(data.groups.flatMap((g) => g.rows));
@@ -91,11 +95,11 @@
 		if (!step) return;
 		const target = ev.currentTarget as HTMLElement;
 		const strip = target.parentElement!;
-		const x = target.offsetLeft + target.offsetWidth / 2 - strip.clientWidth / 2;
 		const moving = card?.row === r.path;
 		card = { row: r.path, span, step };
-		queueMicrotask(() => {
+		void tick().then(() => {
 			if (!cardEl) return;
+			const x = cardOffset(target, strip, cardEl);
 			if (moving) play(cardEl, { x: [cardX, x] }, spring.quick);
 			else {
 				cardEl.style.transform = `translateX(${x}px)`;
@@ -104,6 +108,23 @@
 			cardX = x;
 		});
 	}
+	/**
+	 * Where the card sits, as an offset from the strip's centre: centred under the step, but kept inside
+	 * the visible view (8px from each edge), so a step near either end does not push it off the side.
+	 */
+	function cardOffset(target: HTMLElement, strip: HTMLElement, el: HTMLElement): number {
+		const view = (strip.closest(".icap-activity-host") ?? document.documentElement).getBoundingClientRect();
+		const gap = 8;
+		el.style.maxWidth = `min(22rem, ${Math.max(0, view.width - 2 * gap)}px)`;
+		const s = strip.getBoundingClientRect();
+		const w = el.offsetWidth;
+		let x = target.offsetLeft + target.offsetWidth / 2 - strip.clientWidth / 2;
+		const left = s.left + s.width / 2 + x - w / 2;
+		if (left < view.left + gap) x += view.left + gap - left;
+		else if (left + w > view.right - gap) x -= left + w - (view.right - gap);
+		return x;
+	}
+
 	function hide(r: ActivityRow) {
 		if (card?.row === r.path) card = null;
 	}
@@ -136,10 +157,10 @@
 				{@const strip = stripOf(r, t)}
 				{@const mark = r.model ? markFor(r.model) : null}
 				<li class="icap-activity-row" data-tone={tn}>
-					<span class="icap-activity-dot" aria-label={statusText[tn]} title={statusText[tn]}></span>
+					<span class="icap-activity-dot" aria-label={statusText[tn]}></span>
 					<div class="icap-activity-main">
 						<div class="icap-activity-title">
-							<a href={r.path} class="internal-link" onclick={(e) => { e.preventDefault(); open(r.path, e); }}>{r.title}</a>
+							<a href={r.path} class="internal-link" title={L("Open where it was asked", "打开提问的位置")} onclick={(e) => { e.preventDefault(); if (openTask) openTask(r, e); else open(r.path, e); }}>{r.title}</a>
 							{#if tn === "live" || tn === "you"}
 								<span class="icap-activity-phase">{tn === "you" ? statusText.you : t ? phaseLine(t.phase, "request") : statusText.live}</span>
 							{/if}
@@ -165,7 +186,10 @@
 							{#if costText(r.cost)}<span class="icap-activity-num">{costText(r.cost)}</span>{/if}
 						</div>
 						{#if strip.length}
-							<div class="icap-activity-strip" role="group" aria-label={L("Steps", "步骤")} use:growIn={r.path} onpointerleave={() => hide(r)}>
+							<!-- Names for screen readers are hidden text, not aria-label: Obsidian gives every aria-label its own
+								     hover tooltip, which would cover the strip and repeat the card. -->
+							<div class="icap-activity-strip" role="group" aria-labelledby="icap-steps-{r.id || r.path}" use:growIn={r.path} onpointerleave={() => hide(r)}>
+								<span id="icap-steps-{r.id || r.path}" class="icap-sr-only">{L("Steps", "步骤")}</span>
 								{#each strip as s (s.index)}
 									<button
 										type="button"
@@ -174,11 +198,10 @@
 										class:is-running={s.running && t?.active}
 										style:left="{s.left * 100}%"
 										style:width="{s.width * 100}%"
-										aria-label="{t?.steps[s.index]?.tool} · {duration(s.ms)}"
 										onpointerenter={(e) => show(r, s, e)}
 										onfocus={(e) => show(r, s, e)}
 										onblur={() => hide(r)}
-									></button>
+									><span class="icap-sr-only">{t?.steps[s.index]?.tool} · {duration(s.ms)}</span></button>
 								{/each}
 								{#if card?.row === r.path}
 									<div class="icap-activity-card" bind:this={cardEl} role="tooltip">

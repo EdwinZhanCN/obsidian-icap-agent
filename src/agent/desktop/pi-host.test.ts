@@ -20,3 +20,14 @@ describe("login shell environment", () => {
 		expect(add.PATH?.split(":").filter((p) => p === "/usr/bin")).toHaveLength(1);
 	});
 });
+
+import { oldNode } from "./pi-host";
+
+describe("oldNode", () => {
+	it("lets Node 22.18 and later run Pi", () => {
+		for (const v of ["22.18.0", "22.22.1", "24.21.0"]) expect(oldNode(v)).toBeNull();
+	});
+	it("names the installer's Node when it is too old", () => {
+		for (const v of ["20.18.3", "22.14.0"]) expect(oldNode(v)).toContain(v);
+	});
+});

@@ -3,7 +3,7 @@ import type { ExternalFiles } from "../agent/backend";
 import { MAX_CHARS, MAX_PAGES, cap, parsePages } from "../agent/tools/doc-pages";
 import { DOC_EXTENSIONS, describeTree, findNode, outlineText, walkNodes, type DocTree } from "./model";
 import { queryTerms, searchUnits, type DocHit } from "./search";
-import { CACHE_DIR, formatOf, type DocStore } from "./store";
+import { formatOf, type DocStore } from "./store";
 
 /**
  * What ICAP's reading tools answer: `read_document` (a document's structure, a node, or units) and
@@ -109,7 +109,7 @@ async function listDocuments(app: App, files: ExternalFiles | null, folder?: str
 	const prefix = folder ? folder.replace(/^\/+|\/+$/g, "") + "/" : "";
 	const out = app.vault
 		.getFiles()
-		.filter((f) => (DOC_EXTENSIONS as readonly string[]).includes(f.extension.toLowerCase()) && !f.path.startsWith(CACHE_DIR + "/") && (!prefix || f.path.startsWith(prefix)))
+		.filter((f) => (DOC_EXTENSIONS as readonly string[]).includes(f.extension.toLowerCase()) && (!prefix || f.path.startsWith(prefix)))
 		.map((f) => f.path);
 	if (!folder && files) {
 		for (const root of files.roots()) {

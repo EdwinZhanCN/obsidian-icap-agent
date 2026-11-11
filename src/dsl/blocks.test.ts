@@ -211,3 +211,17 @@ describe("Chinese interface", () => {
 		}
 	});
 });
+
+import { findRequestRecord } from "./blocks";
+
+describe("findRequestRecord", () => {
+	const note = "# Lift\n\nText.\n\n> [!request] Add a sentence that connects lift…\n> **Request:** Add a sentence that connects lift with [[Bernoulli's principle]]\n\nMore.\n\n> [!request] What is a stall?\n> **Request:** What is a stall?\n";
+	it("finds the record whose title begins like the request", () => {
+		expect(findRequestRecord(note, "Add a sentence that connects lift with Bernoulli's principle")).toBe(note.indexOf("> [!request] Add"));
+		expect(findRequestRecord(note, "What is a stall")).toBe(note.indexOf("> [!request] What"));
+	});
+	it("is null when no record matches", () => {
+		expect(findRequestRecord(note, "Explain drag")).toBeNull();
+		expect(findRequestRecord(note, "")).toBeNull();
+	});
+});

@@ -86,7 +86,7 @@ describe.skipIf(!existsSync(MAIN))("main.js on a phone (no Node)", () => {
 	});
 
 	it("runs a request end to end: tool call, reply, kept record", async () => {
-		const phone = await boot(main, { files: { "Heap.md": NOTE }, secrets: { "icap-deepseek": "sk-test" } });
+		const phone = await boot(main, { files: { "Heap.md": NOTE, "AGENTS.md": "Answer in British English." }, secrets: { "icap-deepseek": "sk-test" } });
 		const seen = { bodies: [] as any[], auth: [] as string[] };
 		const server = scriptedServer(seen);
 		phone.setFetch(async (input: any, init?: RequestInit) => {
@@ -110,6 +110,8 @@ describe.skipIf(!existsSync(MAIN))("main.js on a phone (no Node)", () => {
 		const system = seen.bodies[0].messages.find((m: any) => m.role === "system" || m.role === "developer");
 		expect(String(system.content)).not.toContain("read / grep / find / ls");
 		expect(String(system.content)).toContain("ask_learner");
+		// The vault's own AGENTS.md applies on a phone too, as Pi renders it on desktop.
+		expect(String(system.content)).toContain('<project_instructions path="AGENTS.md">\nAnswer in British English.\n</project_instructions>');
 		expect(block.summary).toBe("The heap is memory you allocate at run time.");
 		await rt.keepBlock(block);
 		const note = phone.files.get("Heap.md")!;

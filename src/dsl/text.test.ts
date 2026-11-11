@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { glossAnchor, headingTrail, paragraphBounds, sectionBounds } from "./text";
+import { glossAnchor, headingTrail, paragraphBounds, sectionBounds, shortTitle } from "./text";
 
 const NOTE = `---
 tags: [cpp]
@@ -53,5 +53,21 @@ describe("structure", () => {
 	it("bounds a paragraph", () => {
 		const p = paragraphBounds(NOTE, NOTE.indexOf("two lines"));
 		expect(NOTE.slice(p.from, p.to)).toBe("Intro paragraph about memory.\nIt spans two lines with RAII here.");
+	});
+});
+
+describe("shortTitle", () => {
+	it("keeps short text and cuts long text at about 40 characters", () => {
+		expect(shortTitle("What is the heap?")).toBe("What is the heap?");
+		expect(shortTitle("a".repeat(50))).toBe(`${"a".repeat(38)}…`);
+	});
+
+	it("never cuts a link in two", () => {
+		// the link ends soon after the cut: it stays whole
+		expect(shortTitle("Now connect the lift with [[Bernoulli's principle]] and the wing")).toBe("Now connect the lift with [[Bernoulli's principle]]…");
+		// a very long link: the title ends before it
+		expect(shortTitle(`Compare this with [[${"x".repeat(80)}]] please`)).toBe("Compare this with…");
+		// an unclosed link: the title ends before it
+		expect(shortTitle("Explain the second paragraph of [[Bernoulli's principle")).toBe("Explain the second paragraph of…");
 	});
 });

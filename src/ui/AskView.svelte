@@ -358,10 +358,10 @@
 
 {#if !block}
 	<section class="icap-voice icap-ask is-orphan" data-ask={id}>
-		<header class="icap-label"><span class="icap-label-kind">interaction</span><span class="icap-label-term">{title}</span></header>
+		<header class="icap-label"><span class="icap-label-kind">{L("interaction", "交互")}</span><span class="icap-label-term">{title}</span></header>
 		<p class="icap-caption">
-			This interaction has ended or lives on another device.
-			<button type="button" class="icap-link" onclick={() => rt.removeOrphan(sourcePath, id)}>remove it</button>
+			{L("This interaction has ended or lives on another device.", "这段交互已经结束，或在另一台设备上。")}
+			<button type="button" class="icap-link" onclick={() => rt.removeOrphan(sourcePath, id)}>{L("remove it", "移除")}</button>
 		</p>
 	</section>
 {:else}

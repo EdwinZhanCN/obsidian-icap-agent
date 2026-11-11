@@ -24,6 +24,8 @@ export interface TaskNotesHost {
 	/** The activity view has been put into this vault's Activity.base (generated with it, or added once). */
 	viewAdded(): boolean;
 	setViewAdded(): void;
+	/** Whether tasks are recorded as notes (a setting, off by default). */
+	recording(): boolean;
 }
 
 interface Adopted {
@@ -212,6 +214,8 @@ export class TaskNotes {
 		if (!file) {
 			// A question asked in passing is not a task to keep track of: it gets a note once it amounts to one.
 			if (!this.substantial(task, a)) return "same";
+			// Nothing lands in the vault unless the learner turned recording on.
+			if (!this.host.recording()) return "same";
 			const link = note.source ? linkTo(note.source) : "";
 			const origin = !link
 				? ""

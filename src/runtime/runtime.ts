@@ -1,4 +1,4 @@
-import { MarkdownView, Notice, TFile, type App, type Editor, type TAbstractFile } from "obsidian";
+import { MarkdownView, Notice, TFile, TFolder, type App, type Editor, type TAbstractFile } from "obsidian";
 import { EditorView } from "@codemirror/view";
 import { mount, unmount } from "svelte";
 import { SvelteMap } from "svelte/reactivity";
@@ -10,7 +10,7 @@ import { L } from "../i18n";
 import { GENERATED_BY } from "../settings/settings";
 import { glossLabelUI } from "../ui/phrases";
 import { vaultCommand } from "../agent/tools/vault-tools";
-import { DocStore, CACHE_DIR, LEGACY_DIR, formatOf, type Loaded } from "../documents/store";
+import { DocStore, LEGACY_DIR, formatOf, type Loaded } from "../documents/store";
 import { documentsCommand, readDocument } from "../documents/tools";
 import { applySummaries, documentPrompt, parseSummaries, summaryBatches } from "../documents/summaries";
 import {
@@ -20,6 +20,7 @@ import {
 	explainPrompt,
 	followUpPrompt,
 	notePrompt,
+	type Placement,
 	quizPrompt,
 	recallPrompt,
 	requestPrompt,
@@ -30,12 +31,13 @@ import {
 import { addUsage } from "../agent/usage";
 import { buildContext } from "./context";
 import { TaskNotes, announceMigration, basesEnabled } from "./task-notes";
-import { answerText, coveredTranscript, reusable, sessionSig, transcriptOf, withReply } from "./transcript";
-import { calloutBlock, editProblem, evidenceCallout, findAskBlock, isoDate, parseAskSource, parseAuthored, requestRecord, type AskSource, glossCallout, newId, serializeAsk, splitSources, tidyOptionLabel, tidyQuestion, verdictGlyph, dialogTitle, type Depth } from "../dsl/blocks";
+import { keptMarkdown } from "./kept";
+import { coveredTranscript, reusable, sessionSig, transcriptOf, withReply } from "./transcript";
+import { editProblem, findAskBlock, findRequestRecord, isoDate, parseAskSource, parseAuthored, type AskSource, glossCallout, newId, serializeAsk, splitSources, tidyOptionLabel, tidyQuestion, dialogTitle, type Depth } from "../dsl/blocks";
 import { askReplacement, blockInsertion, editorFor, spliceFile, uniqueNotePath, type Splice } from "../dsl/doc-ops";
 import { flashRange } from "../editor/fresh";
 import { clearCues, cue, withdrawCue } from "../editor/cue";
-import { glossAnchor, paragraphBounds, sectionBounds, stripFrontmatter } from "../dsl/text";
+import { glossAnchor, paragraphBounds, sectionBounds, stripFrontmatter, shortTitle } from "../dsl/text";
 import { addGloss, anchorsIn, glossField, removeGloss, type GlossAnchor, type GlossFieldType, type GlossHost } from "../editor/gloss-field";
 import GlossView from "../ui/GlossView.svelte";
 import { acknowledge } from "../ui/motion";
@@ -104,7 +106,7 @@ export class LearningRuntime {
 	private saveTimer: number | null = null;
 	/** Blocks that should take focus the first time they render. */
 	focusOnMount = new Set<string>();
-	/** The document cache (.icap/docs/) behind read_document and documents. */
+	/** The document cache (the plugin's own docs/) behind read_document and documents. */
 	docs: DocStore;
 	/** Documents whose summaries are being written (by content hash). */
 	private summarizing = new Set<string>();
@@ -132,7 +134,7 @@ export class LearningRuntime {
 			},
 		};
 		this.field = glossField(host);
-		this.docs = new DocStore(plugin.app, plugin.backend.files ?? null);
+		this.docs = new DocStore(plugin.app, plugin.backend.files ?? null, `${plugin.manifest.dir ?? `${plugin.app.vault.configDir}/plugins/${plugin.manifest.id}`}/docs`);
 		this.taskNotes = new TaskNotes({
 			app: plugin.app,
 			home: () => this.settings.homeFolder,
@@ -151,6 +153,7 @@ export class LearningRuntime {
 				this.settings.activityViewAdded = true;
 				this.persist();
 			},
+			recording: () => this.settings.taskNotes === "on",
 		});
 	}
 
@@ -491,7 +494,7 @@ export class LearningRuntime {
 		if (!this.settings.prepareDocuments && !this.settings.documentSummaries) return;
 		const all = this.app.vault
 			.getFiles()
-			.filter((f) => formatOf(f.path) && !f.path.startsWith(CACHE_DIR + "/"))
+			.filter((f) => formatOf(f.path))
 			.map((f) => f.path);
 		for (const p of all) if (!this.prepQueue.includes(p)) this.prepQueue.push(p);
 		void this.drainPrep(true);
@@ -499,7 +502,7 @@ export class LearningRuntime {
 
 	/** A document was added or changed in the vault: prepare it (when the setting is on). */
 	onDocumentChange(file: TAbstractFile) {
-		if (!this.settings.prepareDocuments || !(file instanceof TFile) || !formatOf(file.path) || file.path.startsWith(CACHE_DIR + "/")) return;
+		if (!this.settings.prepareDocuments || !(file instanceof TFile) || !formatOf(file.path)) return;
 		if (!this.prepQueue.includes(file.path)) this.prepQueue.push(file.path);
 		void this.drainPrep(false);
 	}
@@ -931,7 +934,7 @@ export class LearningRuntime {
 			prompt = followUpPrompt(request, pointed);
 			systemExtra = blockContext(ctx, block.quote);
 		} else {
-			prompt = requestPrompt(ctx, block.quote, history, request, pointed) + interrupted;
+			prompt = requestPrompt(ctx, block.quote, history, request, pointed, this.placementFor(file)) + interrupted;
 		}
 		// One request block = one ledger line, which keeps the files (and steps) of every round.
 		const prev = block.taskId ? this.ledger.get(block.taskId) : undefined;
@@ -1048,8 +1051,9 @@ export class LearningRuntime {
 	 */
 	onVaultChange(kind: "created" | "edited" | "deleted", file: TAbstractFile, oldPath?: string) {
 		if (this.agentConfig() !== "mine" || !(file instanceof TFile)) return;
-		// The document cache is the plugin's own, never the agent's. `.icap/docs/` raises no vault events;
-		// the visible folder of earlier versions does, while it is being moved.
+		// The document cache is the plugin's own, never the agent's. Its folder (in the plugin's own, or
+		// `.icap/docs/` before) raises no vault events; the visible folder of earlier versions does, while
+		// it is being moved.
 		if (file.path.startsWith(LEGACY_DIR + "/")) return;
 		// Task notes and Activity.base are the plugin's own record of a task, not something its agent changed.
 		if (this.taskNotes.owns(file.path) || (oldPath && this.taskNotes.owns(oldPath))) return;
@@ -1588,6 +1592,35 @@ export class LearningRuntime {
 		n.messageEl.addEventListener("click", () => void this.reveal(task));
 	}
 
+	/**
+	 * Where new notes from a task in `file` go (prompts.ts, placementRule): the learner's folder if they
+	 * set one; else the agent chooses, told where related notes are and how the vault is laid out.
+	 */
+	placementFor(file: TFile): Placement {
+		const here = file.parent?.path === "/" ? "" : (file.parent?.path ?? "");
+		const fixed = this.settings.notesFolder;
+		if (fixed) return { fixed, here, near: [], folders: [] };
+		const near = new Set<string>();
+		for (const l of this.app.metadataCache.getFileCache(file)?.links ?? []) {
+			const to = this.app.metadataCache.getFirstLinkpathDest(l.link.split("#")[0], file.path);
+			const dir = to?.parent?.path;
+			if (to && dir !== undefined) near.add(dir === "/" ? "" : dir);
+			if (near.size >= 8) break;
+		}
+		// Two levels deep, at most 40: the plugin's own folder (task notes) is not a place for study notes.
+		const own = this.settings.taskNotes === "on" ? this.taskNotes.home : null;
+		const folders: string[] = [];
+		const walk = (f: TFolder, depth: number) => {
+			for (const c of f.children) {
+				if (!(c instanceof TFolder) || c.name.startsWith(".") || c.path === own || folders.length >= 40) continue;
+				folders.push(c.path);
+				if (depth < 2) walk(c, depth + 1);
+			}
+		};
+		walk(this.app.vault.getRoot(), 1);
+		return { fixed: "", here, near: [...near].filter((d) => d !== own), folders };
+	}
+
 	private async createNote(task: Task, p: Json): Promise<Json> {
 		const title = String(p.title ?? "").trim();
 		const content = String(p.content ?? "");
@@ -1774,8 +1807,7 @@ export class LearningRuntime {
 		}
 		this.agentAnchor.set(task.id, editor ? glossAnchor(text, at) : text.length);
 		const ctx = buildContext(this.app, file, text, at, at, this.settings.background);
-		const folder = this.settings.notesFolder || file.parent?.path || "";
-		const prompt = notePrompt(ctx, kind, input, folder);
+		const prompt = notePrompt(ctx, kind, input, this.placementFor(file));
 		try {
 			const out = await this.runAgent(task, {
 				prompt,
@@ -1821,7 +1853,8 @@ export class LearningRuntime {
 	async showActivity() {
 		const waiting = this.ledger.waiting.find((t) => !this.taskNotes.has(t));
 		if (waiting) return this.reveal(waiting);
-		if (!basesEnabled(this.app)) return void (this.ledger.open = !this.ledger.open);
+		// Without Bases, or in a vault that does not record tasks as notes, the plugin's own list.
+		if (!basesEnabled(this.app) || this.settings.taskNotes !== "on") return void (this.ledger.open = !this.ledger.open);
 		const file = await this.taskNotes.ensureBase(true).catch(() => null);
 		if (!file) return void (this.ledger.open = !this.ledger.open);
 		// By the leaf's state, not its view: a tab not shown since startup has no view yet.
@@ -1832,6 +1865,8 @@ export class LearningRuntime {
 
 	/** The learner asks for the task notes of recent activity that are missing (deleted, or never written). */
 	async rebuildTaskNotes() {
+		if (this.settings.taskNotes !== "on")
+			return void new Notice(L("Tasks are not recorded as notes in this vault. Turn on Record tasks as notes in the settings (Files).", "这个库没有把任务记录成笔记。请在设置的「文件」中打开「把任务记录成笔记」。"));
 		const made = await this.taskNotes.restore(this.ledger.tasks).catch((e) => {
 			console.error("ICAP: could not rebuild task notes", e);
 			return -1;
@@ -1851,6 +1886,8 @@ export class LearningRuntime {
 	async startTaskNotes() {
 		this.taskNotes.adoptInterrupted();
 		await this.taskNotes.sync();
+		// The activity of earlier versions becomes task notes only in a vault that records them.
+		if (this.settings.taskNotes !== "on") return;
 		await this.taskNotes.addActivityView().catch((e) => console.error("ICAP: could not add the activity view to Activity.base", e));
 		if (this.settings.taskNotesMigrated) return;
 		const made = await this.taskNotes.migrate(this.ledger.tasks).catch((e) => {
@@ -1863,6 +1900,14 @@ export class LearningRuntime {
 		if (made) announceMigration(this.taskNotes.folder, made);
 	}
 
+	/** Recording was turned on: the recent tasks it skipped get their notes, and Activity.base is made. */
+	async startRecording() {
+		this.settings.taskNotesMigrated = true;
+		this.persist();
+		await this.taskNotes.restore(this.ledger.tasks).catch((e) => console.error("ICAP: could not write task notes", e));
+		await this.taskNotes.ensureBase(true).catch((e) => console.error("ICAP: could not make Activity.base", e));
+	}
+
 	async reveal(task: Task) {
 		const path = task.artifacts.find((a) => a.kind === "created")?.path ?? task.notePath;
 		await this.openAt(path, task.blockId, task.glossId);
@@ -1872,7 +1917,22 @@ export class LearningRuntime {
 		await this.openAt(path, null, null);
 	}
 
-	private async openAt(path: string, blockId: string | null, glossId: string | null) {
+	/**
+	 * The activity: a task leads back to where it was asked, in the note it came from: its block while
+	 * the block is there, else the record kept in its place, else the note itself. `source` is the task
+	 * note's link to that note, `request` its name (the request). False when there is no such note.
+	 */
+	async openTask(id: string, source: string | null, request: string, from = ""): Promise<boolean> {
+		const task = this.taskNotes.taskOf(id);
+		const path = task?.notePath ?? (source ? this.app.metadataCache.getFirstLinkpathDest(source, from)?.path : undefined);
+		if (!path || !this.fileOf(path)) return false;
+		const blockId = task?.blockId ?? id;
+		await this.openAt(path, this.blocks.has(blockId) ? blockId : null, null, (text) => findRequestRecord(text, request));
+		return true;
+	}
+
+	/** Open a note at a block, a gloss, or (`find`) a place in its text. */
+	private async openAt(path: string, blockId: string | null, glossId: string | null, find?: (text: string) => number | null) {
 		const file = this.fileOf(path);
 		if (!file) return void new Notice(L("That note no longer exists.", "那篇笔记已经不存在了。"));
 		let view = this.app.workspace.getActiveViewOfType(MarkdownView);
@@ -1884,8 +1944,8 @@ export class LearningRuntime {
 		if (!view) return;
 		const editor = view.editor;
 		const text = editor.getValue();
-		let offset: number | null = null;
-		if (blockId && this.blocks.has(blockId)) offset = findAskBlock(text, blockId)?.from ?? null;
+		let offset: number | null = find?.(text) ?? null;
+		if (blockId && this.blocks.has(blockId)) offset = findAskBlock(text, blockId)?.from ?? offset;
 		const g = glossId ? this.glosses.get(glossId) : undefined;
 		if (g) offset = g.anchor;
 		if (offset === null) return;
@@ -1912,10 +1972,7 @@ function basename(path: string) {
 	return path.split("/").pop()!.replace(/\.md$/, "");
 }
 
-function short(s: string) {
-	const t = s.replace(/\s+/g, " ").trim();
-	return t.length > 40 ? t.slice(0, 38) + "…" : t;
-}
+const short = (s: string) => shortTitle(s);
 
 function firstSentence(s: string) {
 	const t = s.replace(/\s+/g, " ").trim();
@@ -1930,7 +1987,6 @@ function escapeMd(s: string) {
 export function humanError(e: unknown): string {
 	const msg = e instanceof Error ? e.message : String(e);
 	if (e instanceof SetupNeeded) return msg;
-	if (/ENOENT|not found/i.test(msg) && /pi\b/i.test(msg)) return L("Pi was not found — check the path in settings.", "找不到 Pi——请检查设置中的路径。");
 	if (/api key|unauthor|401|403/i.test(msg)) return L("The model provider refused the request — check the credentials (Model providers, in the settings).", "模型服务商拒绝了请求——请检查凭证（设置中的“模型服务商”）。");
 	if (/ETIMEDOUT|ECONNRESET|network|fetch failed/i.test(msg)) return L("Network problem reaching the model.", "连接模型时出现网络问题。");
 	return msg.replace(/\s+/g, " ").slice(0, 220);
@@ -1950,58 +2006,6 @@ function addArtifact(task: Task, a: Artifact) {
 	}
 	if (has(a.kind) || (a.kind === "edited" && has("created"))) return;
 	task.artifacts = [...task.artifacts.filter((x) => !(a.kind === "deleted" && x.kind === "edited" && x.path === a.path)), a];
-}
-
-/** A request block as it stays in the note: each request with its reply, and the files touched. */
-function requestMarkdown(block: AskBlock, artifacts: Artifact[]): string {
-	const rounds: { request: string; reply: string }[] = [];
-	for (const t of block.turns) {
-		if (t.control) continue;
-		if (t.request) rounds.push({ request: t.answer?.text ?? "", reply: "" });
-		if (t.reply && rounds.length) rounds[rounds.length - 1].reply = t.reply;
-	}
-	if (rounds.length && block.summary.trim()) rounds[rounds.length - 1].reply = block.summary.trim();
-	return requestRecord(block.topic, rounds, artifacts);
-}
-
-/**
- * What a settled block leaves in the note (FORMAT.md). Recalls, checks and quizzes carry their
- * evidence — the kept date and the verdict — in the callout title and in a comment above it, so
- * the note itself is the learning record. `date` is the day of keeping; the turns have no clock.
- */
-export function keptMarkdown(block: AskBlock, artifacts: Artifact[] = [], date = isoDate()): string {
-	if (block.kind === "request") return requestMarkdown(block, artifacts);
-	const summary = block.summary.trim();
-	const verdict = [...block.turns].reverse().find((t) => t.verdict)?.verdict;
-	const title = (k: string) => `${k} — ${block.topic}`;
-	if (block.kind === "recall") {
-		const finalWords =
-			block.turns.find((t) => t.final && t.answer?.text)?.answer?.text?.trim() ??
-			[...block.turns].reverse().find((t) => (t.revise || block.turns.indexOf(t) === 0) && t.answer?.text)?.answer?.text?.trim() ??
-			"";
-		const parts = [finalWords];
-		const fb = summary || block.turns.map((t) => t.feedback).filter(Boolean).join("\n\n");
-		if (fb) parts.push(evidenceCallout("feedback", block.topic, { kind: "recall", id: block.id, date, verdict, topic: block.topic, paragraphs: finalWords ? finalWords.split(/\n[ \t]*\n/).filter((p) => p.trim()).length : undefined }, fb));
-		return parts.filter(Boolean).join("\n\n");
-	}
-	if (block.kind === "check") {
-		const fb = summary || block.turns.map((t) => t.feedback).filter(Boolean).join("\n\n");
-		return evidenceCallout("feedback", block.topic, { kind: "check", id: block.id, date, verdict, topic: block.topic }, fb || L("Checked.", "已检查。"));
-	}
-	if (block.kind === "quiz") {
-		const lines: string[] = [];
-		const counts = { holds: 0, partly: 0, reconsider: 0 };
-		block.turns.forEach((t, i) => {
-			if (!t.answer) return;
-			if (t.verdict) counts[t.verdict]++;
-			lines.push(`**${i + 1}.** ${t.question.trim()}`);
-			lines.push(`*${L("My answer", "我的回答")}:* ${answerText(t)}${t.verdict ? ` ${verdictGlyph(t.verdict)}` : ""}`);
-			lines.push("");
-		});
-		if (summary) lines.push(summary);
-		return evidenceCallout("practice", title(L("Understanding check", "理解检验")), { kind: "quiz", id: block.id, date, counts, topic: block.topic }, lines.join("\n").trim());
-	}
-	return summary ? calloutBlock("note", block.topic, summary) : "";
 }
 
 /** What a note-making task is called as a task note: its subject, without the progressive verb of the ledger line. */

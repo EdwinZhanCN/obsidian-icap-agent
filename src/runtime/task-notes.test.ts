@@ -104,7 +104,7 @@ function task(over: Partial<Task>): Task {
 	return t;
 }
 
-function setup(v: ReturnType<typeof vault>, tasks: Task[], opts: { editing?: () => boolean; blocks?: Record<string, AskBlock>; baseMade?: boolean } = {}) {
+function setup(v: ReturnType<typeof vault>, tasks: Task[], opts: { editing?: () => boolean; blocks?: Record<string, AskBlock>; baseMade?: boolean; recording?: () => boolean } = {}) {
 	let baseMade = opts.baseMade ?? false;
 	let viewAdded = false;
 	const host: TaskNotesHost = {
@@ -117,6 +117,7 @@ function setup(v: ReturnType<typeof vault>, tasks: Task[], opts: { editing?: () 
 		setBaseMade: () => void (baseMade = true),
 		viewAdded: () => viewAdded,
 		setViewAdded: () => void (viewAdded = true),
+		recording: opts.recording ?? (() => true),
 	};
 	return new TaskNotes(host);
 }
@@ -360,5 +361,20 @@ describe("migrating the activity of earlier versions", () => {
 		const v = vault();
 		expect(await setup(v, []).migrate([task({ status: "processing" })])).toBe(0);
 		expect(v.files.size).toBe(0);
+	});
+});
+
+describe("recording tasks as notes is the learner's choice", () => {
+	it("writes nothing while recording is off, and what waited once it is turned on", async () => {
+		const v = vault();
+		const t = task({ status: "done" as Task["status"], endedAt: Date.UTC(2026, 10, 10, 14, 5) });
+		let on = false;
+		const notes = setup(v, [t], { recording: () => on });
+		notes.adopt(t, "b1", "What is RAII?", "request");
+		await notes.sync();
+		expect([...v.files.keys()]).toEqual([]);
+		on = true;
+		expect(await notes.restore([t])).toBe(1);
+		expect([...v.files.keys()].sort()).toEqual([`ICAP/${BASE_NAME}`, "ICAP/Tasks/What is RAII.md"]);
 	});
 });

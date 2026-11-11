@@ -14,7 +14,7 @@ An Obsidian plugin for learning inside your own notes. There is no chat panel: e
 - **Ask the agent here.** A request block anywhere in a note. Point at files with `[[` or `@`; use your Pi skills and commands with `/`.
 - **Documents.** PDFs, EPUBs and Word files in the vault become readable trees: the agent opens a book's table of contents, reads only the chapters it needs, and cites pages you can click.
 - **Interactive visuals.** Sliders and diagrams you can drag, in a sandbox with no network.
-- **Activity.** Every note the agent writes, and every request that turns into real work, is recorded as a task note with properties, listed in a native Base (`ICAP/Activity.base`) you can filter, group and change: its status, what it cost (tokens, cache hits, price), and every file it created or changed.
+- **Activity.** The status bar shows what the agent is doing and lists recent tasks: their status, what they cost (tokens, cache hits, price), and every file they created or changed. Turn on *Record tasks as notes* and every task that does real work also gets a note with properties, listed in a native Base (`ICAP/Activity.base`) you can filter, group and change; a task's name leads back to where you asked.
 
 ![A request block: notes made from a PDF, with the edit to an existing note proposed as a diff](docs/images/request.en.png)
 
@@ -44,7 +44,7 @@ For a service Pi does not list (Ollama, LM Studio, vLLM, a proxy, any OpenAI-com
 - **Accounts.** You need an account with a model provider, which bills you directly. ICAP needs no account.
 - **Files outside the vault.** ICAP reads Pi's folder `~/.pi/agent/` (settings, credentials, extensions, skills) and writes there when you sign in, add a custom endpoint, change the model or trust a project, as the Pi CLI does. On first use it runs your login shell once to pick up missing environment variables such as provider keys. In isolated mode the agent reads only the outside folders you allow; in the default setup it has Pi's shell.
 - **On mobile.** Nothing outside the vault is read. API keys are in Obsidian's keychain on the device.
-- **In the vault.** Settings and sessions live in `.obsidian/plugins/icap-agent/`; the document cache in the hidden `.icap/docs/`.
+- **In the vault.** Settings and sessions live in `.obsidian/plugins/icap-agent/`; so does the document cache (`docs/`). The vault gets task notes and `Activity.base` only if you turn on *Record tasks as notes*.
 
 ## Troubleshooting and limitations
 

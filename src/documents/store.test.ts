@@ -8,7 +8,7 @@ import { DocStore } from "./store";
 const HASH = "a".repeat(64);
 
 /** vault.adapter over a map of file paths; folders exist while something is under them. */
-function vault(files: Record<string, string>) {
+function vault(files: Record<string, string>, dir?: string) {
 	const fs = new Map(Object.entries(files));
 	const dirs = new Set<string>();
 	const under = (dir: string) => [...fs.keys(), ...dirs].filter((p) => p.startsWith(dir + "/"));
@@ -43,7 +43,7 @@ function vault(files: Record<string, string>) {
 		},
 	};
 	const app = { vault: { adapter, getAbstractFileByPath: () => null } } as unknown as App;
-	return { store: new DocStore(app), paths: () => [...fs.keys()].sort() };
+	return { store: new DocStore(app, null, dir), paths: () => [...fs.keys()].sort() };
 }
 
 const index = (path: string) => JSON.stringify({ version: 1, files: { [path]: { hash: HASH, size: 1, mtime: 1 } } });
@@ -79,5 +79,21 @@ describe("the cache of earlier versions (icap/docs/)", () => {
 		});
 		await v.store.entries();
 		expect(v.paths()).toEqual([".icap/docs/index.json", "icap/docs/drafts/plan.md", "icap/docs/my-notes.md", "icap/tasks/one.md"]);
+	});
+});
+
+describe("the cache in the plugin's own folder (format 6)", () => {
+	const DIR = ".obsidian/plugins/icap-agent/docs";
+
+	it("takes over .icap/docs/, and .icap/ goes when nothing else is in it", async () => {
+		const v = vault({ ".icap/docs/index.json": index("Sources/a.pdf"), [`.icap/docs/${HASH}/tree.json`]: "{}" }, DIR);
+		expect(Object.keys(await v.store.entries())).toEqual(["Sources/a.pdf"]);
+		expect(v.paths()).toEqual([`${DIR}/${HASH}/tree.json`, `${DIR}/index.json`]);
+	});
+
+	it("takes over the visible icap/docs/ of an older version too", async () => {
+		const v = vault({ "icap/docs/index.json": index("Sources/a.pdf") }, DIR);
+		expect(Object.keys(await v.store.entries())).toEqual(["Sources/a.pdf"]);
+		expect(v.paths()).toEqual([`${DIR}/index.json`]);
 	});
 });

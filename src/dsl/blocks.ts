@@ -394,3 +394,21 @@ export function dialogTitle(title: string): string {
 		.trim();
 	return [`**${first.trim()}**`, body].filter(Boolean).join("\n\n");
 }
+
+/**
+ * Where a kept request record starts in a note: the `> [!request]` callout whose title begins the
+ * way `request` does (the record's title is the request, shortened; a task note's name is the request
+ * with file-name characters taken out, so both are compared by their letters and digits only). The
+ * last match wins: a request asked again later is the one kept later. Null when there is none.
+ */
+export function findRequestRecord(text: string, request: string): number | null {
+	const key = (s: string) => s.replace(/…$/, "").replace(/\[\[([^\]|]*\|)?([^\]]*)\]\]/g, "$2").replace(/[^\p{L}\p{N}]+/gu, "").toLowerCase();
+	const want = key(request);
+	if (!want) return null;
+	let found: number | null = null;
+	for (const m of text.matchAll(/^> ?\[!request\][+-]?[ \t]*(.*)$/gim)) {
+		const title = key(m[1] ?? "");
+		if (title && (want.startsWith(title) || title.startsWith(want))) found = m.index ?? null;
+	}
+	return found;
+}

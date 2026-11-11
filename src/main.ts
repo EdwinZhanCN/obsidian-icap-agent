@@ -51,6 +51,8 @@ export default class IcapPlugin extends Plugin {
 		// Earlier versions let only the ink follow the theme accent; that choice now means the theme's look.
 		if (!stored.style && stored.ink === "accent") stored.style = "theme";
 		delete stored.ink;
+		// Before "record tasks as notes" was a choice, a vault got task notes unasked: one that has them keeps them.
+		if (!stored.taskNotes) stored.taskNotes = stored.activityBaseMade ? "on" : "off";
 		this.settings = { ...DEFAULT_SETTINGS, ...stored };
 		this.backend = await this.chooseBackend();
 		this.runtime = new LearningRuntime(this);
@@ -125,7 +127,7 @@ export default class IcapPlugin extends Plugin {
 			name: L("Activity", "活动"),
 			icon: "activity",
 			factory: (controller, el) => {
-				const view = new ActivityBasesView(controller, el, { taskOf: (id) => rt.taskNotes.taskOf(id) });
+				const view = new ActivityBasesView(controller, el, { taskOf: (id) => rt.taskNotes.taskOf(id), openTask: (id, source, request, from) => rt.openTask(id, source, request, from) });
 				activityViews.add(view);
 				view.register(() => activityViews.delete(view));
 				return view;
@@ -145,7 +147,7 @@ export default class IcapPlugin extends Plugin {
 			this.registerEvent(this.app.vault.on("modify", (f) => rt.onVaultChange("edited", f)));
 			this.registerEvent(this.app.vault.on("delete", (f) => rt.onVaultChange("deleted", f)));
 			this.registerEvent(this.app.vault.on("rename", (f, old) => rt.onVaultChange("edited", f, old)));
-			// Documents (PDF, EPUB, DOCX) are prepared ahead of time into .icap/docs/, when that is on.
+			// Documents (PDF, EPUB, DOCX) are prepared ahead of time into the plugin's docs/ folder, when that is on.
 			this.registerEvent(this.app.vault.on("create", (f) => rt.onDocumentChange(f)));
 			this.registerEvent(this.app.vault.on("modify", (f) => rt.onDocumentChange(f)));
 			window.setTimeout(() => rt.prepareDocuments(), 5000);

@@ -8,21 +8,27 @@ import { carrySummaries } from "./summaries";
 import { parsePdf } from "./pdf";
 
 /**
- * The document cache in the vault's hidden `.icap/docs/` folder (FORMAT.md, "Document cache"):
+ * The document cache, in the plugin's own folder (`<config>/plugins/icap-agent/docs/`; FORMAT.md,
+ * "Document cache"):
  *
- *     .icap/docs/index.json          path → { hash, size, mtime } of every document read
- *     .icap/docs/<hash>/tree.json    the DocTree (structure, summaries)
- *     .icap/docs/<hash>/text.json.gz the units' text, a JSON array of strings, gzipped
+ *     docs/index.json          path → { hash, size, mtime } of every document read
+ *     docs/<hash>/tree.json    the DocTree (structure, summaries)
+ *     docs/<hash>/text.json.gz the units' text, a JSON array of strings, gzipped
  *
  * Keyed by the file's content, so a document is parsed once, and a renamed or copied one is not
- * parsed again. A dot-folder, so Obsidian never shows or indexes it and the learner's vault holds
- * nothing they did not put there. Obsidian Sync skips dot-folders: each device prepares its own.
+ * parsed again. In the plugin's folder, so the learner's vault holds nothing they did not put there,
+ * and Obsidian never shows or indexes it. Each device can prepare its own.
  */
 
-export const CACHE_DIR = ".icap/docs";
-const INDEX = `${CACHE_DIR}/index.json`;
-/** Where the cache was until format 3: a visible folder, moved by `adoptLegacy`. */
+/** Where the cache was in format 3 to 5: a dot-folder in the vault's root. Moved by `adoptOld`. */
+export const HIDDEN_DIR = ".icap/docs";
+/** Where the cache was until format 3: a visible folder. Moved by `adoptOld`. */
 export const LEGACY_DIR = "icap/docs";
+/** Earlier places of the cache, newest first, each with the folder that held it. */
+const OLD_DIRS = [
+	{ dir: HIDDEN_DIR, parent: ".icap" },
+	{ dir: LEGACY_DIR, parent: "icap" },
+];
 /** Units of this many documents stay in memory. */
 const LRU = 6;
 
@@ -55,11 +61,19 @@ export class DocStore {
 	/** Called after a document was parsed for the first time (summaries hook here). */
 	onBuilt?: (l: Loaded) => void;
 
-	/** `files`: documents outside the vault (absolute paths), when the backend can reach them. */
+	/**
+	 * `dir`: the cache folder (the runtime gives the plugin's own `docs/`); `files`: documents outside
+	 * the vault (absolute paths), when the backend can reach them.
+	 */
 	constructor(
 		private app: App,
 		private files: ExternalFiles | null = null,
+		readonly dir = HIDDEN_DIR,
 	) {}
+
+	private get indexPath() {
+		return `${this.dir}/index.json`;
+	}
 
 	private get adapter() {
 		return this.app.vault.adapter;
@@ -67,9 +81,9 @@ export class DocStore {
 
 	private async readIndex(): Promise<IndexFile> {
 		if (this.index) return this.index;
-		await (this.adopted ??= this.adoptLegacy());
+		await (this.adopted ??= this.adoptOld());
 		try {
-			const parsed = JSON.parse(await this.adapter.read(INDEX)) as IndexFile;
+			const parsed = JSON.parse(await this.adapter.read(this.indexPath)) as IndexFile;
 			this.index = parsed?.version === 1 && parsed.files ? parsed : { version: 1, files: {} };
 		} catch {
 			this.index = { version: 1, files: {} };
@@ -78,28 +92,32 @@ export class DocStore {
 	}
 
 	/**
-	 * The cache of an earlier version (`icap/docs/`) becomes this one, so nothing is parsed again; when
-	 * this device already has a cache, the old one is deleted. Only the cache's own entries are touched,
-	 * and `icap/` goes only when nothing else is left in it.
+	 * The cache of an earlier version (`.icap/docs/`, before that `icap/docs/`) becomes this one, so
+	 * nothing is parsed again; when this device already has a cache, the old one is deleted. Only the
+	 * cache's own entries are touched, and the old folder goes only when nothing else is left in it.
 	 */
-	private async adoptLegacy() {
+	private async adoptOld() {
+		for (const old of OLD_DIRS) if (old.dir !== this.dir) await this.adoptFrom(old.dir, old.parent);
+	}
+
+	private async adoptFrom(from: string, parent: string) {
 		const a = this.adapter;
 		try {
-			if (!(await a.exists(LEGACY_DIR))) return;
-			const adopt = !(await a.exists(INDEX));
-			const old = await a.list(LEGACY_DIR);
+			if (!(await a.exists(from))) return;
+			const adopt = !(await a.exists(this.indexPath));
+			const old = await a.list(from);
 			for (const path of [...old.files, ...old.folders]) {
 				const name = path.split("/").pop()!;
 				const folder = old.folders.includes(path);
 				if (folder ? !/^[0-9a-f]{64}$/.test(name) : name !== "index.json") continue;
-				const to = `${CACHE_DIR}/${name}`;
+				const to = `${this.dir}/${name}`;
 				if (adopt && !(await a.exists(to))) {
-					await this.ensureDir(CACHE_DIR);
+					await this.ensureDir(this.dir);
 					await a.rename(path, to);
 				} else if (folder) await a.rmdir(path, true);
 				else await a.remove(path);
 			}
-			for (const dir of [LEGACY_DIR, "icap"]) {
+			for (const dir of [from, parent]) {
 				const left = await a.list(dir);
 				if (left.folders.length || left.files.some((f) => !f.endsWith("/.DS_Store"))) break;
 				await a.rmdir(dir, true);
@@ -111,8 +129,8 @@ export class DocStore {
 
 	private async saveIndex() {
 		if (!this.index) return;
-		await this.ensureDir(CACHE_DIR);
-		await this.adapter.write(INDEX, JSON.stringify(this.index, null, "\t"));
+		await this.ensureDir(this.dir);
+		await this.adapter.write(this.indexPath, JSON.stringify(this.index, null, "\t"));
 	}
 
 	private async ensureDir(dir: string) {
@@ -150,7 +168,7 @@ export class DocStore {
 
 	private async readAnyTree(hash: string): Promise<DocTree | null> {
 		try {
-			const t = JSON.parse(await this.adapter.read(`${CACHE_DIR}/${hash}/tree.json`)) as DocTree;
+			const t = JSON.parse(await this.adapter.read(`${this.dir}/${hash}/tree.json`)) as DocTree;
 			return t?.version === 1 ? t : null;
 		} catch {
 			return null;
@@ -158,8 +176,8 @@ export class DocStore {
 	}
 
 	async writeTree(tree: DocTree) {
-		await this.ensureDir(`${CACHE_DIR}/${tree.hash}`);
-		await this.adapter.write(`${CACHE_DIR}/${tree.hash}/tree.json`, JSON.stringify(tree));
+		await this.ensureDir(`${this.dir}/${tree.hash}`);
+		await this.adapter.write(`${this.dir}/${tree.hash}/tree.json`, JSON.stringify(tree));
 	}
 
 	async units(hash: string): Promise<string[]> {
@@ -169,7 +187,7 @@ export class DocStore {
 			this.memory.set(hash, hit);
 			return hit;
 		}
-		const gz = new Uint8Array(await this.adapter.readBinary(`${CACHE_DIR}/${hash}/text.json.gz`));
+		const gz = new Uint8Array(await this.adapter.readBinary(`${this.dir}/${hash}/text.json.gz`));
 		const units = JSON.parse(strFromU8(gunzipSync(gz))) as string[];
 		this.memory.set(hash, units);
 		while (this.memory.size > LRU) this.memory.delete(this.memory.keys().next().value!);
@@ -213,8 +231,8 @@ export class DocStore {
 			// Parsed again by a newer parser: summaries of parts that are still the same are kept.
 			const old = await this.readAnyTree(hash);
 			if (old) carrySummaries(old, tree);
-			await this.ensureDir(`${CACHE_DIR}/${hash}`);
-			await this.adapter.writeBinary(`${CACHE_DIR}/${hash}/text.json.gz`, toArrayBuffer(gzipSync(strToU8(JSON.stringify(units)), { level: 6 })));
+			await this.ensureDir(`${this.dir}/${hash}`);
+			await this.adapter.writeBinary(`${this.dir}/${hash}/text.json.gz`, toArrayBuffer(gzipSync(strToU8(JSON.stringify(units)), { level: 6 })));
 			await this.writeTree(tree);
 			this.memory.set(hash, units);
 			fresh = true;
@@ -248,7 +266,7 @@ export class DocStore {
 		}
 		if (changed) await this.saveIndex();
 		const used = new Set(Object.values(index.files).map((e) => e.hash));
-		const listed = await this.adapter.list(CACHE_DIR).catch(() => ({ folders: [] as string[], files: [] as string[] }));
+		const listed = await this.adapter.list(this.dir).catch(() => ({ folders: [] as string[], files: [] as string[] }));
 		for (const dir of listed.folders) {
 			const hash = dir.split("/").pop()!;
 			if (/^[0-9a-f]{64}$/.test(hash) && !used.has(hash)) await this.adapter.rmdir(dir, true).catch(() => undefined);

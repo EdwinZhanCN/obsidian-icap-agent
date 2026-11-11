@@ -1,4 +1,5 @@
 import type { Api, Model } from "@earendil-works/pi-ai";
+import { readVaultContext, withProjectContext } from "../context-files";
 import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messages.lazy";
 import { googleGenerativeAIApi } from "@earendil-works/pi-ai/api/google-generative-ai.lazy";
 import { mistralConversationsApi } from "@earendil-works/pi-ai/api/mistral-conversations.lazy";
@@ -139,6 +140,8 @@ export class MobileBackend implements AgentBackend {
 		const result = (async (): Promise<AgentResult> => {
 			if (req.control) throw new Error(L("Not available on mobile.", "手机上不可用。"));
 			const r = this.resolve(req.model ?? "");
+			// The vault's own AGENTS.md applies here too: desktop gets it from Pi's discovery.
+			const context = await readVaultContext(this.app.vault.adapter);
 			if (cancelled) return { text: "", aborted: true };
 			session = new MobileSession({
 				...events,
@@ -149,7 +152,7 @@ export class MobileBackend implements AgentBackend {
 				transport: r.transport,
 				// Google's adapter rejects a custom fetch; its provider streams anyway (transportOf).
 				fetch: r.transport === "whole" && r.model.api !== "google-generative-ai" ? wholeFetch(this.opts.requestUrl) : undefined,
-				systemPrompt: req.systemPrompt,
+				systemPrompt: withProjectContext(req.systemPrompt, context),
 				prompt: req.prompt,
 				tools: req.tools,
 				thinking: req.thinking,

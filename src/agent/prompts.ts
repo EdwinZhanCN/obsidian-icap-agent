@@ -217,9 +217,38 @@ The learner has just studied ${scopeLabel}. Run a short understanding check insi
 
 export type NoteTaskKind = "concept" | "collect" | "compare" | "from-interaction";
 
-export function notePrompt(ctx: NoteContext, kind: NoteTaskKind, input: string, folder: string): string {
+/** What the agent is told about where new notes go. */
+export interface Placement {
+	/** The learner's folder for new notes (a setting); empty: the agent chooses. */
+	fixed: string;
+	/** The current note's folder ("" = the vault's root). */
+	here: string;
+	/** Folders of the notes the current note links to: where related notes already are. */
+	near: string[];
+	/** The vault's folders, shallow and capped, so the agent knows its layout without a tool call. */
+	folders: string[];
+}
+
+/**
+ * Where new notes go. A vault is the learner's own, often with its own layout and rules, so by default
+ * the agent places a note as the learner would (beside related notes, by the vault's AGENTS.md) instead
+ * of the plugin imposing a folder. A folder the learner set is the default, and their request overrides it.
+ */
+export function placementRule(p: Placement): string {
+	const quote = (f: string) => `"${f || "/"}"`;
+	if (p.fixed) return `Where new notes go: in ${quote(p.fixed)} (the learner's setting), unless the learner asks for another place. Pass it as create_note's folder.`;
+	const lines = [
+		"Where new notes go: choose a folder for each note, as the learner would. Follow the vault's own rules if its AGENTS.md has any; otherwise put it where notes on related topics already are. If nothing fits, put it next to the current note, in " + quote(p.here) + ". Use an existing folder; make a new one only if the learner or the vault's rules ask for it. Pass the folder as create_note's folder.",
+	];
+	if (p.near.length) lines.push(`Folders of the notes this note links to: ${p.near.map(quote).join(", ")}.`);
+	if (p.folders.length) lines.push(`Folders in the vault: ${p.folders.map(quote).join(", ")}.`);
+	return lines.join("\n");
+}
+
+export function notePrompt(ctx: NoteContext, kind: NoteTaskKind, input: string, placement: Placement): string {
 	const head = `${frame(ctx)}\n\n${fence("current_note_excerpt", ctx.note)}`;
-	const common = `Create notes with create_note (folder: "${folder}"). Write them as good study notes: a one-paragraph core idea, the key details as short paragraphs or a list, a small example if useful, and a "Related" line with [[links]] back to "${ctx.title}" and to related concepts. Keep each note focused and under ~350 words. Do not add frontmatter.
+	const common = `${placementRule(placement)}
+Create notes with create_note. Write them as good study notes: a one-paragraph core idea, the key details as short paragraphs or a list, a small example if useful, and a "Related" line with [[links]] back to "${ctx.title}" and to related concepts. Keep each note focused and under ~350 words. Do not add frontmatter.
 If "${ctx.title}" mentions a concept you created a note for but does not link to it yet, you may propose ONE small edit with propose_edit that turns the first plain mention into a [[link]] (find = the exact sentence fragment, replace = the same text with the link). Never change anything else in the learner's note.
 After creating, reply with one short sentence listing what you created. Do not repeat the note content in your reply.`;
 	switch (kind) {
@@ -244,12 +273,14 @@ export function requestPrompt(
 	history: string,
 	request: string,
 	pointed: { link: string; path: string | null }[] = [],
+	placement?: Placement,
 ): string {
 	const parts: string[] = [`The learner wrote this request in the note "${ctx.title}" (${ctx.path})${ctx.headingTrail.length ? `, under: ${ctx.headingTrail.join(" › ")}` : ""}.`];
 	if (quote?.trim()) parts.push(`They had this text selected:\n${fence("selection", quote)}`);
 	if (history.trim()) parts.push(`Earlier in this request block (L = the learner, Q = your question, A = their answer, R = your reply):\n${fence("history", history)}`);
 	parts.push(fence("request", request));
 	if (pointed.length) parts.push(pointedLines(pointed));
+	if (placement) parts.push(placementRule(placement));
 	parts.push(RESULT_RULE);
 	return parts.join("\n\n");
 }

@@ -2,6 +2,7 @@ import { execFile } from "child_process";
 import { pathToFileURL } from "url";
 import type * as Sdk from "./pi-sdk-entry";
 import type { AgentConfig } from "../backend";
+import { L } from "../../i18n";
 
 /**
  * Pi runs inside Obsidian: its SDK is bundled into main.js (tooling/pi-bundle.ts) and loaded on first use.
@@ -21,6 +22,8 @@ export function loadPi(baseFile?: string): Promise<PiSdk> {
 		const g = globalThis as { __ICAP_PI_URL?: string };
 		if (baseFile && !g.__ICAP_PI_URL) g.__ICAP_PI_URL = pathToFileURL(baseFile).href;
 		const loading = (async () => {
+			const short = oldNode(process.versions.node);
+			if (short) throw new Error(short);
 			await adoptLoginShellEnv();
 			return await import("./pi-sdk-entry");
 		})();
@@ -30,6 +33,22 @@ export function loadPi(baseFile?: string): Promise<PiSdk> {
 		});
 	}
 	return sdk;
+}
+
+/**
+ * Node comes with Obsidian's installer (its Electron), which Obsidian's in-app updates do not replace.
+ * Pi needs Node 22: installers up to 1.8.9 (Electron 34 and earlier) have Node 20 or older, on which
+ * Pi's bundle fails to load with a TypeError that tells the learner nothing. Installer 1.9.10 (Electron
+ * 37) went straight to Node 22.18, the oldest Node 22 any installer has, and runs Pi (Pi and undici
+ * declare 22.19; 22.18 was checked with a full session). Returns why Pi cannot run, or null.
+ */
+export function oldNode(version: string): string | null {
+	const [major = 0, minor = 0] = version.split(".").map(Number);
+	if (major > 22 || (major === 22 && minor >= 18)) return null;
+	return L(
+		`Obsidian's installer is too old for Pi (it has Node ${version}; Pi needs Node 22). Download the latest installer from obsidian.md/download and install it over this one. Your vaults and settings stay.`,
+		`Obsidian 的安装程序太旧，无法运行 Pi（它带的是 Node ${version}，Pi 需要 Node 22）。请从 obsidian.md/download 下载最新的安装程序并覆盖安装。库和设置都会保留。`,
+	);
 }
 
 /* ───────────── The login shell's environment ───────────── */

@@ -6,7 +6,7 @@
 import { BasesView, Keymap, TFile, type QueryController } from "obsidian";
 import { mount, unmount } from "svelte";
 import ActivityView from "./ActivityView.svelte";
-import { rowOf, type ActivityData, type ActivityGroup } from "./rows";
+import { rowOf, type ActivityData, type ActivityGroup, type ActivityRow } from "./rows";
 import type { Task } from "../runtime/state.svelte";
 import { ACTIVITY_VIEW_TYPE } from "../dsl/task-notes";
 
@@ -14,6 +14,8 @@ export const ACTIVITY_VIEW = ACTIVITY_VIEW_TYPE;
 
 export interface ActivityHost {
 	taskOf(id: string): Task | undefined;
+	/** Open where the task was asked; false when its note is gone (runtime.openTask). */
+	openTask(id: string, source: string | null, request: string, from: string): Promise<boolean>;
 }
 
 export class ActivityBasesView extends BasesView {
@@ -40,8 +42,15 @@ export class ActivityBasesView extends BasesView {
 				},
 				live: (id: string) => this.host.taskOf(id),
 				open: (path: string, ev: MouseEvent | KeyboardEvent) => void this.app.workspace.openLinkText(path, "", Keymap.isModEvent(ev)),
+				openTask: (row: ActivityRow, ev: MouseEvent | KeyboardEvent) => void this.openTask(row, ev),
 			},
 		});
+	}
+
+	/** A task's name leads to where it was asked; with Mod, or when that note is gone, to its task note. */
+	private async openTask(row: ActivityRow, ev: MouseEvent | KeyboardEvent) {
+		const own = Keymap.isModEvent(ev);
+		if (own || !(await this.host.openTask(row.id, row.source, row.title, row.path))) void this.app.workspace.openLinkText(row.path, "", own);
 	}
 
 	onunload() {
