@@ -8,6 +8,7 @@
 	import type { AskBlock, Turn } from "../runtime/state.svelte";
 	import { verdictGlyph } from "../dsl/blocks";
 	import Markdown from "./Markdown.svelte";
+	import ExtensionErrors from "./ExtensionErrors.svelte";
 	import WritingLine from "./WritingLine.svelte";
 	import Choices from "./Choices.svelte";
 	import { SUBMIT_KEYS, blockCaption, phaseLine, stopLabel, touchCaption, usageLine } from "./phrases";
@@ -542,6 +543,7 @@
 					<Markdown app={rt.app} markdown={block.summary} {sourcePath} streaming />
 				{:else}
 					<p class="icap-pending" aria-live="polite">{block.phase === "preparing" && !block.agentPhase ? L("preparing questions…", "正在准备问题…") : phaseLine(block.agentPhase, block.kind === "quiz" || block.kind === "request" ? block.kind : "check")}</p>
+					<ExtensionErrors errors={rt.ledger.get(block.taskId ?? "")?.extensionErrors} />
 				{/if}
 			</div>
 		{:else if block.summary.trim() && (block.phase === "completed" || block.phase === "finalizing")}

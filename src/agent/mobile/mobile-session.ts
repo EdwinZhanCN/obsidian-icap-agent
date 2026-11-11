@@ -170,10 +170,12 @@ export class MobileSession {
 		switch (ev.type) {
 			case "turn_start":
 				// A reply that arrives whole shows nothing until it is complete: say so instead of "thinking".
-				if (whole) o.onPhase?.("awaiting");
+				o.onPhase?.(whole ? "awaiting" : "sending");
 				return;
 			case "message_start":
-				if (ev.message.role === "assistant") this.currentText = "";
+				if (ev.message.role !== "assistant") return;
+				this.currentText = "";
+				if (!whole) o.onPhase?.("replying");
 				return;
 			case "message_update": {
 				const e = ev.assistantMessageEvent;

@@ -293,6 +293,9 @@ export class LearningRuntime {
 							task.endStep(task.toolEndedAt);
 						}
 					},
+					onExtensionError: (message) => {
+						if (!task.extensionErrors.includes(message) && task.extensionErrors.length < 5) task.extensionErrors.push(message);
+					},
 					onPhase: (p) => {
 						task.phase = p;
 						if (p === "waiting") task.status = "waiting";

@@ -15,7 +15,11 @@
  */
 import type { RunUsage } from "./usage";
 
-export type AgentPhase = "starting" | "thinking" | "reading" | "writing" | "waiting" | "retrying" | "awaiting";
+/**
+ * Where a run is. "starting": the session and the learner's extensions load. "sending": a turn's request is out, no
+ * reply yet. "replying": the reply has begun, nothing of it shown yet. A run stuck in one of these says where it stuck.
+ */
+export type AgentPhase = "starting" | "sending" | "replying" | "thinking" | "reading" | "writing" | "waiting" | "retrying" | "awaiting";
 
 /**
  * How a task's agent is set up.
@@ -123,6 +127,11 @@ export interface AgentEvents {
 	onUsage?: (usage: RunUsage | null, model: string | null) => void;
 	/** ICAP's tools. */
 	onBridge: BridgeHandler;
+	/**
+	 * One of the learner's extensions threw (loading, or in one of its handlers): `extension: message`. The run goes on;
+	 * the task shows it, because a broken extension can leave the run waiting with no other sign.
+	 */
+	onExtensionError?: (message: string) => void;
 	/** A dialog from one of the learner's extensions; absent = dismiss it. Aborted on timeout. */
 	onDialog?: (req: DialogRequest, signal: AbortSignal) => Promise<DialogAnswer>;
 }

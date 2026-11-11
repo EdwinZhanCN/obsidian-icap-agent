@@ -150,6 +150,13 @@ describe("MobileSession on pi-agent-core", () => {
 		await expect(session("hi").run()).resolves.toMatchObject({ aborted: false, interrupted: "Connection error." });
 	});
 
+	it("says where a run is: the request is out, the reply begins, then the text", async () => {
+		core.setResponses([fauxAssistantMessage("hello back")]);
+		const phases: AgentPhase[] = [];
+		await session("hi", { onPhase: (p) => phases.push(p) }).run();
+		expect(phases.filter((p, i) => p !== phases[i - 1])).toEqual(["starting", "sending", "replying", "writing"]);
+	});
+
 	it("a reply that arrives whole says so while it is awaited", async () => {
 		const phases: AgentPhase[] = [];
 		core.setResponses([fauxAssistantMessage("whole")]);

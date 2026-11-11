@@ -6,6 +6,7 @@
 	import type { LearningRuntime } from "../runtime/runtime";
 	import type { Gloss } from "../runtime/state.svelte";
 	import Markdown from "./Markdown.svelte";
+	import ExtensionErrors from "./ExtensionErrors.svelte";
 	import { phaseLine, stopLabel } from "./phrases";
 	import { inertToEditor, keyGuard } from "./keys";
 	import { holdHeight } from "./hold-height";
@@ -186,6 +187,7 @@
 						<Markdown app={rt.app} markdown={s.text} sourcePath={gloss.notePath} streaming={s.status === "streaming"} />
 					{:else if s.status === "streaming"}
 						<p class="icap-pending" aria-live="polite">{phaseLine(streamingTask?.phase, "explain")}</p>
+						<ExtensionErrors errors={streamingTask?.extensionErrors} />
 					{/if}
 					{#if s.status === "cancelled"}
 						<p class="icap-stopped">

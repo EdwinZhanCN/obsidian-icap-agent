@@ -6,7 +6,8 @@ import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall, type FauxPr
 import type { PiSdk } from "../../../../src/agent/desktop/pi-host";
 import { modelRuntime } from "../../../../src/agent/desktop/pi-host";
 import { ICAP_TOOLS } from "../../../../src/agent/tools/icap-tools";
-import { PiSession, probeCommands, type RunOptions } from "../../../../src/agent/desktop/pi-session";
+import type { AgentPhase } from "../../../../src/agent/backend";
+import { PiSession, extensionName, probeCommands, type RunOptions } from "../../../../src/agent/desktop/pi-session";
 import { ensureSkills } from "../../../../src/agent/desktop/icap-skills";
 
 /**
@@ -36,6 +37,19 @@ writeFileSync(
 }
 `,
 );
+
+// A learner extension, as a folder with an index, that throws on session start while a test sets the flag.
+mkdirSync(join(agentDir, "extensions", "broken"), { recursive: true });
+writeFileSync(
+	join(agentDir, "extensions", "broken", "index.ts"),
+	`export default function (pi) {
+	pi.on("session_start", () => {
+		if (globalThis.__icapBreakExtension) throw new TypeError("Illegal invocation");
+	});
+}
+`,
+);
+const breakExtension = (on: boolean) => ((globalThis as { __icapBreakExtension?: boolean }).__icapBreakExtension = on);
 
 let pi: PiSdk;
 let faux: FauxProviderHandle;
@@ -184,6 +198,13 @@ describe("PiSession on the SDK", () => {
 		await expect(run("x", { model: "nope/none" }).run()).rejects.toThrow(/no model/);
 	});
 
+	it("says where a run is: the session starts, the request is out, the reply begins, then the text", async () => {
+		faux.setResponses([fauxAssistantMessage("hello back")]);
+		const phases: AgentPhase[] = [];
+		await run("hello", { onPhase: (p) => phases.push(p) }).run();
+		expect(phases.filter((p, i) => p !== phases[i - 1])).toEqual(["starting", "sending", "replying", "writing"]);
+	});
+
 	it("cancel stops a running turn", async () => {
 		let release!: () => void;
 		faux.setResponses([async () => (await new Promise<void>((r) => (release = r)), fauxAssistantMessage("late"))]);
@@ -238,6 +259,26 @@ describe("the learner's own extensions (mine)", () => {
 		faux.setResponses([fauxAssistantMessage("from the command, answered")]);
 		await expect(mine("/turn").run()).resolves.toMatchObject({ text: "from the command, answered", handled: true });
 	});
+	it("an extension that throws is reported by name while the run goes on", async () => {
+		breakExtension(true);
+		try {
+			faux.setResponses([fauxAssistantMessage("still answered")]);
+			const errors: string[] = [];
+			const r = await mine("hi", { onExtensionError: (m) => errors.push(m) }).run();
+			expect(errors).toEqual(["broken: Illegal invocation"]);
+			expect(r.text).toBe("still answered");
+		} finally {
+			breakExtension(false);
+		}
+	});
+	it("an extension that throws is the error when no reply comes", async () => {
+		breakExtension(true);
+		try {
+			await expect(mine("/silent").run()).rejects.toThrow("broken: Illegal invocation");
+		} finally {
+			breakExtension(false);
+		}
+	});
 	it("an extension's dialog is asked through onDialog", async () => {
 		const asked: string[] = [];
 		const r = await mine("/gate", {
@@ -251,3 +292,12 @@ describe("the learner's own extensions (mine)", () => {
 	});
 });
 
+
+describe("extensionName", () => {
+	it("names an extension by its package, its file, or the folder of its index", () => {
+		expect(extensionName("/u/.pi/agent/npm/node_modules/pi-subagents/bundle/index.js")).toBe("pi-subagents");
+		expect(extensionName("C:\\Users\\me\\node_modules\\@acme\\pi-proxy\\dist\\main.js")).toBe("@acme/pi-proxy");
+		expect(extensionName("/u/.pi/agent/extensions/commands.ts")).toBe("commands");
+		expect(extensionName("/u/.pi/agent/extensions/broken/index.ts")).toBe("broken");
+	});
+});
