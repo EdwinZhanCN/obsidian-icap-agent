@@ -14,7 +14,7 @@ An Obsidian plugin for learning inside your own notes. There is no chat panel: e
 - **Ask the agent here.** A request block anywhere in a note. Point at files with `[[` or `@`; use your Pi skills and commands with `/`.
 - **Documents.** PDFs, EPUBs and Word files in the vault become readable trees: the agent opens a book's table of contents, reads only the chapters it needs, and cites pages you can click.
 - **Interactive visuals.** Sliders and diagrams you can drag, in a sandbox with no network.
-- **Activity.** Every task, and every file it created, changed or deleted.
+- **Activity.** Every note the agent writes, and every request that turns into real work, is recorded as a task note with properties, listed in a native Base (`ICAP/Activity.base`) you can filter, group and change: its status, what it cost (tokens, cache hits, price), and every file it created or changed.
 
 ![A request block: notes made from a PDF, with the edit to an existing note proposed as a diff](docs/images/request.en.png)
 

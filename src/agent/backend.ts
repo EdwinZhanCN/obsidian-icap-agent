@@ -13,6 +13,8 @@
  * "awaiting": the reply arrives whole, not streamed (a "whole" transport, agent/mobile/transport.ts): nothing
  * shows until it is complete, and stopping cannot cancel the request, only discard its result.
  */
+import type { RunUsage } from "./usage";
+
 export type AgentPhase = "starting" | "thinking" | "reading" | "writing" | "waiting" | "retrying" | "awaiting";
 
 /**
@@ -114,6 +116,8 @@ export interface AgentEvents {
 	onTool?: (running: boolean) => void;
 	/** A tool call started: its name and a one-line gist of its arguments (for the activity's steps). */
 	onStep?: (tool: string, detail: string) => void;
+	/** An assistant message ended: the tokens and price it reports (agent/usage.ts). Summed by the runtime. */
+	onUsage?: (usage: RunUsage) => void;
 	/** ICAP's tools. */
 	onBridge: BridgeHandler;
 	/** A dialog from one of the learner's extensions; absent = dismiss it. Aborted on timeout. */

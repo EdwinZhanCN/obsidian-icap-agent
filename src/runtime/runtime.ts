@@ -27,7 +27,9 @@ import {
 	type GlossMode,
 	type NoteTaskKind,
 } from "../agent/prompts";
+import { addUsage } from "../agent/usage";
 import { buildContext } from "./context";
+import { TaskNotes, announceMigration, basesEnabled } from "./task-notes";
 import { answerText, coveredTranscript, reusable, sessionSig, transcriptOf, withReply } from "./transcript";
 import { calloutBlock, editProblem, evidenceCallout, findAskBlock, isoDate, parseAskSource, parseAuthored, requestRecord, type AskSource, glossCallout, newId, serializeAsk, splitSources, tidyOptionLabel, tidyQuestion, verdictGlyph, dialogTitle, type Depth } from "../dsl/blocks";
 import { askReplacement, blockInsertion, editorFor, spliceFile, uniqueNotePath, type Splice } from "../dsl/doc-ops";
@@ -106,6 +108,8 @@ export class LearningRuntime {
 	docs: DocStore;
 	/** Documents whose summaries are being written (by content hash). */
 	private summarizing = new Set<string>();
+	/** Request and note tasks as notes with `icap-*` properties (FORMAT.md v4); Activity.base lists them. */
+	taskNotes: TaskNotes;
 	private prepQueue: string[] = [];
 	private preparing = false;
 
@@ -129,6 +133,19 @@ export class LearningRuntime {
 		};
 		this.field = glossField(host);
 		this.docs = new DocStore(plugin.app, plugin.backend.files ?? null);
+		this.taskNotes = new TaskNotes({
+			app: plugin.app,
+			home: () => this.settings.homeFolder,
+			tasks: () => this.ledger.tasks,
+			block: (id) => (id ? this.blocks.get(id) : undefined),
+			beingEdited: (path) => this.isBeingEdited(path),
+			baseMade: () => this.settings.activityBaseMade,
+			setBaseMade: () => {
+				if (this.settings.activityBaseMade) return;
+				this.settings.activityBaseMade = true;
+				this.persist();
+			},
+		});
 	}
 
 	/** The agent below the runtime (agent/backend.ts). */
@@ -180,6 +197,8 @@ export class LearningRuntime {
 	}
 
 	persist() {
+		// Every change of a task's state passes here: its note follows (written only if something differs).
+		void this.taskNotes.sync();
 		if (this.saveTimer) window.clearTimeout(this.saveTimer);
 		this.saveTimer = window.setTimeout(() => {
 			this.saveTimer = null;
@@ -188,6 +207,7 @@ export class LearningRuntime {
 	}
 
 	dispose() {
+		this.taskNotes.dispose();
 		clearCues();
 		for (const t of this.ledger.active) t.cancel?.();
 	}
@@ -248,6 +268,10 @@ export class LearningRuntime {
 					onText: opts.onText,
 					onStep: (tool, detail) => {
 						task.addStep(tool, detail);
+						this.persist();
+					},
+					onUsage: (used) => {
+						task.usage = addUsage(task.usage, used);
 						this.persist();
 					},
 					onTool: (running) => {
@@ -903,9 +927,14 @@ export class LearningRuntime {
 		const prev = block.taskId ? this.ledger.get(block.taskId) : undefined;
 		if (prev && !prev.active) this.ledger.remove(prev.id);
 		const task = this.ledger.add(new Task(newId("t"), "request", `“${short(request)}”`, block.notePath));
+		// One request block = one task note, named after its first request.
+		// (Its first: the note may only be written at a later round, once the conversation amounts to a task.)
+		this.taskNotes.adopt(task, block.id, block.turns.find((t) => t.request && !t.control)?.answer?.text?.trim() || request, "request");
 		task.artifacts = prev ? [...prev.artifacts] : [];
 		task.steps = prev ? [...prev.steps] : [];
 		task.stepsDropped = prev?.stepsDropped ?? 0;
+		// What the conversation has cost so far: the task note's cost is the whole block's.
+		task.usage = prev?.usage ? { ...prev.usage } : null;
 		// The session is resumable only if its own messages hold the whole conversation. A command in a
 		// fresh session got the earlier turns through the system prompt, which Pi does not store.
 		const selfContained = !cmd || !!resumed || (!history.trim() && !sofar.trim());
@@ -964,8 +993,10 @@ export class LearningRuntime {
 				const prev = block.taskId ? this.ledger.get(block.taskId) : undefined;
 				if (prev && !prev.active) this.ledger.remove(prev.id);
 				const task = this.ledger.add(new Task(newId("t"), "request", L(`Compacting “${block.topic}”`, `正在压缩“${block.topic}”`), block.notePath));
+				this.taskNotes.adopt(task, block.id, block.topic, "request");
 				task.artifacts = prev ? [...prev.artifacts] : [];
 				task.steps = prev ? [...prev.steps] : [];
+				task.usage = prev?.usage ? { ...prev.usage } : null;
 				task.blockId = block.id;
 				block.taskId = task.id;
 				block.phase = "thinking";
@@ -1008,6 +1039,8 @@ export class LearningRuntime {
 		// The document cache is the plugin's own, never the agent's. `.icap/docs/` raises no vault events;
 		// the visible folder of earlier versions does, while it is being moved.
 		if (file.path.startsWith(LEGACY_DIR + "/")) return;
+		// Task notes and Activity.base are the plugin's own record of a task, not something its agent changed.
+		if (this.taskNotes.owns(file.path) || (oldPath && this.taskNotes.owns(oldPath))) return;
 		const now = Date.now();
 		const tasks = this.ledger.tasks.filter((t) => t.toolsRunning > 0 || now - t.toolEndedAt < TOOL_GRACE_MS);
 		if (!tasks.length) return;
@@ -1714,6 +1747,8 @@ export class LearningRuntime {
 			"from-interaction": L(`Turning an interaction into a note — “${file.basename}”`, `正在把交互写成笔记——“${file.basename}”`),
 		};
 		const task = this.ledger.add(new Task(newId("t"), "note", titles[kind], file.path));
+		// Carried out inside a request block, it is that block's task; otherwise a task of its own.
+		this.taskNotes.adopt(task, into?.kind === "request" ? into.id : task.id, noteTaskName(kind, file.basename, input), into?.kind === "request" ? "request" : "note");
 		const text = editor ? editor.getValue() : await this.textOf(file.path);
 		let at = editor ? editor.posToOffset(editor.getCursor("to")) : text.length;
 		if (into) {
@@ -1750,7 +1785,7 @@ export class LearningRuntime {
 			task.end("completed", outcome);
 			if (created.length) {
 				const n = new Notice(outcome + L(". Open the activity ledger to see them.", "。打开活动面板查看。"), 5000);
-				n.messageEl.addEventListener("click", () => (this.ledger.open = true));
+				n.messageEl.addEventListener("click", () => void this.showActivity());
 			}
 		} catch (e) {
 			this.finishWithError(task, e, L("Could not create the notes", "无法新建笔记"));
@@ -1765,6 +1800,55 @@ export class LearningRuntime {
 	}
 
 	/* ───────────────────────── Navigation ───────────────────────── */
+
+	/**
+	 * Show the activity: Activity.base, where request and note tasks are listed as notes. Something that
+	 * waits for the learner and has no note (a recall, a check, a quiz) is where "activity" leads first.
+	 * Without the Bases core plugin, the plugin's own list opens instead.
+	 */
+	async showActivity() {
+		const waiting = this.ledger.waiting.find((t) => !this.taskNotes.has(t));
+		if (waiting) return this.reveal(waiting);
+		if (!basesEnabled(this.app)) return void (this.ledger.open = !this.ledger.open);
+		const file = await this.taskNotes.ensureBase(true).catch(() => null);
+		if (!file) return void (this.ledger.open = !this.ledger.open);
+		// By the leaf's state, not its view: a tab not shown since startup has no view yet.
+		const open = this.app.workspace.getLeavesOfType("bases").find((l) => l.getViewState().state?.file === file.path);
+		if (open) return void this.app.workspace.setActiveLeaf(open, { focus: true });
+		await this.app.workspace.getLeaf("tab").openFile(file);
+	}
+
+	/** The learner asks for the task notes of recent activity that are missing (deleted, or never written). */
+	async rebuildTaskNotes() {
+		const made = await this.taskNotes.restore(this.ledger.tasks).catch((e) => {
+			console.error("ICAP: could not rebuild task notes", e);
+			return -1;
+		});
+		if (made < 0) return void new Notice(L("Could not rebuild the task notes; see the console.", "无法重建任务笔记，详见控制台。"));
+		new Notice(
+			made
+				? L(`Rebuilt ${made} task ${made === 1 ? "note" : "notes"} in “${this.taskNotes.folder}”.`, `已在“${this.taskNotes.folder}”重建 ${made} 篇任务笔记。`)
+				: L("No task note is missing for the recent activity (the latest 60 tasks are kept).", "最近的活动没有缺失的任务笔记（只保留最近 60 个任务）。"),
+		);
+	}
+
+	/**
+	 * After load: record tasks this device was running when Obsidian closed, and, once per vault, turn the
+	 * activity earlier versions kept in plugin data into task notes.
+	 */
+	async startTaskNotes() {
+		this.taskNotes.adoptInterrupted();
+		await this.taskNotes.sync();
+		if (this.settings.taskNotesMigrated) return;
+		const made = await this.taskNotes.migrate(this.ledger.tasks).catch((e) => {
+			console.error("ICAP: could not migrate the activity to task notes", e);
+			return -1;
+		});
+		if (made < 0) return;
+		this.settings.taskNotesMigrated = true;
+		this.persist();
+		if (made) announceMigration(this.taskNotes.folder, made);
+	}
 
 	async reveal(task: Task) {
 		const path = task.artifacts.find((a) => a.kind === "created")?.path ?? task.notePath;
@@ -1905,4 +1989,18 @@ export function keptMarkdown(block: AskBlock, artifacts: Artifact[] = [], date =
 		return evidenceCallout("practice", title(L("Understanding check", "理解检验")), { kind: "quiz", id: block.id, date, counts, topic: block.topic }, lines.join("\n").trim());
 	}
 	return summary ? calloutBlock("note", block.topic, summary) : "";
+}
+
+/** What a note-making task is called as a task note: its subject, without the progressive verb of the ledger line. */
+function noteTaskName(kind: NoteTaskKind, noteName: string, input: string): string {
+	switch (kind) {
+		case "concept":
+			return L(`Concept note — ${short(input)}`, `概念笔记——${short(input)}`);
+		case "collect":
+			return L(`Key concepts — ${noteName}`, `关键概念——${noteName}`);
+		case "compare":
+			return L(`Comparison — ${short(input)}`, `对比——${short(input)}`);
+		case "from-interaction":
+			return L(`Note from an interaction — ${noteName}`, `交互整理成的笔记——${noteName}`);
+	}
 }

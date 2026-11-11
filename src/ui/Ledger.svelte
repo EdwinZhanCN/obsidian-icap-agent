@@ -4,7 +4,7 @@
 	import X from "@lucide/svelte/icons/x";
 	import type { LearningRuntime } from "../runtime/runtime";
 	import type { Task } from "../runtime/state.svelte";
-	import { ago, phaseLine, statusWord, stopLabel } from "./phrases";
+	import { ago, phaseLine, statusWord, stopLabel, usageLine } from "./phrases";
 	import { play, settleIn, spring, strokeIn } from "./motion";
 
 	let { rt }: { rt: LearningRuntime } = $props();
@@ -133,6 +133,7 @@
 						<span>{L("in", "于")} <button type="button" class="icap-link" onclick={() => rt.openPath(t.notePath)}>{noteName(t.notePath)}</button></span>
 						<span class="icap-row-time">{ago(t.endedAt ?? t.createdAt, now)}</span>
 					</p>
+					{#if t.usage && !t.active}<p class="icap-usage">{usageLine(t.usage)}</p>{/if}
 					{#if t.error}<p class="icap-row-error">{t.error}</p>{/if}
 					{#if t.artifacts.some((a) => a.kind === "created" || a.kind === "edited" || a.kind === "deleted")}
 						<ul class="icap-row-artifacts">

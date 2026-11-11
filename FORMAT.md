@@ -1,6 +1,6 @@
 # What ICAP writes into notes
 
-Format version **3** (2026-11-10). This is the contract between ICAP and any tool that reads a vault ICAP has worked in. Kept output is plain Obsidian Markdown: it must read well without the plugin, and nothing here depends on plugin data (`data.json`), whose shape is private and may change without notice.
+Format version **4** (2026-11-10). This is the contract between ICAP and any tool that reads a vault ICAP has worked in. Kept output is plain Obsidian Markdown: it must read well without the plugin, and nothing here depends on plugin data (`data.json`), whose shape is private and may change without notice.
 
 Readers must ignore what they do not know: unknown callout types, unknown keys in a comment, unknown `kind:` values. A new key or kind is an additive change; removing or renaming one, or changing a meaning, bumps the version.
 
@@ -120,6 +120,50 @@ Records kept before format 1 have the callout without the comment and without th
 
 `src/dsl/records.ts` (`readRecords`) is the reference reader. `test/fixtures/format/` holds notes in every format, each with the JSON the reader must produce from it; other readers can test against the same pairs.
 
+## Task notes
+
+Since format 4, each note-making task, and each request block that amounts to a task, is also recorded as a note of its own, so that Obsidian's Bases (and any other tool) can list tasks by their properties. A request amounts to a task once its agent used a tool, created or changed a file, asked the learner something, or the conversation went past one round; a single question with a single answer stays in its block only. Explanations, recalls, checks and quizzes never get one. A task note is recognised by `icap: task`, not by where it is: the learner may rename or move it, and the plugin finds it again by `icap-id`.
+
+```markdown
+---
+icap: task
+icap-id: bq9ze7nt9zr
+icap-status: done
+icap-source:
+  - "[[Contracts/Acme MSA]]"
+icap-changed:
+  - "[[Learning/Renewal terms]]"
+icap-started: 2026-11-10T14:02:10
+icap-ended: 2026-11-10T14:06:48
+icap-cost: 0.0421
+icap-tokens: 18452
+icap-cache: 83
+---
+
+Summarise the renewal terms of this contract as a section "Renewal".
+
+Asked in [[Contracts/Acme MSA]]; the conversation is in that note.
+```
+
+| Property | Type | Meaning |
+|---|---|---|
+| `icap` | text | `task` |
+| `icap-id` | text | stable id of the task. For a request block it is the block's id: every round of that conversation updates the same note |
+| `icap-status` | text | `running` the agent is working · `needs-you` it asked the learner something and waits · `review` it proposed an edit the learner has not applied or declined yet · `done` · `failed` · `cancelled` stopped by the learner, or it was running when Obsidian closed. `draft` and `queued` are reserved (a task not yet started); the plugin does not write them yet |
+| `icap-source` | list of links | the note the task is about: where its request block is, or the note it was started from |
+| `icap-changed` | list of links | files the task created or changed |
+| `icap-started`, `icap-ended` | date & time, local | the latest run. `icap-ended` is absent while the task is `running`, `needs-you` or `review` |
+
+| `icap-cost` | number, or the text `unknown` | US dollars for every run of the task so far (all rounds of a request block). An estimate from the model's list prices, unless the provider reported what it billed. `unknown` when it cannot be told: a model without list prices (a custom endpoint), or a task from before costs were recorded. Always present once a task has ended. A subscription login is not billed per token; the number is then what the same use would cost at list prices |
+| `icap-tokens` | number | tokens in and out over those runs, cached ones included |
+| `icap-cache` | number, 0–100 | the share of the prompt that was read from the provider's cache |
+
+A property without a value is absent (the cost is the exception: it says `unknown`). The plugin sets only these properties and leaves any other in the note alone; readers must ignore `icap-*` properties they do not know (`icap-apply`, `icap-scope`, `icap-parent` and others are reserved). The body is for people: the request in the learner's words, and where the conversation is. The conversation itself stays in the source note (the live block, then the `[!request]` record). A task note is never evidence of understanding.
+
+What a task is doing right now (which file it reads, which step) is not in the note; it changes every second and would only create sync conflicts.
+
+By default task notes go to `ICAP/Tasks/`, and the plugin generates `ICAP/Activity.base` once: three table views over `icap == "task"`; the one over all tasks sums cost and tokens (Bases leaves `unknown` out of a sum). From then on it belongs to the learner and is never rewritten. In a `.base` expression a hyphenated property must be written `note["icap-status"]` (a bare `icap-status` is read as a subtraction); as a column, group or display-name key it is `note.icap-status`.
+
 ## Visuals
 
 An interactive visual is an ```` ```icap-ui ```` fence containing an HTML document, in an agent reply or an agent-created note. It is never evidence. Its state is not saved.
@@ -154,3 +198,5 @@ The index is shared by every device that syncs the vault; entries for paths outs
 |---|---|---|
 | 1 | 2026-11-06 | kept recall, check and quiz callouts carry the date and verdict in the title and in an `<!-- icap … -->` comment |
 | 2 | 2026-11-07 | quoted values in the comment; `topic` on every record; `paragraphs` on multi-paragraph recalls; kept glosses get a `gloss` comment with `date` and `depth`; reference reader and fixtures |
+| 3 | 2026-11-10 | the document cache is the hidden `.icap/docs/` (before: the visible `icap/docs/`, same contents; moved on first use) |
+| 4 | 2026-11-10 | task notes (`icap: task` and the `icap-*` properties) for request blocks and note-making tasks, and the generated `Activity.base`; `icap-cost` (a number or `unknown`), `icap-tokens`, `icap-cache` |

@@ -1456,3 +1456,11 @@ body {
 .icap-notice-action {
 	margin-top: 0.6em;
 }
+
+/* What a task used (tokens, cache, price): a fact in the margin, never louder than the reply. */
+.icap-usage {
+	margin: 0.35em 0 0;
+	font-size: var(--font-smallest);
+	color: var(--text-faint);
+	font-variant-numeric: tabular-nums;
+}

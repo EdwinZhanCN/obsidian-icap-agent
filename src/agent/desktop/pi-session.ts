@@ -2,6 +2,7 @@ import type { AgentSession, AgentSessionEvent, ExtensionUIContext } from "@earen
 import { dirname, resolve } from "path";
 import type { AgentCommand, AgentConfig, AgentEvents, AgentResult, Control, DialogAnswer, DialogRequest, ModelList } from "../backend";
 import { ICAP_TOOLS } from "../tools/icap-tools";
+import { messageUsage } from "../usage";
 import { icapExtension, inside } from "./icap-extension";
 import { findModel, modelRuntime, projectTrusted, type PiSdk } from "./pi-host";
 
@@ -296,6 +297,8 @@ export class PiSession {
 			case "message_end": {
 				const m = rec.message;
 				if (m?.role !== "assistant") return;
+				const used = messageUsage(m.usage);
+				if (used) o.onUsage?.(used);
 				const text = Array.isArray(m.content) ? m.content.filter((c: any) => c.type === "text").map((c: any) => c.text).join("") : "";
 				if (m.stopReason === "error" || m.stopReason === "aborted") {
 					this.lastError = m.errorMessage || (m.stopReason === "aborted" ? "Stopped." : "The model returned an error.");

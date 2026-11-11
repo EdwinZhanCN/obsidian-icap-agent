@@ -1,4 +1,5 @@
 import type { AgentPhase, BlockSession } from "../agent/backend";
+import type { RunUsage } from "../agent/usage";
 import type { GlossMode } from "../agent/prompts";
 
 /* ───────────────────────── Activity: tasks ───────────────────────── */
@@ -38,6 +39,8 @@ export interface TaskRecord {
 	steps?: Step[];
 	/** Steps dropped because the task made more than MAX_STEPS tool calls. */
 	stepsDropped?: number;
+	/** Tokens and price of the task's runs so far (every round of a request block). */
+	usage?: RunUsage;
 }
 
 export class Task {
@@ -54,6 +57,8 @@ export class Task {
 	artifacts = $state<Artifact[]>([]);
 	steps = $state<Step[]>([]);
 	stepsDropped = $state(0);
+	/** Tokens and price so far; null until a model has answered (agent/usage.ts). */
+	usage = $state<RunUsage | null>(null);
 	error = $state<string | null>(null);
 	endedAt = $state<number | null>(null);
 	/** Was live when Obsidian (or the plugin) closed. */
@@ -108,6 +113,7 @@ export class Task {
 			interrupted: this.interrupted || undefined,
 			...(this.steps.length ? { steps: $state.snapshot(this.steps) } : {}),
 			...(this.stepsDropped ? { stepsDropped: this.stepsDropped } : {}),
+			...(this.usage ? { usage: $state.snapshot(this.usage) } : {}),
 		};
 	}
 
@@ -121,6 +127,7 @@ export class Task {
 		t.artifacts = r.artifacts ?? [];
 		t.steps = r.steps ?? [];
 		t.stepsDropped = r.stepsDropped ?? 0;
+		t.usage = r.usage ?? null;
 		t.error = r.error;
 		t.endedAt = r.endedAt ?? r.createdAt;
 		t.blockId = r.blockId;

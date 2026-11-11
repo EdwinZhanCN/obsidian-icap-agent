@@ -65,7 +65,7 @@
 	title={L("Learning activity", "学习活动")}
 	onclick={(e) => {
 		e.stopPropagation();
-		ledger.open = !ledger.open;
+		void rt.showActivity();
 	}}
 >
 	<span class="icap-mark-glyph" aria-hidden="true" bind:this={glyph}></span>

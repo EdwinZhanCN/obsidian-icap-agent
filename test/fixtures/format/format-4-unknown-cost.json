@@ -1,0 +1,6 @@
+{
+  "agentWritten": false,
+  "records": [],
+  "live": [],
+  "task": { "id": "tq7", "status": "done", "source": [], "changed": [], "started": "2026-11-10T09:30:00", "ended": "2026-11-10T09:31:00", "cost": "unknown", "tokens": 5120, "cache": 0 }
+}

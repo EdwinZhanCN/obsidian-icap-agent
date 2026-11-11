@@ -9,7 +9,7 @@
 	import Markdown from "./Markdown.svelte";
 	import WritingLine from "./WritingLine.svelte";
 	import Choices from "./Choices.svelte";
-	import { SUBMIT_KEYS, blockCaption, phaseLine, stopLabel, touchCaption } from "./phrases";
+	import { SUBMIT_KEYS, blockCaption, phaseLine, stopLabel, touchCaption, usageLine } from "./phrases";
 	import { Platform } from "obsidian";
 	import Keys from "./Keys.svelte";
 	import { holdHeight } from "./hold-height";
@@ -68,6 +68,7 @@
 			? (rt.ledger.get(block.taskId ?? "")?.artifacts ?? []).filter((a) => a.kind === "created" || a.kind === "edited" || a.kind === "deleted")
 			: [],
 	);
+	const usage = $derived(block?.kind === "request" ? usageLine(rt.ledger.get(block.taskId ?? "")?.usage) : "");
 	const fileWord: Record<string, string> = { created: L("new", "新建"), edited: L("changed", "修改"), deleted: L("deleted", "删除") };
 	/*
 	 * Slash commands belong to request blocks only. In a recall, check or quiz the learner's words
@@ -568,6 +569,10 @@
 					</li>
 				{/each}
 			</ul>
+		{/if}
+
+		{#if usage && block.phase !== "thinking" && block.phase !== "preparing"}
+			<p class="icap-usage" title={L("Tokens, share of the prompt read from the cache, and price for this conversation so far. ≈ marks an estimate from list prices.", "这段对话到目前为止的 token、提示词的缓存命中比例和价格。≈ 表示按公开价目估算。")}>{usage}</p>
 		{/if}
 
 		{#if block.kind === "request" && block.phase === "completed"}

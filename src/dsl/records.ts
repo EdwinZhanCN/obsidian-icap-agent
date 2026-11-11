@@ -1,4 +1,5 @@
 import { parseEvidenceComment, type Depth, type Verdict } from "./blocks";
+import { TASK_MARK, linkPath } from "./task-notes";
 
 /**
  * The reference reader for FORMAT.md: what a tool reading a vault sees in one note. Pure, so other
@@ -11,6 +12,26 @@ export interface NoteRecords {
 	records: KeptRecord[];
 	/** Ids of live ```icap-ask blocks: in progress, nothing to read from them. */
 	live: string[];
+	/** Format 4: the note is a task note (`icap: task`): one request or note-making task, as its properties say. */
+	task?: TaskRecord;
+}
+
+export interface TaskRecord {
+	id: string;
+	/** As written. Known values: draft, queued, running, needs-you, review, done, failed, cancelled. */
+	status: string;
+	/** Link targets (vault paths without `.md`) of the notes the task is about. */
+	source: string[];
+	/** Link targets of the files the task created or changed. */
+	changed: string[];
+	started?: string;
+	ended?: string;
+	/** US dollars for all runs of the task, or "unknown". Absent on a task that has not ended and not yet reached a model. */
+	cost?: number | "unknown";
+	/** Tokens in and out, cached ones included. */
+	tokens?: number;
+	/** Share of the prompt read from the cache, 0–100. */
+	cache?: number;
 }
 
 export interface KeptRecord {
@@ -62,6 +83,63 @@ function paragraphsAbove(lines: string[], end: number, n: number): string | unde
 	return text;
 }
 
+/**
+ * The `icap-*` properties of a task note. Only the shapes Obsidian writes for them are read: a scalar on
+ * the key's line, or a block list of (quoted) links under it.
+ */
+function readTask(frontmatter: string[]): TaskRecord | undefined {
+	const props = new Map<string, string | string[]>();
+	let list: string[] | null = null;
+	for (const line of frontmatter) {
+		const item = /^\s+-\s+(.*)$/.exec(line);
+		if (item && list) {
+			list.push(unquote(item[1]));
+			continue;
+		}
+		list = null;
+		const kv = /^([A-Za-z][\w-]*):\s*(.*)$/.exec(line);
+		if (!kv) continue;
+		if (kv[2].trim()) props.set(kv[1], unquote(kv[2]));
+		else props.set(kv[1], (list = []));
+	}
+	if (props.get("icap") !== TASK_MARK) return undefined;
+	const one = (k: string) => (typeof props.get(k) === "string" ? (props.get(k) as string) : undefined);
+	const links = (k: string) => {
+		const v = props.get(k);
+		const all = Array.isArray(v) ? v : typeof v === "string" ? [v] : [];
+		return all.map(linkPath).filter((x): x is string => !!x);
+	};
+	const task: TaskRecord = { id: one("icap-id") ?? "", status: one("icap-status") ?? "", source: links("icap-source"), changed: links("icap-changed") };
+	const started = one("icap-started");
+	const ended = one("icap-ended");
+	if (started) task.started = started;
+	if (ended) task.ended = ended;
+	const num = (k: string) => {
+		const v = one(k);
+		return v !== undefined && v !== "" && Number.isFinite(Number(v)) ? Number(v) : undefined;
+	};
+	const cost = one("icap-cost");
+	if (cost !== undefined) task.cost = num("icap-cost") ?? "unknown";
+	const tokens = num("icap-tokens");
+	const cache = num("icap-cache");
+	if (tokens !== undefined) task.tokens = tokens;
+	if (cache !== undefined) task.cache = cache;
+	return task;
+}
+
+function unquote(s: string): string {
+	const t = s.trim();
+	if (t.length >= 2 && t[0] === '"' && t[t.length - 1] === '"') {
+		try {
+			return JSON.parse(t) as string;
+		} catch {
+			return t.slice(1, -1);
+		}
+	}
+	if (t.length >= 2 && t[0] === "'" && t[t.length - 1] === "'") return t.slice(1, -1).replace(/''/g, "'");
+	return t;
+}
+
 export function readRecords(markdown: string): NoteRecords {
 	const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
 	const out: NoteRecords = { agentWritten: false, records: [], live: [] };
@@ -70,6 +148,8 @@ export function readRecords(markdown: string): NoteRecords {
 		const end = lines.indexOf("---", 1);
 		if (end > 0) {
 			out.agentWritten = GENERATED_BY_RE.test(lines.slice(1, end).join("\n"));
+			const task = readTask(lines.slice(1, end));
+			if (task) out.task = task;
 			i = end + 1;
 		}
 	}

@@ -1,3 +1,4 @@
+import { cacheHit, formatCost, formatTokens, totalTokens, type RunUsage } from "../agent/usage";
 import type { AgentPhase } from "../agent/backend";
 import type { BlockPhase, TaskStatus } from "../runtime/state.svelte";
 import type { GlossMode } from "../agent/prompts";
@@ -109,4 +110,17 @@ export function glossLabelUI(mode: GlossMode, compareWith?: string): string {
 		default:
 			return "";
 	}
+}
+
+/**
+ * What a task has used, as one quiet line: "12k tokens · cache 83% · ≈$0.042". The price is an estimate
+ * from list prices (≈) unless the provider reported what it billed; when it cannot be told, it says so.
+ */
+export function usageLine(u: RunUsage | null | undefined): string {
+	if (!u) return "";
+	const parts = [`${formatTokens(totalTokens(u))} tokens`];
+	const hit = cacheHit(u);
+	if (hit !== null) parts.push(L(`cache ${hit}%`, `缓存 ${hit}%`));
+	parts.push(formatCost(u) ?? L("cost unknown", "花费未知"));
+	return parts.join(" · ");
 }

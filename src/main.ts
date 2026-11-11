@@ -99,7 +99,7 @@ export default class IcapPlugin extends Plugin {
 
 		// Activity: a mark in the status bar that unfolds into the ledger. Mobile has no status bar: a ribbon
 		// button (and the command) open it there.
-		if (Platform.isMobile) this.addRibbonIcon("activity", L("Show activity", "显示活动"), () => (rt.ledger.open = !rt.ledger.open));
+		if (Platform.isMobile) this.addRibbonIcon("activity", L("Show activity", "显示活动"), () => void rt.showActivity());
 		else {
 			const bar = this.addStatusBarItem();
 			bar.addClass("icap-statusbar");
@@ -113,6 +113,8 @@ export default class IcapPlugin extends Plugin {
 		// First install: the guide is the first thing the learner sees — a note to learn in, not a welcome page.
 		this.app.workspace.onLayoutReady(() => {
 			void this.firstRun();
+			// Task notes: what was running when Obsidian closed, and the one-time move of earlier activity into notes.
+			void rt.startTaskNotes();
 			// Pi sessions of request blocks that were kept or cleared elsewhere (another device, a crash).
 			rt.pruneSessions();
 			// What the learner's agent changes in the vault is recorded (after load: startup fires "create" for every file).
@@ -326,7 +328,13 @@ export default class IcapPlugin extends Plugin {
 			id: "show-activity",
 			icon: "activity",
 			name: L("Show activity", "显示活动"),
-			callback: () => (rt.ledger.open = true),
+			callback: () => void rt.showActivity(),
+		});
+		this.addCommand({
+			id: "rebuild-task-notes",
+			icon: "list-restart",
+			name: L("Rebuild task notes from recent activity", "从最近的活动重建任务笔记"),
+			callback: () => void rt.rebuildTaskNotes(),
 		});
 		this.addCommand({
 			id: "open-guide",

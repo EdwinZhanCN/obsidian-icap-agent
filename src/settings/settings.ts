@@ -38,6 +38,16 @@ export interface IcapSettings {
 	documentSummaries: boolean;
 	/** The guide note is created (and opened) once, on first install. */
 	guideCreated: boolean;
+	/**
+	 * ICAP's own visible folder (runtime/task-notes.ts): Activity.base in it, task notes in its `Tasks/`.
+	 * Visible because Obsidian does not index hidden folders, so Bases could not list notes in `.icap/`.
+	 * Notes are found by `icap-id`, so moving them is fine.
+	 */
+	homeFolder: string;
+	/** Activity.base was generated once; from then on it is the learner's and never rewritten. */
+	activityBaseMade: boolean;
+	/** The activity earlier versions kept in plugin data was turned into task notes (once per vault). */
+	taskNotesMigrated: boolean;
 	/** Mobile: provider/id of the model; empty = the first provider with a key, its default model. */
 	mobileModel: string;
 	/**
@@ -70,6 +80,9 @@ export const DEFAULT_SETTINGS: IcapSettings = {
 	mobileModel: "",
 	mobileSecrets: {},
 	mobileEndpoints: [],
+	homeFolder: "ICAP",
+	activityBaseMade: false,
+	taskNotesMigrated: false,
 };
 
 export class IcapSettingTab extends PluginSettingTab {
@@ -169,6 +182,23 @@ export class IcapSettingTab extends PluginSettingTab {
 					.setValue(s.notesFolder)
 					.onChange((v) => {
 						s.notesFolder = v.trim().replace(/^\/+|\/+$/g, "");
+						void save();
+					}),
+			);
+		new Setting(containerEl)
+			.setName(L("ICAP folder", "ICAP 文件夹"))
+			.setDesc(
+				L(
+					"Activity.base goes here, and task notes into its Tasks folder: each note the agent writes, and each request that turns into real work (tools, files, or more than one round). Task notes are recognised by their `icap: task` property, so you can move them.",
+					"Activity.base 放在这里，任务笔记放在其中的 Tasks 文件夹：每篇由 Agent 写的笔记、每个真正干了活的请求（用了工具、改了文件，或不止一轮）各记一篇。任务笔记靠 `icap: task` 属性识别，所以可以随意移动。",
+				),
+			)
+			.addText((t) =>
+				t
+					.setPlaceholder("ICAP")
+					.setValue(s.homeFolder)
+					.onChange((v) => {
+						s.homeFolder = v.trim().replace(/^\/+|\/+$/g, "") || "ICAP";
 						void save();
 					}),
 			);
