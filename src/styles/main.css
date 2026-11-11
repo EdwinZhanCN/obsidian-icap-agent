@@ -640,6 +640,11 @@ body:not(.icap-style-theme) .cm-embed-block.cm-callout:has(.callout:is([data-cal
 	background: var(--icap-ink-wash);
 	box-shadow: inset 2px 0 0 var(--icap-ink);
 }
+/* …but not when the focus came by itself, before the learner touched the keyboard (Choices.svelte). */
+.icap-choices.is-quiet .icap-choice:focus-visible:not(:hover) {
+	background: none;
+	box-shadow: none;
+}
 .icap-choice-mark {
 	@apply tw:relative tw:inline-grid tw:place-items-center tw:font-ui tw:text-muted;
 	width: 1.45em;

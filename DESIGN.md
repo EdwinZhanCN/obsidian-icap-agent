@@ -200,7 +200,7 @@ Sometimes a slider teaches more than a paragraph. The agent may put a hands-on v
 - **Verdicts without shame.** Feedback marks are glyphs in the gutter, not red and green: `✓ holds`, `≈ partly`, `? look again` (stored as `reconsider`). An error is framed as something to look at again.
 - **State is a sentence, not a badge.** A block ends with a caption in the interface font, such as "your turn — ⌘↵ to submit" or "reading what you wrote…". There are no status pills. Phases describe the learner's material, never tools or models. A shortcut in a caption or hint is drawn as keycaps for the platform (⌘ ↵ on macOS, Ctrl ↵ elsewhere), never spelled out in words.
 - **Waiting is the ink being drawn.** While the agent works, the ink rule draws down the gutter in a slow loop: a gradient, not a spinner or a glow. With reduced motion it is simply dashed.
-- **Choices are marked like paper.** Options are a lettered list. Choosing draws an ink ring around the letter (single choice) or a tick (multiple).
+- **Choices are marked like paper.** Options are a lettered list. Choosing draws an ink ring around the letter (single choice) or a tick (multiple). The keyboard caret (a wash and an ink rule) shows only once the learner moves with the keys: a question that takes the focus by itself shows none, so its first option never looks chosen.
 
 ## 8. Motion: ink and paper
 
