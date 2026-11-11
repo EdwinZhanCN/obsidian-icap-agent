@@ -67,6 +67,8 @@ export class Task {
 	/** The model that answered last, `provider/id`; null until one has. */
 	model = $state<string | null>(null);
 	error = $state<string | null>(null);
+	/** What the learner's extensions threw during this run (`extension: message`), shown while it runs. Not kept. */
+	extensionErrors = $state<string[]>([]);
 	endedAt = $state<number | null>(null);
 	/** Was live when Obsidian (or the plugin) closed. */
 	interrupted = false;

@@ -233,7 +233,9 @@ export class PiSession {
 				uiContext: uiContext({ dialog: (req, timeout) => this.dialog(req, timeout), notify: (m) => this.notices.push(m) }),
 				mode: "rpc",
 				onError: (err) => {
-					this.lastError = err.error || "An extension failed.";
+					const message = `${extensionName(err.extensionPath)}: ${err.error || "failed"}`;
+					this.lastError = message;
+					o.onExtensionError?.(message);
 				},
 			});
 			if (this.cancelled) return this.result();
@@ -279,8 +281,13 @@ export class PiSession {
 		const o = this.opts;
 		const rec = ev as unknown as PiEventView;
 		switch (rec.type) {
+			case "turn_start":
+				o.onPhase?.("sending");
+				return;
 			case "message_start":
-				if (rec.message?.role === "assistant") this.currentText = "";
+				if (rec.message?.role !== "assistant") return;
+				this.currentText = "";
+				o.onPhase?.("replying");
 				return;
 			case "message_update": {
 				const e = rec.assistantMessageEvent;
@@ -347,6 +354,19 @@ export class PiSession {
 			if (timer) clearTimeout(timer);
 		}
 	}
+}
+
+/**
+ * An extension by its name, from the path Pi loaded it from: the package (`…/node_modules/@scope/name/dist/index.js`),
+ * else the file, or its folder when the file is an index.
+ */
+export function extensionName(path: string): string {
+	const parts = path.split(/[\\/]/).filter(Boolean);
+	const nm = parts.lastIndexOf("node_modules");
+	if (nm >= 0 && parts[nm + 1]) return parts[nm + 1].startsWith("@") && parts[nm + 2] ? `${parts[nm + 1]}/${parts[nm + 2]}` : parts[nm + 1];
+	const file = parts.at(-1) ?? path;
+	const stem = file.replace(/\.[cm]?[jt]s$/, "");
+	return stem === "index" && parts.length > 1 ? parts[parts.length - 2] : stem || path;
 }
 
 /** The fields of Pi's session events that handle() reads, all optional: Pi's union is read loosely. */

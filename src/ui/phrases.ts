@@ -23,6 +23,10 @@ export function phaseLine(phase: AgentPhase | null | undefined, kind: "explain" 
 	switch (phase) {
 		case "starting":
 			return kind === "explain" ? L("reading the passage…", "正在读这段话…") : L("getting ready…", "准备中…");
+		case "sending":
+			return L("waiting for a reply…", "等待回复…");
+		case "replying":
+			return L("the reply is starting…", "回复开始了…");
 		case "reading":
 			return kind === "request" ? L("working…", "处理中…") : L("looking through your notes…", "正在翻看你的笔记…");
 		case "thinking":

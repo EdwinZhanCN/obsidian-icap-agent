@@ -249,6 +249,22 @@ body.icap-style-theme {
 	font-style: italic;
 	margin: 0.15em 0;
 }
+/* What the learner's own extensions threw while a run waits: quiet, but readable enough to report. */
+.icap-ext-errors {
+	@apply tw:font-ui tw:text-caption tw:text-muted;
+	margin: 0.2em 0 0.4em;
+}
+.icap-ext-errors p {
+	margin: 0;
+}
+.icap-ext-errors ul {
+	margin: 0.15em 0 0;
+	padding-left: 1.2em;
+}
+.icap-ext-errors li {
+	@apply tw:font-code;
+	overflow-wrap: anywhere;
+}
 .icap-error {
 	@apply tw:font-ui;
 	color: var(--text-error);
