@@ -16,6 +16,7 @@ pnpm test                       # vp test: unit (src/**/*.test.ts) + integration
                                 # Includes main.js on a phone (test/integration/mobile/): run after pnpm build
 pnpm vault [--reset|--clean]    # generate dev-vault/ from test/fixtures/dev-vault/
 node scripts/drive.mjs …        # drive the running plugin through the Obsidian CLI (commands listed in the file)
+cd site && pnpm install && pnpm dev   # the docs site (Astro Starlight), its own pnpm project
 ```
 
 ## Verify a change
@@ -121,6 +122,9 @@ src/**/*.test.ts          unit tests, next to their module
 test/integration/         tests against the real Pi SDK (*.spec.test.ts); test/fixtures/dev-vault/ is the dev vault's seed.
                           mobile/: the built main.js booted in a vm with no Node (phone.ts: happy-dom + an obsidian
                           stub with Platform.isMobile; require throws on Node built-ins), driven end to end
+site/                     the docs site (Astro Starlight, en + zh-cn). Pages show the plugin's own Svelte components
+                          and main.css, imported from ../src; src/styles/site.css supplies Obsidian's CSS
+                          variables from Starlight's. Written to site/STYLE.md (ASD-STE100 rules, both languages)
 tooling/                  the build: obsidian-build.ts (Vite plugin: Pi bundle, Node built-ins as lazy requires,
                           copies to the repo root and dev-vault),
                           pi-bundle.ts (vp pack config for Pi), plugin-entry.ts (main.ts + the stylesheet)
@@ -151,6 +155,7 @@ What ends up in notes is a contract other tools read: [FORMAT.md](FORMAT.md). Ch
 - **Nothing on the mobile load path touches Node.** Obsidian mobile has no `require("fs")`, `process` or `Buffer`; one top-level use and the plugin fails to load on a phone. Node built-ins are never external imports at the top of `main.js`: `obsidianBuild()` serves each as a CommonJS module whose `require` runs on first use, inside the desktop backend's lazy import. `test/integration/mobile/mobile-load.spec.test.ts` boots the built `main.js` with no Node and runs a request: it failing is the phone failing.
 - **Touch has a way to everything.** Hover, right-click and keyboard chords are extras: every action is a visible control or a command (with an icon, usable from the mobile toolbar). On mobile, keycap hints are hidden and the activity opens from the ribbon.
 - **Tasks are notes; the activity is a Base.** Note tasks, and request blocks that amount to a task (a tool call, a file touched, a question back, or more than one round: `TaskNotes.substantial`), are recorded as task notes (`icap: task`, FORMAT.md v4); a one-question-one-answer request, and explain, recall, check and quiz, never are. Live phase never goes into properties. An ended task always records `icap-cost`: a number, or `unknown` when it cannot be told (never 0 for "don't know"). In a `.base` expression a hyphenated property is `note["icap-status"]` (bare, Bases subtracts); as a column or group key, `note.icap-status`. Status-bar mark, mobile ribbon and *Show activity* open `Activity.base`, whose first view is the plugin's `icap-activity` (uninstalled, Bases says the view type is unknown and the tables after it still work); the ledger list is the fallback when the Bases core plugin is off. This plugin is released: what earlier versions stored (the ledger in plugin data, `icap/docs/`) is migrated, never dropped.
+- **The docs are Simplified Technical English, in both languages** (`site/STYLE.md`): one topic per sentence, commands for instructions, active voice, one name per thing from its term list. A page and its translation change together. Code imported by the site must not touch `window` or `document` on import (Astro evaluates it on the server).
 - **Bilingual interface, English markers.** Every UI string is `L("English", "中文")` at its call site. Callout types, `kind:`, `generated-by` and the *Plainly.* / *Deeper.* headings stay English: the agent reads them back as evidence.
 - **Motion has rules** (DESIGN.md, Motion). Only frames animate `height`; everything else is `transform` / `opacity`. Keyframes end at the natural state, and reduced motion keeps a 140 ms fade. An entrance plays once per thing, so re-created widgets and reloads never replay it. Animate through the tokens in `src/ui/motion.ts`.
 - **Glosses and blocks never edit the note by accident.** They render inside CodeMirror's contenteditable; `inertToEditor` swallows `beforeinput` while their controls have focus. The writing line pushes an Obsidian `Scope` (`src/ui/keys.ts`) that owns Mod+Enter and swallows formatting chords.

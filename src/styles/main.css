@@ -1507,6 +1507,8 @@ body {
 	max-width: 46rem;
 	padding: var(--size-4-3) var(--size-4-4) var(--size-4-8);
 	font-size: var(--font-ui-small);
+	/* Set here, not inherited: the dot is centred on the title's first line by it. */
+	line-height: 1.5;
 	color: var(--text-normal);
 }
 .icap-activity-num {
@@ -1567,7 +1569,8 @@ body {
 .icap-activity-dot {
 	width: 7px;
 	height: 7px;
-	margin-top: 0.5em;
+	/* Half a line (1.5em) less half the dot: on the middle of the title's first line. */
+	margin-top: calc(0.75em - 3.5px);
 	border-radius: 50%;
 	background: var(--text-faint);
 }
