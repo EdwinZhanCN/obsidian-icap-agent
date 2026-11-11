@@ -82,8 +82,10 @@ function whenAttached(node: Element, fn: () => void, tries = 4) {
 
 /* ───────────── frames: the page makes room ───────────── */
 
-/** Let the gutter (ink rule, verdict glyphs) show while a frame clips its height. */
-const CLIP = "inset(-0.6em -1.5em 0 -4.5em)";
+/** A frame clips while its height moves; the class lets the gutter (ink rule, verdict glyphs) show. */
+const CLIPPING = "icap-clipping";
+/** Hidden until its entrance plays (main.css). */
+const UNSEEN = "icap-unseen";
 
 /**
  * A frame follows its single child's height on a spring. Growth (a new turn, streamed text,
@@ -102,7 +104,8 @@ export function fluid(node: HTMLElement, key?: string | null) {
 	let shownHeight = -1;
 
 	const release = () => {
-		node.setCssProps({ height: "", "clip-path": "" });
+		node.classList.remove(CLIPPING, "icap-shut");
+		node.style.removeProperty("height");
 		EditorView.findFromDOM(node)?.requestMeasure();
 	};
 
@@ -121,7 +124,7 @@ export function fluid(node: HTMLElement, key?: string | null) {
 			return;
 		}
 		anim?.stop();
-		node.setCssProps({ "clip-path": CLIP });
+		node.classList.add(CLIPPING);
 		const a = play(node, { height: [from, to] }, spring.settle);
 		anim = a;
 		void a.finished.then(() => {
@@ -133,7 +136,7 @@ export function fluid(node: HTMLElement, key?: string | null) {
 	};
 
 	if (introduce(key) && !reducedMotion()) {
-		node.setCssProps({ height: "0px", "clip-path": CLIP });
+		node.classList.add(CLIPPING, "icap-shut");
 		target = 0;
 		shownHeight = 0;
 	}
@@ -163,7 +166,7 @@ export async function closeFrame(frame: HTMLElement | null | undefined, voice?: 
 		return;
 	}
 	const h = frame.getBoundingClientRect().height;
-	frame.setCssProps({ "clip-path": CLIP });
+	frame.classList.add(CLIPPING);
 	const kids = voice ? (Array.from(voice.children) as HTMLElement[]) : [];
 	play(kids, { opacity: 0 }, spring.fade);
 	if (voice) play(voice, { "--icap-rule-scale": 0 }, spring.leave);
@@ -187,13 +190,17 @@ export function inkIn(node: HTMLElement, opts: string | { key: string; delay?: n
 		return {};
 	}
 	node.setCssProps({ "--icap-rule-scale": "0" });
-	for (const k of kids) k.setCssProps({ opacity: "0" });
-	if (verdict) verdict.setCssProps({ opacity: "0" });
+	for (const k of kids) k.classList.add(UNSEEN);
+	verdict?.classList.add(UNSEEN);
 	whenAttached(node, () => {
 		const rule = play(node, { "--icap-rule-scale": [0, 1] }, { ...spring.settle, delay });
 		void rule.finished.then(() => node.style.removeProperty("--icap-rule-scale"));
-		play(kids, { opacity: [0, 1], y: [5, 0] }, { ...spring.settle, delay: stagger(0.05, { startDelay: delay + 0.08 }) });
-		if (verdict) play(verdict, { opacity: [0, 1], scale: [0.35, 1], rotate: [-18, 0] }, { ...spring.hand, delay: delay + 0.2 });
+		const words = play(kids, { opacity: [0, 1], y: [5, 0] }, { ...spring.settle, delay: stagger(0.05, { startDelay: delay + 0.08 }) });
+		void words.finished.then(() => kids.forEach((k) => k.classList.remove(UNSEEN)));
+		if (verdict) {
+			const stamp = play(verdict, { opacity: [0, 1], scale: [0.35, 1], rotate: [-18, 0] }, { ...spring.hand, delay: delay + 0.2 });
+			void stamp.finished.then(() => verdict.classList.remove(UNSEEN));
+		}
 	});
 	return {};
 }
@@ -238,8 +245,11 @@ export function drawn(path: SVGPathElement, on: boolean) {
 /** A stroke drawn once, the first time its key is seen (e.g. a check mark when a task completes). */
 export function strokeIn(path: SVGPathElement, key: string) {
 	if (!introduce(key) || reducedMotion()) return {};
-	path.setCssProps({ opacity: "0" });
-	whenAttached(path, () => play(path, { pathLength: [0, 1], opacity: [1, 1] }, { ...spring.hand, delay: 0.12 }));
+	path.classList.add(UNSEEN);
+	whenAttached(path, () => {
+		const draw = play(path, { pathLength: [0, 1], opacity: [1, 1] }, { ...spring.hand, delay: 0.12 });
+		void draw.finished.then(() => path.classList.remove(UNSEEN));
+	});
 	return {};
 }
 

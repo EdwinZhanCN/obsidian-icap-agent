@@ -92,6 +92,22 @@ body.icap-style-theme {
 .icap-frame > * {
 	display: flow-root;
 }
+/* While a frame's height moves it clips, but the gutter (ink rule, verdict glyphs) still shows. */
+.icap-clipping {
+	clip-path: inset(-0.6em -1.5em 0 -4.5em);
+}
+/* A frame about to open: shut until its first height change animates it. */
+.icap-shut {
+	height: 0;
+}
+/* Waiting for its entrance; the entrance's last frame (inline) holds it visible, then this goes. */
+.icap-unseen {
+	opacity: 0;
+}
+/* A text area that takes a setting row's full width. */
+.icap-full-width {
+	width: 100%;
+}
 /* Waiting is the ink being drawn: a short stroke travels down a faint rule. */
 .icap-voice.is-drawing::before {
 	background: var(--icap-ink-faint);
