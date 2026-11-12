@@ -38,11 +38,13 @@ For a service Pi does not list (Ollama, LM Studio, vLLM, a proxy, any OpenAI-com
 
 **Agent setup.** By default the agent runs with your own Pi setup (skills, extensions, MCP servers, shell) and can edit files directly; every change is listed in Activity. Choose **ICAP only (isolated)** for read-only tools inside the vault and the folders you allow.
 
+**Your own Pi.** If you have [installed Pi](https://pi.dev) (1.5.0 or later), **Pi to run → Your own install** makes each task start your `pi` as its own process instead of the one inside the plugin. Your extensions then run in Pi itself, as they do in a terminal. Logins, models, MCP servers and sessions are the same files either way. ICAP finds Pi on your PATH, or at the path you give under **Pi location**; it does not install or update it. This setup is always your whole Pi setup: isolated mode needs the built-in Pi.
+
 ## Network, accounts and files outside the vault
 
 - **Network.** Requests, with the parts of your notes and documents the agent reads, go only to the model provider you choose. ICAP has no server, no telemetry and no analytics. Visuals have no network access. In the default setup your own Pi extensions and MCP servers may contact their own services.
 - **Accounts.** You need an account with a model provider, which bills you directly. ICAP needs no account.
-- **Files outside the vault.** ICAP reads Pi's folder `~/.pi/agent/` (settings, credentials, extensions, skills) and writes there when you sign in, add a custom endpoint, change the model or trust a project, as the Pi CLI does. On first use it runs your login shell once to pick up missing environment variables such as provider keys. In isolated mode the agent reads only the outside folders you allow; in the default setup it has Pi's shell.
+- **Files outside the vault.** ICAP reads Pi's folder `~/.pi/agent/` (settings, credentials, extensions, skills) and writes there when you sign in, add a custom endpoint, change the model or trust a project, as the Pi CLI does. On first use it runs your login shell once to pick up missing environment variables such as provider keys. In isolated mode the agent reads only the outside folders you allow; in the default setup it has Pi's shell. With **Your own install**, ICAP starts the `pi` program on your computer for each task and talks to it over a socket only your user account can open; nothing listens on the network.
 - **On mobile.** Nothing outside the vault is read. API keys are in Obsidian's keychain on the device.
 - **In the vault.** Settings and sessions live in `.obsidian/plugins/icap-agent/`; so does the document cache (`docs/`). The vault gets task notes and `Activity.base` only if you turn on *Record tasks as notes*.
 

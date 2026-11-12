@@ -113,6 +113,8 @@ Without the Bases core plugin, the mark unfolds into the plugin's own ledger ins
 
 Pi is a general agent runtime, not a product UI. ICAP bundles Pi's SDK and runs it inside Obsidian, but the configuration belongs to the learner. The plugin reads the same `~/.pi/agent/` the Pi CLI uses, plus the vault's `.pi/`.
 
+A learner who has installed Pi can have ICAP run that one instead (*Pi to run → Your own install*): each task starts their `pi` as a process of its own, and ICAP's tools reach the plugin over a socket on the same computer. Nothing changes in the note: the same blocks, the same questions, the same record of changed files. What changes is where their extensions run: in Pi's own process, exactly as in a terminal, instead of inside Obsidian. This setup is always the learner's whole Pi; isolated mode belongs to the built-in one. ICAP looks for Pi and says how to install it; it never installs anything.
+
 | Belongs to | What |
 |---|---|
 | The learner's Pi | models, credentials, built-in tools (including the shell), skills, extensions, MCP, `AGENTS.md`, project trust |

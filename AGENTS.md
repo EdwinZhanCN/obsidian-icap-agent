@@ -1,6 +1,6 @@
 # AGENTS.md
 
-ICAP Learning Agent is an Obsidian plugin (TypeScript, Svelte 5, CodeMirror 6, Tailwind v4) for desktop and mobile. On desktop it runs [Pi](https://pi.dev)'s agent SDK inside Obsidian; on mobile, which has no Node, its own agent on Pi's `pi-agent-core` and `pi-ai`. Explanations, questions, feedback and requests live in the learner's Markdown notes; there is no chat panel.
+ICAP Learning Agent is an Obsidian plugin (TypeScript, Svelte 5, CodeMirror 6, Tailwind v4) for desktop and mobile. On desktop it runs [Pi](https://pi.dev): the agent SDK inside Obsidian, or the learner's own installed Pi as a process per task (`pi --mode rpc`); on mobile, which has no Node, its own agent on Pi's `pi-agent-core` and `pi-ai`. Explanations, questions, feedback and requests live in the learner's Markdown notes; there is no chat panel.
 
 - What users see and do: [README.md](README.md)
 - How the product behaves and why: [DESIGN.md](DESIGN.md). Read it before changing an interaction.
@@ -48,9 +48,9 @@ src/runtime/task-notes.ts TaskNotes: request and note tasks mirrored into notes 
                           Activity.base generated once, the one-time migration of the earlier ledger
 
 src/agent/backend.ts      AgentBackend: the boundary under LearningRuntime (run a task, events, capability flags,
-                          probes, SessionCache, ExternalFiles, accounts) and the platform-neutral types (AgentPhase,
-                          AgentConfig, Control, DialogRequest…), SetupNeeded. Only main.ts imports a backend,
-                          each behind a dynamic import evaluated on its platform
+                          probes, SessionCache, ExternalFiles, accounts, OwnInstall, dispose) and the platform-neutral
+                          types (AgentPhase, AgentConfig, Control, DialogRequest…), SetupNeeded. Only main.ts imports
+                          a backend, each behind a dynamic import evaluated on its platform
 src/agent/prompts.ts      the ICAP protocol (systemPrompt, shaped by PromptEnv: file tools? skill files?) and each
                           task's prompt (explain, recall, quiz, note, request, follow-up, continuation)
 src/agent/usage.ts        pure: RunUsage (tokens, cache, price) from each assistant message's usage, summed per task;
@@ -69,7 +69,11 @@ src/documents/            documents (PDF, EPUB, DOCX) as PageIndex-style trees. 
                           through the backend's ExternalFiles
 
 src/agent/desktop/        the desktop backend, Pi on Node (the only place for Node built-ins outside tests/scripts):
-  desktop-backend.ts      DesktopBackend: every capability on; vault root, allowed folders, sessions dir, skills
+  desktop-backend.ts      DesktopBackend: vault root, allowed folders, sessions dir, skills; chooses at every run
+                          (settings.desktopPi) between the built-in Pi (pi-session.ts) and the learner's own (rpc/).
+                          Every capability on; the learner's own Pi has no isolated setup (`isolatedSetup` false)
+  pi-events.ts            pure: Pi's session events as AgentEvents and the run's result (PiEvents), read the same
+                          from the SDK and from RPC's JSON records; stepDetail, extensionName
   pi-host.ts              loads Pi's SDK on first use; first fills process.env with the login shell's missing
                           variables and PATH (provider keys exported in ~/.zshrc, which a Dock-launched Obsidian
                           lacks), never overriding. Shared ModelRuntime; project trust
@@ -87,6 +91,17 @@ src/agent/desktop/        the desktop backend, Pi on Node (the only place for No
   pi-endpoints.ts         custom model endpoints in Pi's models.json; endpoint-modal.ts is its dialog
   pi-sdk-entry.ts         the SDK surface ICAP uses, built for Node into build/pi-sdk.cjs (see "Pi inside Obsidian")
   pi-node.ts              injected into Pi's bundle only: Node's fetch, timers, streams, Blob/File, __icapImport
+  rpc/                    the learner's own installed Pi, never loaded into Obsidian (see "The learner's own Pi"):
+    pi-command.ts         findPi: the path in the settings, else PATH (the login shell's), then `pi --version` ≥ 1.5.0;
+                          SetupNeeded otherwise. Only finds: never installs. spawnSpec (npm's pi.cmd on Windows)
+    rpc-process.ts        PiProcess: one `pi --mode rpc` child; commands by id, records by line (jsonl.ts: LF only,
+                          never readline), the stderr tail, process-group kill / taskkill /T /F
+    rpc-session.ts        RpcSession: a task on that process (prompt, compact, abort, extension dialogs and errors),
+                          rpcArgs, probePi (models, commands)
+    bridge-server.ts      ToolBridge: a Unix socket / Windows named pipe, a token per task; ICAP's tools run here
+    icap-forwarder.ts     `icap-extension.js`, written to <plugin>/pi/: a dependency-free Pi extension that only
+                          forwards tool calls over the socket; socket and token come in the environment
+    pi-rpc.ts             PiRpc: ties them together per task; the context files Pi is given (contextFiles); dispose
 
 src/agent/mobile/         the mobile backend, no Node (also what desktop's app.emulateMobile(true) runs):
   mobile-backend.ts       MobileBackend: isolated only, ICAP's tools; resolves provider/model, key and transport
@@ -145,11 +160,13 @@ What ends up in notes is a contract other tools read: [FORMAT.md](FORMAT.md). Ch
 ## Rules that must hold
 
 - **Kept output is plain Obsidian Markdown.** Uninstalling the plugin must leave readable notes. Transient state (open glosses, block state) never leaks into the file.
-- **The note is the source of truth; a Pi session is a cache.** What the agent is told of a conversation is what the block shows (`transcript.ts`). A session is resumed only while its fingerprint matches. Runtime command turns (`/model`, `/thinking`, `/compact`) carry `control: true` and never reach the transcript or the kept record.
+- **The note is the source of truth; the agent's session is a cache.** What the agent is told of a conversation is what the block shows (`transcript.ts`). A session is resumed only while its fingerprint matches. Runtime command turns (`/model`, `/thinking`, `/compact`) carry `control: true` and never reach the transcript or the kept record.
 - **The learner decides what changes.** The plugin writes only its own blocks into the task's note, plus, only when the learner turned on *Record tasks as notes* (`taskNotes`, off by default; on for a vault that already had `Activity.base`), its own record of request and note tasks: task notes in `ICAP/Tasks/` and the once-generated `ICAP/Activity.base` (`src/runtime/task-notes.ts`; a visible folder, because Obsidian does not index hidden ones). Nothing else of the plugin's lands in the vault: caches live in the plugin's own folder. Never ask with a dialog before writing; the setting is the choice. A task note the learner deleted is rewritten only by the *Rebuild task notes* command. It never edits a task note's body after creating it, sets only its own `icap-*` properties, and never rewrites `Activity.base`, save once: a base generated before the activity view gets that view as its first (`withActivityView`, flag `activityViewAdded`). ICAP's tools change existing notes only through `propose_edit`, which the learner applies. It refuses, before the learner sees anything, an edit that adds an ```` ```icap-ui ```` visual or touches an ICAP block (`editProblem` in `src/dsl/blocks.ts`). The agent never rewrites the learner's answer.
 - **Every file change is attributed.** ICAP's own tools (`create_note`, an applied `propose_edit`) record the file on their task when they write it; on mobile they are the only writers. In "mine" mode, vault create, modify, delete and rename events are recorded on the task whose agent is in a tool call, or ended one less than 3 s ago. Exempt: the task's own note, task notes and `Activity.base` (the plugin's own files, `TaskNotes.owns`), notes the learner is typing in, and the legacy document cache (`icap/docs/`; `.icap/docs/` and the plugin's own `docs/` raise no vault events). Keep this working for every task kind.
 - **Slash commands exist only in request blocks.** In a recall, check or quiz the learner's text is an answer, so a leading `/` is just text.
-- **Context files stop at the vault.** Only Pi's global `AGENTS.md` (in "mine" mode) and those inside the vault are loaded, never an ancestor's (`vaultContextFiles`). Isolated mode loads only the vault's own; so does mobile, which reads the vault root's file itself (`src/agent/context-files.ts`, Pi's names and rendering).
+- **Context files stop at the vault.** Only Pi's global `AGENTS.md` (in "mine" mode) and those inside the vault are loaded, never an ancestor's (`vaultContextFiles`). Isolated mode loads only the vault's own; so does mobile, which reads the vault root's file itself (`src/agent/context-files.ts`, Pi's names and rendering). The learner's own Pi is started with `-nc` (its own discovery walks up to the filesystem root) and given the same two files in the appended prompt (`contextFiles` in `rpc/pi-rpc.ts`).
+- **The plugin installs nothing.** It never installs, updates or downloads Pi, a dependency or an executable. The learner's own Pi is only looked for (`findPi`); when there is none, the settings show the official install command to copy, and a task ends with `SetupNeeded`.
+- **A capability is removed only once its replacement shipped.** The learner's own Pi over RPC exists so that in-process extensions can go later: whoever relies on them must have had a release in which to move.
 - **Visuals stay sandboxed.** `sandbox="allow-scripts"` without `allow-same-origin`, and CSP `default-src 'none'`. `ask` and `open` are honoured only from the rendered frame, well-formed, and while the learner has focused it. The iframe's `color-scheme` must match the inner document's, or Chromium paints an opaque backdrop.
 - **The agent sits behind `AgentBackend`.** The runtime, settings and tools reach Pi only through `src/agent/backend.ts`; a feature a backend lacks is gated by its capability flags, never faked. Node built-ins (`fs`, `path`, `os`, `node:*`…) are imported only in `src/agent/desktop/`, tests and `scripts/` (the build is in `scripts/build/`); `pnpm check` fails otherwise (`no-restricted-imports` in `vite.config.ts`).
 - **Nothing on the mobile load path touches Node.** Obsidian mobile has no `require("fs")`, `process` or `Buffer`; one top-level use and the plugin fails to load on a phone. Node built-ins are never external imports at the top of `main.js`: `obsidianBuild()` serves each as a CommonJS module whose `require` runs on first use, inside the desktop backend's lazy import. `test/integration/mobile/mobile-load.spec.test.ts` boots the built `main.js` with no Node and runs a request: it failing is the phone failing.
@@ -170,6 +187,16 @@ The bundle is CJS with `PI_BUNDLED_NODE`. `import.meta.url` maps to `globalThis.
 
 `piPatches` in `scripts/build/pi-bundle.ts` patches specific upstream files (Pi's config.js, photon's wasm loader, undici's `install()`, runtime `import()` in pi-ai and jiti, jiti's module evaluation) and **throw when upstream changes**. When bumping `@earendil-works/pi-*` (pinned to an exact version in `package.json`), expect to update them.
 
+## The learner's own Pi
+
+With *Pi to run → Your own install* (`settings.desktopPi: "rpc"`), each task starts `pi --mode rpc` in the vault: `-nc --append-system-prompt <file> -e <plugin>/pi/icap-extension.js --skill … --provider … --model … --thinking …`, and `--session-dir <plugin>/sessions --session-id icap-<block>-<n>` for a request block (else `--no-session`). The process ends with the task: stdin is closed, and a Pi that has not left after 3 s is killed with its process group.
+
+It is always the learner's whole setup ("mine"): their Pi loads their extensions, skills, MCP servers and tools in its own process, with Node's own globals, so nothing of #3 applies. The built-in Pi and theirs share `~/.pi/agent` (`auth.json`, `models.json`, `settings.json`, `mcp.json`) and Pi's session format, so a block's session resumes under either.
+
+ICAP's tools reach the plugin over a local socket (`ToolBridge`): a Unix domain socket in a `0700` temporary folder, a named pipe on Windows; nothing listens on the network. Each task gets a token valid while it runs; socket path and token travel in the environment (`ICAP_BRIDGE`, `ICAP_BRIDGE_TOKEN`, `ICAP_TOOLS`), never on a command line. The extension file holds only the tools' names, descriptions and JSON Schemas; the tools run in the plugin (`icap-tools.ts`). The prompt file lives in the same temporary folder and is removed with the task.
+
+`test/integration/agent/desktop/pi-rpc.spec.test.ts` runs the pinned Pi CLI as a real child process on the scenarios `pi-session.spec.test.ts` runs for "mine". A change to how tasks run on Pi must pass both.
+
 ## Legacy ICPA formats
 
 The plugin used to be spelled ICPA (`icpa-agent`). Formats that outlive a version still accept the old spelling. Do not drop these readers:
@@ -187,7 +214,8 @@ The plugin used to be spelled ICPA (`icpa-agent`). Formats that outlive a versio
 - `main.js` is about 13 MB: Pi with its providers (including the AWS SDK for Bedrock), jiti for the learner's TypeScript extensions and photon, all behind the desktop's lazy import; plus pi-agent-core and the five pi-ai adapters the mobile agent uses (which desktop's Pi bundle also contains: they are in main.js twice, uncompressed).
 - Desktop needs Node 22.18 or later. Node comes with Obsidian's installer, not its in-app updates: installer 1.9.10 and later (Electron 37+, Node 22.18+) run Pi; 1.8.9 and earlier (Electron 34, Node 20) do not, and the settings say to reinstall (`oldNode` in `pi-host.ts`). Obsidian never shipped Electron 35 or 36. Pi and undici declare 22.19; 22.18 was checked with a full session.
 - Mobile: isolated only with ICAP's tools; API keys or custom endpoints only (no OAuth, Bedrock, Vertex); no session cache (each run replays the transcript) and no `/compact`; no documents outside the vault. A custom endpoint without CORS replies whole through `requestUrl`, which cannot be aborted: stopping discards the reply, the provider still bills it.
-- A learner's extension sees Node's globals by name only (see "Pi inside Obsidian"): through `globalThis.` or `window.`, or in a native ES module it imports, it gets Chromium's, unlike in the Pi CLI. Pi's codemode (QuickJS in a worker) is not bundled.
+- The learner's own Pi (RPC) was run on macOS; Windows (`pi.cmd` through `cmd.exe`, the named pipe, `taskkill`) is covered by unit tests of the command line only, not yet by a run on Windows.
+- A learner's extension in the built-in Pi sees Node's globals by name only (see "Pi inside Obsidian"): through `globalThis.` or `window.`, or in a native ES module it imports, it gets Chromium's, unlike in the Pi CLI. Pi's codemode (QuickJS in a worker) is not bundled.
 - The selection mark exists in Live Preview and Source mode only. An unkept gloss disappears on plugin reload; blocks persist and resume.
 - An interrupted turn resumes by replaying the transcript into a fresh session, so the next question may be phrased differently.
 - A visual's state is not saved. In Reading view, a visual in a note without a request block asks through a new request block, which needs the note to be editable.

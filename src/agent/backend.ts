@@ -1,7 +1,7 @@
 /**
  * The boundary between the learning runtime and the agent that runs its tasks. `LearningRuntime`
- * talks to an agent only through `AgentBackend`; what is below it (Pi on Node on desktop,
- * agent/desktop/) is the backend's own. Types only: no platform imports here.
+ * talks to an agent only through `AgentBackend`; what is below it (on desktop Pi, built in or the
+ * learner's own install, agent/desktop/) is the backend's own. Types only: no platform imports here.
  *
  * A backend states what it can do in `capabilities`. A feature it lacks is not faked: the runtime
  * leaves it out (no resumed sessions, no `/compact`, no learner's own setup, no probes…).
@@ -62,6 +62,11 @@ export interface BlockSession {
 export interface BackendCapabilities {
 	/** "mine" can run: the learner's own setup. Without it every task runs "isolated". */
 	ownSetup: boolean;
+	/**
+	 * "isolated" can run: only ICAP's tools, the protocol as the whole system prompt. Without it every task
+	 * runs "mine": the agent is the learner's own install, whose tools the plugin cannot take away.
+	 */
+	isolatedSetup: boolean;
 	/** Request blocks' sessions can be kept and resumed (`sessions`). Without it a follow-up replays the block. */
 	sessionCache: boolean;
 	/** `/compact` of a cached session (needs `sessionCache`). */
@@ -215,14 +220,25 @@ export interface BackendAccounts {
 	render?(el: HTMLElement, done: () => void): void;
 }
 
+/**
+ * An agent that is a program the learner installs themselves (desktop: their own Pi). The plugin looks
+ * for it and says how to get it; it never installs or updates it.
+ */
+export interface OwnInstall {
+	/** Where it is on this computer. Rejects with `SetupNeeded` (not found, too old), saying what to do. */
+	locate(fresh?: boolean): Promise<string>;
+	/** The official install command for this computer, to read and copy. Never run by the plugin. */
+	installCommand: string;
+}
+
 export interface AgentBackend {
 	/** Which settings it reads (desktop: Pi's model; mobile: its own, settings.mobileModel). */
 	readonly platform: "desktop" | "mobile";
 	readonly capabilities: BackendCapabilities;
 	/** Start a run. The backend may load lazily; a failure to load rejects `result`. */
 	run(req: AgentRequest, events: AgentEvents): AgentRun;
-	/** Name and version, e.g. "Pi 1.5.0" (loads the backend). */
-	describe(): Promise<string>;
+	/** Name and version, e.g. "Pi 1.5.0" (loads the backend). `fresh` looks for the agent again (the settings' ↻). */
+	describe(fresh?: boolean): Promise<string>;
 	/** `modelProbe`: models with credentials; `fresh` re-reads credentials first. Nothing is sent to a model. */
 	probeModels?(config: AgentConfig, fresh?: boolean): Promise<ModelList>;
 	/** `commandProbe`: the learner's own slash commands ("mine" only). */
@@ -233,4 +249,8 @@ export interface AgentBackend {
 	readonly files?: ExternalFiles;
 	/** Credentials and endpoints, from the settings. */
 	readonly accounts?: BackendAccounts;
+	/** Present while the agent in use is the learner's own install. */
+	readonly ownInstall?: OwnInstall;
+	/** The plugin unloads: stop what runs and give back what was taken (processes, sockets, temporary files). */
+	dispose?(): void;
 }

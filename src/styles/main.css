@@ -1430,6 +1430,18 @@ body {
 	margin-inline-start: 0;
 }
 
+/* The official install command of the learner's own Pi (settings → Pi location): to read and copy, never run by the plugin. */
+.icap-install-command {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	margin-top: var(--size-2-2);
+}
+.icap-install-command code {
+	user-select: all;
+	overflow-wrap: anywhere;
+}
+
 /* ── Login (settings → Model providers) ── */
 .icap-login .icap-login-search {
 	width: 100%;

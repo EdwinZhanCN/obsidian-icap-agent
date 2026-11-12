@@ -1,9 +1,9 @@
-import type { AgentSession, AgentSessionEvent, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
+import type { AgentSession, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { dirname, resolve } from "path";
 import type { AgentCommand, AgentConfig, AgentEvents, AgentResult, Control, DialogAnswer, DialogRequest, ModelList } from "../backend";
 import { ICAP_TOOLS } from "../tools/icap-tools";
-import { messageUsage } from "../usage";
 import { icapExtension, inside } from "./icap-extension";
+import { HANDLED_GRACE_MS, PiEvents, type PiEventView } from "./pi-events";
 import { findModel, modelRuntime, projectTrusted, type PiSdk } from "./pi-host";
 
 /** A run as PiSession needs it: the backend's request resolved to paths on disk, and its events. */
@@ -69,25 +69,7 @@ export function vaultContextFiles<T extends { path: string }>(files: T[], vault:
 	});
 }
 
-/** A one-line gist of a tool call's arguments: the path, command or query it is about. */
-export function stepDetail(args: unknown): string {
-	if (!args || typeof args !== "object") return "";
-	const a = args as Record<string, unknown>;
-	for (const k of ["path", "file_path", "command", "pattern", "query", "title", "op", "url", "question"]) {
-		const v = a[k];
-		if (typeof v === "string" && v.trim()) return clip(v);
-	}
-	const first = Object.values(a).find((v) => typeof v === "string" && v.trim());
-	return typeof first === "string" ? clip(first) : "";
-}
-
-function clip(s: string) {
-	const t = s.replace(/\s+/g, " ").trim();
-	return t.length > 90 ? t.slice(0, 88) + "…" : t;
-}
-
-/** After an extension command was handled, how long to wait for a turn it may have started. */
-const HANDLED_GRACE_MS = 350;
+export { extensionName, stepDetail } from "./pi-events";
 
 /** Build a Pi session for a task (or a probe): the learner's Pi configuration, shaped by the plan. */
 async function openSession(
@@ -207,15 +189,13 @@ function uiContext(h: { dialog: (req: DialogRequest, timeout?: number) => Promis
  */
 export class PiSession {
 	private session: AgentSession | null = null;
-	private finalText = "";
-	private currentText = "";
-	private lastError: string | null = null;
+	private events: PiEvents;
 	private cancelled = false;
 	private handled = false;
-	/** ctx.ui.notify from an extension: the only output of many extension commands. */
-	private notices: string[] = [];
 
-	constructor(private opts: RunOptions) {}
+	constructor(private opts: RunOptions) {
+		this.events = new PiEvents(opts);
+	}
 
 	async run(): Promise<AgentResult> {
 		const o = this.opts;
@@ -227,16 +207,12 @@ export class PiSession {
 			throw new Error(`Pi could not start: ${(e as Error).message}`);
 		}
 		this.session = session;
-		const unsubscribe = session.subscribe((ev) => this.handle(ev));
+		const unsubscribe = session.subscribe((ev) => this.events.handle(ev as unknown as PiEventView));
 		try {
 			await session.bindExtensions({
-				uiContext: uiContext({ dialog: (req, timeout) => this.dialog(req, timeout), notify: (m) => this.notices.push(m) }),
+				uiContext: uiContext({ dialog: (req, timeout) => this.dialog(req, timeout), notify: (m) => this.events.notify(m) }),
 				mode: "rpc",
-				onError: (err) => {
-					const message = `${extensionName(err.extensionPath)}: ${err.error || "failed"}`;
-					this.lastError = message;
-					o.onExtensionError?.(message);
-				},
+				onError: (err) => this.events.extensionError(err.extensionPath, err.error),
 			});
 			if (this.cancelled) return this.result();
 			if (o.control) {
@@ -269,74 +245,7 @@ export class PiSession {
 	}
 
 	private result(): AgentResult {
-		// What an extension command said through notify is its result when no model text came.
-		const text = this.finalText.trim() ? this.finalText : this.notices.join("\n\n");
-		// A session the learner stopped always ends as "aborted", whatever Pi reported on the way out.
-		if (this.cancelled) return { text, aborted: true, handled: this.handled };
-		if (this.lastError && !text.trim()) throw new Error(this.lastError);
-		return { text, aborted: false, handled: this.handled };
-	}
-
-	private handle(ev: AgentSessionEvent) {
-		const o = this.opts;
-		const rec = ev as unknown as PiEventView;
-		switch (rec.type) {
-			case "turn_start":
-				o.onPhase?.("sending");
-				return;
-			case "message_start":
-				if (rec.message?.role !== "assistant") return;
-				this.currentText = "";
-				o.onPhase?.("replying");
-				return;
-			case "message_update": {
-				const e = rec.assistantMessageEvent;
-				if (!e) return;
-				if (e.type === "thinking_start") o.onPhase?.("thinking");
-				else if (e.type === "toolcall_start") o.onPhase?.("reading");
-				else if (e.type === "text_delta") {
-					this.currentText += e.delta;
-					o.onPhase?.("writing");
-					o.onText?.(this.currentText);
-				}
-				return;
-			}
-			case "message_end": {
-				const m = rec.message;
-				if (m?.role !== "assistant") return;
-				const used = messageUsage(m.usage);
-				const model = m.provider && m.model ? `${m.provider}/${m.model}` : null;
-				if (used || model) o.onUsage?.(used, model);
-				const text = Array.isArray(m.content) ? (m.content as PiContent[]).filter((c) => c.type === "text").map((c) => c.text ?? "").join("") : "";
-				if (m.stopReason === "error" || m.stopReason === "aborted") {
-					this.lastError = m.errorMessage || (m.stopReason === "aborted" ? "Stopped." : "The model returned an error.");
-				}
-				if (m.stopReason === "toolUse") {
-					// Narration before a tool call is not part of the result.
-					if (this.currentText) o.onText?.(this.finalText);
-				} else if (text.trim()) {
-					this.finalText = text;
-					o.onText?.(text);
-				}
-				this.currentText = "";
-				return;
-			}
-			case "tool_execution_start":
-				if (typeof rec.toolName === "string") o.onStep?.(rec.toolName, stepDetail(rec.args));
-				o.onTool?.(true);
-				o.onPhase?.(rec.toolName === "ask_learner" || rec.toolName === "propose_edit" ? "waiting" : "reading");
-				return;
-			case "tool_execution_end":
-				o.onTool?.(false);
-				o.onPhase?.("thinking");
-				return;
-			case "auto_retry_start":
-				o.onPhase?.("retrying");
-				return;
-			case "auto_retry_end":
-				if (rec.success === false && rec.finalError) this.lastError = rec.finalError;
-				return;
-		}
+		return this.events.result(this.cancelled, this.handled);
 	}
 
 	/** A dialog from one of the learner's own extensions (e.g. a permission gate): ask in the note. */
@@ -354,42 +263,6 @@ export class PiSession {
 			if (timer) window.clearTimeout(timer);
 		}
 	}
-}
-
-/**
- * An extension by its name, from the path Pi loaded it from: the package (`…/node_modules/@scope/name/dist/index.js`),
- * else the file, or its folder when the file is an index.
- */
-export function extensionName(path: string): string {
-	const parts = path.split(/[\\/]/).filter(Boolean);
-	const nm = parts.lastIndexOf("node_modules");
-	if (nm >= 0 && parts[nm + 1]) return parts[nm + 1].startsWith("@") && parts[nm + 2] ? `${parts[nm + 1]}/${parts[nm + 2]}` : parts[nm + 1];
-	const file = parts.at(-1) ?? path;
-	const stem = file.replace(/\.[cm]?[jt]s$/, "");
-	return stem === "index" && parts.length > 1 ? parts[parts.length - 2] : stem || path;
-}
-
-/** The fields of Pi's session events that handle() reads, all optional: Pi's union is read loosely. */
-interface PiContent {
-	type?: string;
-	text?: string;
-}
-interface PiEventView {
-	type?: string;
-	message?: {
-		role?: string;
-		usage?: Parameters<typeof messageUsage>[0];
-		provider?: string;
-		model?: string;
-		content?: unknown;
-		stopReason?: string;
-		errorMessage?: string;
-	};
-	assistantMessageEvent?: { type?: string; delta?: string };
-	toolName?: unknown;
-	args?: unknown;
-	success?: boolean;
-	finalError?: string;
 }
 
 /* ───────────── Probes: nothing is sent to a model ───────────── */

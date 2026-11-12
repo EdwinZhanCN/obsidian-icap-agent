@@ -239,9 +239,13 @@ export class LearningRuntime {
 		};
 	}
 
-	/** The agent setup tasks run with: the learner's choice, when the backend can run their own. */
+	/** The agent setup tasks run with: the learner's choice, when the backend can run both. */
 	agentConfig(): AgentConfig {
-		return this.backend.capabilities.ownSetup ? this.settings.agentConfig : "isolated";
+		const can = this.backend.capabilities;
+		if (!can.ownSetup) return "isolated";
+		// The learner's own install (Pi over RPC) is their whole setup: there is nothing to isolate it to.
+		if (!can.isolatedSetup) return "mine";
+		return this.settings.agentConfig;
 	}
 
 	private async runAgent(

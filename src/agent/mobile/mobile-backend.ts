@@ -42,6 +42,7 @@ export class MobileBackend implements AgentBackend {
 	readonly platform = "mobile" as const;
 	readonly capabilities: BackendCapabilities = {
 		ownSetup: false,
+		isolatedSetup: true,
 		sessionCache: false,
 		compact: false,
 		oauthLogin: false,

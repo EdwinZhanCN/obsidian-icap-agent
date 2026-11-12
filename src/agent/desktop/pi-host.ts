@@ -109,6 +109,14 @@ export function envAdditions(current: NodeJS.ProcessEnv, shell: Record<string, s
 	return add;
 }
 
+let shellEnv: Promise<Record<string, string> | undefined> | null = null;
+
+/** The login shell's variables, asked for once. Windows has no login shell to ask: its PATH is already the user's. */
+function loginShellEnvOnce(): Promise<Record<string, string> | undefined> {
+	shellEnv ??= process.platform === "win32" ? Promise.resolve(undefined) : loginShellEnv().catch(() => undefined);
+	return shellEnv;
+}
+
 let adopted: Promise<void> | null = null;
 
 /**
@@ -118,13 +126,19 @@ let adopted: Promise<void> | null = null;
  * missing variables are added to it once (never overriding Obsidian's own).
  */
 export function adoptLoginShellEnv(): Promise<void> {
-	adopted ??= loginShellEnv().then(
-		(shell) => {
-			if (shell) Object.assign(process.env, envAdditions(process.env, shell));
-		},
-		() => undefined,
-	);
+	adopted ??= loginShellEnvOnce().then((shell) => {
+		if (shell) Object.assign(process.env, envAdditions(process.env, shell));
+	});
 	return adopted;
+}
+
+/**
+ * The environment a child process gets (the learner's own Pi, rpc/): Obsidian's, plus what the login shell
+ * adds. Obsidian's own process.env is left as it is.
+ */
+export async function loginEnv(): Promise<NodeJS.ProcessEnv> {
+	const shell = await loginShellEnvOnce();
+	return shell ? { ...process.env, ...envAdditions(process.env, shell) } : { ...process.env };
 }
 
 /* ───────────── Models and credentials ───────────── */

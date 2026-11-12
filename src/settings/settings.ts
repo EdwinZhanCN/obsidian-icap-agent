@@ -11,6 +11,14 @@ export const GENERATED_BY = "icap-agent";
 
 export interface IcapSettings {
 	agentConfig: AgentConfig;
+	/**
+	 * Desktop: which Pi runs the tasks. "builtin": the one inside the plugin. "rpc": the learner's own
+	 * installed Pi, started per task (agent/desktop/rpc/); always their whole setup, so `agentConfig` does
+	 * not apply to it.
+	 */
+	desktopPi: "builtin" | "rpc";
+	/** Desktop, "rpc": the path to the learner's Pi; empty = found on PATH. */
+	piPath: string;
 	model: string;
 	thinking: string;
 	background: string;
@@ -74,6 +82,8 @@ export interface IcapSettings {
 
 export const DEFAULT_SETTINGS: IcapSettings = {
 	agentConfig: "mine",
+	desktopPi: "builtin",
+	piPath: "",
 	model: "",
 	thinking: "low",
 	background: "",
@@ -146,6 +156,66 @@ export class IcapSettingTab extends PluginSettingTab {
 		const status = add(agent)
 			.setName(mobile ? L("Agent", "Agent") : "Pi")
 			.setDesc(L("Checking…", "检查中…"));
+		// Desktop: the Pi inside the plugin, or the learner's own install (their extensions run in its process).
+		const own = backend.ownInstall;
+		let location: Setting | null = null;
+		if (!mobile) {
+			add(agent)
+				.setName(L("Pi to run", "运行哪个 Pi"))
+				.setDesc(
+					s.desktopPi === "rpc"
+						? L("Each task starts your installed Pi as its own process, with your extensions, skills and MCP servers.", "每个任务把你安装的 Pi 作为独立进程启动，带上你的扩展、skills 和 MCP 服务器。")
+						: L("Runs inside Obsidian; there is nothing to install.", "在 Obsidian 里运行，不需要安装任何东西。"),
+				)
+				.addDropdown((d) =>
+					d
+						.addOption("builtin", L("Built into ICAP", "ICAP 内置的"))
+						.addOption("rpc", L("Your own install", "你自己安装的"))
+						.setValue(s.desktopPi)
+						.onChange((v) => {
+							s.desktopPi = v === "rpc" ? "rpc" : "builtin";
+							void save();
+							this.display();
+						}),
+				);
+			if (own)
+				location = add(agent)
+					.setName(L("Pi location", "Pi 的位置"))
+					.setDesc(L("Looking for Pi…", "正在查找 Pi…"))
+					.addText((t) => {
+						t.setPlaceholder(L("Found automatically", "自动查找"))
+							.setValue(s.piPath)
+							.onChange((v) => {
+								s.piPath = v.trim();
+								void save();
+							});
+						// Look again once the path is typed, not at every keystroke.
+						t.inputEl.addEventListener("blur", () => check());
+					});
+		}
+		/** Where the learner's Pi is; when there is none, why, and the official install command to copy. */
+		const showLocation = async () => {
+			if (!own || !location) return;
+			const row = location;
+			try {
+				const path = await own.locate();
+				row.setDesc(s.piPath ? L("Found.", "已找到。") : L(`Found at ${path}.`, `位于 ${path}。`));
+			} catch (e) {
+				row.setDesc(
+					createFragment((f) => {
+						setIcon(f.createSpan({ cls: "icap-inline-icon is-warning" }), "alert-triangle");
+						f.appendText((e as Error).message);
+						const line = f.createDiv({ cls: "icap-install-command" });
+						line.createEl("code", { text: own.installCommand });
+						const copy = line.createEl("button", { text: L("Copy", "复制"), cls: "clickable-icon" });
+						copy.addEventListener("click", () => {
+							void navigator.clipboard.writeText(own.installCommand);
+							new Notice(L("Copied. Run it in a terminal, then check again.", "已复制。在终端里运行，然后重新检查。"));
+						});
+					}),
+				);
+			}
+		};
 		const providers = add(agent).setName(L("Model providers", "模型服务商"));
 		const providersHelp = mobile
 			? L("Add an API key or a custom endpoint below. Keys stay on this device.", "在下方添加 API Key 或自定义端点，Key 只保存在这台设备上。")
@@ -206,7 +276,9 @@ export class IcapSettingTab extends PluginSettingTab {
 			void (async () => {
 				let version = "";
 				try {
-					version = await backend.describe();
+					// ↻ looks for the learner's Pi again: they may have just installed or updated it.
+					version = await backend.describe(true);
+					void showLocation();
 					const probe = caps.modelProbe ? backend.probeModels?.bind(backend) : undefined;
 					if (!probe) return void status.setDesc(version);
 					status.setDesc(version + " · " + L("asking for its models…", "正在询问可用模型…"));
@@ -224,7 +296,10 @@ export class IcapSettingTab extends PluginSettingTab {
 						);
 					else status.setDesc(version + " · " + L(`${m.available.length} models available`, `共 ${m.available.length} 个可用模型`));
 				} catch (e) {
-					status.setDesc((version ? version + " · " : "") + L("could not load: ", "无法加载：") + (e as Error).message);
+					void showLocation();
+					// A Pi that was not found says so once, where the way out is: in the location row.
+					const found = own ? await own.locate().then(() => true, () => false) : true;
+					status.setDesc(found ? (version ? version + " · " : "") + L("could not load: ", "无法加载：") + (e as Error).message : L("Not ready: see “Pi location” below.", "尚未就绪：见下方“Pi 的位置”。"));
 				}
 			})();
 		};
@@ -404,7 +479,8 @@ export class IcapSettingTab extends PluginSettingTab {
 
 		/* ── Advanced ── */
 		const advanced = group(L("Advanced", "高级"));
-		if (caps.ownSetup)
+		// The learner's own install is always their whole setup: there is no choice to offer.
+		if (caps.ownSetup && caps.isolatedSetup)
 			add(advanced)
 				.setName(L("Agent setup", "Agent 配置"))
 				.setDesc(
@@ -425,7 +501,7 @@ export class IcapSettingTab extends PluginSettingTab {
 						}),
 				);
 		// With the learner's own Pi setup, Pi's own permissions apply instead.
-		if (caps.externalFiles && (!caps.ownSetup || s.agentConfig === "isolated"))
+		if (caps.externalFiles && this.plugin.runtime.agentConfig() === "isolated")
 			area(
 				add(advanced)
 					.setName(L("Folders outside the vault", "库外的文件夹"))

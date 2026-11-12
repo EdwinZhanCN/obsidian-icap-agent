@@ -164,7 +164,12 @@ export default class IcapPlugin extends Plugin {
 	private async chooseBackend(): Promise<AgentBackend> {
 		if (!Platform.isMobile) {
 			const { DesktopBackend } = await import("./agent/desktop/desktop-backend");
-			return new DesktopBackend(this.app, { pluginDir: () => this.pluginPath(), externalFolders: () => this.settings.externalFolders });
+			return new DesktopBackend(this.app, {
+				pluginDir: () => this.pluginPath(),
+				externalFolders: () => this.settings.externalFolders,
+				pi: () => this.settings.desktopPi,
+				piPath: () => this.settings.piPath,
+			});
 		}
 		const { MobileBackend } = await import("./agent/mobile/mobile-backend");
 		return new MobileBackend(this.app, { settings: () => this.settings, save: () => this.saveSettings(), requestUrl });
@@ -211,6 +216,8 @@ export default class IcapPlugin extends Plugin {
 
 	onunload() {
 		this.runtime?.dispose();
+		// After the runtime stopped its tasks: the learner's own Pi processes, the local socket, temporary files.
+		this.backend?.dispose?.();
 		for (const m of this.mounted) void unmount(m);
 		this.mounted = [];
 		document.body.removeClass("icap-style-theme");
