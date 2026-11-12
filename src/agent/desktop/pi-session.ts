@@ -248,7 +248,7 @@ export class PiSession {
 			if (disposition === "handled") {
 				this.handled = true;
 				// An extension command may start a turn of its own (pi.sendUserMessage) a moment later.
-				await new Promise((r) => setTimeout(r, HANDLED_GRACE_MS));
+				await new Promise((r) => window.setTimeout(r, HANDLED_GRACE_MS));
 			}
 			await session.waitForIdle();
 			return this.result();
@@ -344,14 +344,14 @@ export class PiSession {
 		if (!this.opts.onDialog || this.cancelled) return undefined;
 		const ctl = new AbortController();
 		// Pi resolves a timed-out dialog itself; withdraw the question when that happens.
-		const timer = typeof timeout === "number" && timeout > 0 ? setTimeout(() => ctl.abort(), timeout) : null;
+		const timer = typeof timeout === "number" && timeout > 0 ? window.setTimeout(() => ctl.abort(), timeout) : null;
 		try {
 			const answer = await this.opts.onDialog(req, ctl.signal);
 			return ctl.signal.aborted ? undefined : answer;
 		} catch {
 			return undefined;
 		} finally {
-			if (timer) clearTimeout(timer);
+			if (timer) window.clearTimeout(timer);
 		}
 	}
 }

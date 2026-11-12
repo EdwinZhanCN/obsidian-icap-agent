@@ -148,9 +148,9 @@ export class MobileSession {
 
 	private pause(ms: number): Promise<void> {
 		return new Promise((resolve) => {
-			const t = setTimeout(done, ms);
+			const t = window.setTimeout(done, ms);
 			function done() {
-				clearTimeout(t);
+				window.clearTimeout(t);
 				resolve();
 			}
 			this.wake = done;

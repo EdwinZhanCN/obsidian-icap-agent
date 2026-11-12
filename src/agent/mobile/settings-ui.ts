@@ -1,4 +1,4 @@
-import { Modal, Notice, SecretComponent, Setting, SettingGroup, setIcon, type App } from "obsidian";
+import { Modal, Notice, SecretComponent, Setting, SettingGroup, setIcon, type App, type ButtonComponent } from "obsidian";
 import { L } from "../../i18n";
 import { ENDPOINT_APIS, MOBILE_PROVIDERS, endpointSecretId, providerById, providerSecretId, slugOf, type EndpointApi, type MobileEndpoint } from "./providers";
 import { probeTransport, type RequestUrl } from "./transport";
@@ -21,6 +21,13 @@ interface Ctx {
 function checkedId(id: string): string {
 	if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)) throw new Error(`Not a valid secret id: “${id}”.`);
 	return id;
+}
+
+/** A button that deletes: setDestructive is Obsidian 1.13's; earlier versions style it with the class. */
+function destructive(b: ButtonComponent): ButtonComponent {
+	if (typeof b.setDestructive === "function") return b.setDestructive();
+	b.buttonEl.addClass("mod-warning");
+	return b;
 }
 
 function keySetting(app: App, group: SettingGroup, ctx: Ctx, provider: string, name: string, fallbackId: string, desc?: DocumentFragment) {
@@ -69,7 +76,7 @@ export function renderAccounts(app: App, el: HTMLElement, ctx: Ctx) {
 			row.setName(e.name).setDesc(`${e.baseUrl} · ${e.models.join(", ")} · ${via}`);
 			row.addButton((b) => b.setButtonText(L("Edit", "编辑")).onClick(() => new EndpointModal(app, ctx, e).open()));
 			row.addButton((b) =>
-				b.setButtonText(L("Remove", "移除")).setWarning().onClick(async () => {
+				destructive(b.setButtonText(L("Remove", "移除"))).onClick(async () => {
 					const s = ctx.settings();
 					s.mobileEndpoints = s.mobileEndpoints.filter((x) => x !== e);
 					delete s.mobileSecrets[e.id];

@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { beforeAll, beforeEach, describe, expect, it } from "vite-plus/test";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall, type FauxProviderHandle } from "@earendil-works/pi-ai";
 import type { PiSdk } from "../../../../src/agent/desktop/pi-host";
 import { modelRuntime } from "../../../../src/agent/desktop/pi-host";
@@ -9,6 +9,9 @@ import { ICAP_TOOLS } from "../../../../src/agent/tools/icap-tools";
 import type { AgentPhase } from "../../../../src/agent/backend";
 import { PiSession, extensionName, probeCommands, type RunOptions } from "../../../../src/agent/desktop/pi-session";
 import { ensureSkills } from "../../../../src/agent/desktop/icap-skills";
+
+// A session runs in Obsidian's renderer and takes its timers from the window; Node has none.
+vi.stubGlobal("window", { setTimeout, clearTimeout });
 
 /**
  * PiSession on the real Pi SDK, answered by Pi's faux provider: no model is called, nothing is spent.
