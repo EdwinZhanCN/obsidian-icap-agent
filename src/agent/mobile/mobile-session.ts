@@ -2,6 +2,7 @@ import { Agent, type AgentEvent, type AgentTool, type ThinkingLevel } from "@ear
 import type { Api, AssistantMessage, AssistantMessageEventStream, Model, SimpleStreamOptions, TranscriptContext } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import type { AgentEvents, AgentImage, AgentResult } from "../backend";
+import { stepResult } from "../steps";
 import { icapTools } from "../tools/icap-tools";
 import { messageUsage } from "../usage";
 import type { Transport } from "./providers";
@@ -246,12 +247,12 @@ export class MobileSession {
 				return;
 			}
 			case "tool_execution_start":
-				o.onStep?.(ev.toolName, stepDetail(ev.args));
+				o.onStep?.(ev.toolName, stepDetail(ev.args), ev.toolCallId);
 				o.onTool?.(true);
 				o.onPhase?.(ev.toolName === "ask_learner" || ev.toolName === "propose_edit" ? "waiting" : "reading");
 				return;
 			case "tool_execution_end":
-				o.onTool?.(false);
+				o.onTool?.(false, stepResult(ev.result, ev.isError, ev.toolCallId));
 				o.onPhase?.(whole ? "awaiting" : "thinking");
 				return;
 		}

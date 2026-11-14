@@ -1,7 +1,8 @@
 import { FileSystemAdapter, type App } from "obsidian";
 import { join } from "path";
 import { L } from "../../i18n";
-import type { AgentBackend, ToolScope, AgentEvents, AgentRequest, AgentResult, AgentRun, BackendAccounts, BackendCapabilities, OwnInstall, SessionCache } from "../backend";
+import type { AgentBackend, ToolScope, AgentEvents, AgentRequest, AgentResult, AgentRun, BackendAccounts, BackendCapabilities, BackendConnectors, OwnInstall, SessionCache } from "../backend";
+import { DesktopConnectors } from "./connectors";
 import { EndpointModal } from "./endpoint-modal";
 import { DesktopFiles } from "./files";
 import { ensureSkills } from "./icap-skills";
@@ -50,6 +51,7 @@ export class DesktopBackend implements AgentBackend {
 	readonly files: DesktopFiles;
 	readonly sessions: SessionCache;
 	readonly accounts: BackendAccounts;
+	readonly connectors: BackendConnectors;
 	private rpc: PiRpc;
 
 	constructor(
@@ -81,6 +83,7 @@ export class DesktopBackend implements AgentBackend {
 				if (dir) removeSessions(dir, match);
 			},
 		};
+		this.connectors = new DesktopConnectors(() => this.pi());
 		this.accounts = {
 			ready: async () => {
 				// The learner's own Pi says which providers have credentials through its models; the bundled SDK is not loaded for it.

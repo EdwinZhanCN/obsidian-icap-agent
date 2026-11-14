@@ -61,6 +61,9 @@ src/agent/permissions.ts  pure: what the built-in agent may do without asking. T
                           actionDecision, mentionsPath (a command that names a protected folder)
 src/agent/prompts.ts      the ICAP protocol (systemPrompt, shaped by PromptEnv: file tools? skill files?) and each
                           task's prompt (explain, recall, quiz, note, request, follow-up, continuation)
+src/agent/steps.ts        pure: a tool call's result as the steps keep it (error, the start of its text)
+src/agent/connectors.ts   pure: connector names and command lines; desktop/connectors.ts reads and writes Pi's global
+                          mcp.json with the harness's own functions (the settings' Connectors group)
 src/agent/usage.ts        pure: RunUsage (tokens, cache, price) from each assistant message's usage, summed per task;
                           cost unknown when a message has tokens but no price; the one-line display
 src/agent/visual-skill.ts the icap-visual skill text: a skill file on desktop, part of the system prompt on mobile
@@ -125,9 +128,11 @@ src/agent/mobile/         the mobile backend, no Node (also what desktop's app.e
   transport.ts            wholeFetch (requestUrl as a fetch: whole body, abort discards) and probeTransport
   settings-ui.ts          keys (SecretComponent → app.secretStorage) and the endpoint dialog, in the settings tab
 
-src/activity/             the `icap-activity` Bases view over task notes: rows.ts (pure: a note as a row, steps as
-                          spans), ActivityView.svelte, view.svelte.ts (the BasesView; strips only for this
-                          device's tasks). Display only. Its table views in Activity.base work without the plugin
+src/activity/             the `icap-activity` Bases view over task notes: rows.ts (pure: a note as a row, steps and
+                          phases as spans), ActivityView.svelte, view.svelte.ts (the BasesView; strips and traces only
+                          for this device's tasks), Strip.svelte (a task's time: phases under, tool calls over) and
+                          StepList.svelte (its tool calls with result previews), shared with the ledger. Display only.
+                          Its table views in Activity.base work without the plugin
 src/ui/provider-marks.ts  model marks (Lobe Icons, MIT, mono) and markFor(`provider/id`)
 src/dsl/blocks.ts         the Markdown DSL: ```icap-ask fences (and legacy ```icpa-ask), callouts
 src/dsl/records.ts        pure: the reference reader of FORMAT.md (readRecords, requestRounds); test/fixtures/format/

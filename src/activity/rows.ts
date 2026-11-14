@@ -4,7 +4,8 @@
  * so a task from another device or an earlier version still shows; only the strip needs the live task.
  */
 import { linkPath, isTaskStatus, TASK_MARK, type TaskNoteStatus } from "../dsl/task-notes";
-import type { Step } from "../runtime/state.svelte";
+import type { AgentPhase } from "../agent/backend";
+import type { PhaseMark, Step } from "../runtime/state.svelte";
 
 export interface ActivityRow {
 	path: string;
@@ -129,6 +130,53 @@ export function spans(steps: readonly Step[], start: number, end: number): Span[
 		out.push({ index, kind: stepKind(s.tool), left, width, running: s.end === undefined, ms: to - from });
 	});
 	return out;
+}
+
+/**
+ * Where the time between steps went: getting ready, waiting for the model's first token, its thinking,
+ * its reply, the learner. Drawn under the steps, so a long wait for the provider shows as what it is.
+ */
+export type PhaseKind = "prep" | "wait" | "think" | "reply" | "you";
+
+export function phaseKind(p: AgentPhase): PhaseKind {
+	switch (p) {
+		case "starting":
+			return "prep";
+		case "sending":
+		case "awaiting":
+		case "retrying":
+			return "wait";
+		case "thinking":
+			return "think";
+		case "waiting":
+			return "you";
+		default:
+			return "reply";
+	}
+}
+
+export interface PhaseSpan {
+	kind: PhaseKind;
+	left: number;
+	width: number;
+	ms: number;
+	running: boolean;
+}
+
+/** Phase changes as spans between `start` and `end`; the time before the first change is getting ready. */
+export function phaseSpans(marks: readonly PhaseMark[], start: number, end: number): PhaseSpan[] {
+	if (!marks.length) return [];
+	const total = Math.max(1, end - start);
+	const pieces: { kind: PhaseKind; from: number }[] = [];
+	if (marks[0].at > start) pieces.push({ kind: "prep", from: start });
+	for (const m of marks) {
+		const kind = phaseKind(m.phase);
+		if (pieces.at(-1)?.kind !== kind) pieces.push({ kind, from: Math.max(start, Math.min(end, m.at)) });
+	}
+	return pieces.map((p, i) => {
+		const to = i + 1 < pieces.length ? pieces[i + 1].from : end;
+		return { kind: p.kind, left: (p.from - start) / total, width: Math.max(0, to - p.from) / total, ms: Math.max(0, to - p.from), running: i === pieces.length - 1 };
+	}).filter((p) => p.ms > 0 || p.running);
 }
 
 /* ───────────── words ───────────── */

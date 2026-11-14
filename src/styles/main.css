@@ -1169,12 +1169,20 @@ body:not(.icap-style-theme) .callout:is([data-callout="gloss"], [data-callout="f
 	min-width: 0;
 }
 .icap-row-line {
+	display: flex;
+	align-items: baseline;
+	min-width: 0;
 	margin: 0;
 	line-height: 1.45;
 }
+.icap-row-line > .icap-row-title {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
 .icap-row-title.icap-row-title {
 	color: var(--text-normal);
-	overflow-wrap: anywhere;
 }
 button.icap-row-title.icap-row-title:hover {
 	text-decoration: underline;
@@ -1186,44 +1194,116 @@ button.icap-row-title.icap-row-title:hover {
 	color: var(--text-muted);
 }
 .icap-row-meta {
-	@apply tw:flex tw:flex-wrap tw:items-baseline;
+	@apply tw:flex tw:items-baseline;
+	min-width: 0;
+	white-space: nowrap;
 	gap: 0 0.7em;
 	margin: 1px 0 0;
 	font-size: 0.74rem;
 	color: var(--text-faint);
 }
 .icap-row-meta .icap-link.icap-link {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
 	color: var(--text-faint);
 }
-/* The agent's steps: for whoever wants to know how, folded away by default. */
+.icap-row-kind {
+	flex: none;
+	margin-inline-end: 0.5em;
+	font-size: 0.64rem;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--text-faint);
+}
+.icap-row-num,
+.icap-row-time {
+	font-variant-numeric: tabular-nums;
+}
+.icap-row-time {
+	font-size: 0.72rem;
+	color: var(--text-faint);
+	white-space: nowrap;
+}
+.icap-live-cue {
+	font-variant-numeric: tabular-nums;
+}
+.icap-row-live {
+	color: var(--icap-ink);
+	font-variant-numeric: tabular-nums;
+}
+.icap-row-steps-toggle.icap-row-steps-toggle {
+	all: unset;
+	display: inline-flex;
+	align-items: center;
+	gap: 0.3em;
+	cursor: pointer;
+	color: var(--text-faint);
+}
+.icap-row-steps-toggle:hover,
+.icap-row-steps-toggle[aria-expanded="true"] {
+	color: var(--text-muted);
+}
+.icap-row-steps-toggle:focus-visible {
+	outline: 1.5px solid var(--icap-ink-soft);
+	outline-offset: 2px;
+	border-radius: 2px;
+}
+/* The agent's steps: tool, what it was given, how long it took. */
 .icap-row-steps {
-	margin: 3px 0 0;
+	list-style: none;
+	margin: 4px 0 2px !important;
+	padding: 0 !important;
+	max-height: 14em;
+	overflow-y: auto;
 	font-size: 0.72rem;
 	color: var(--text-faint);
 }
-.icap-row-steps summary {
-	cursor: pointer;
-	width: fit-content;
-}
-.icap-row-steps summary:hover {
-	color: var(--text-muted);
-}
-.icap-row-steps ol {
-	margin: 2px 0 0;
-	padding-inline-start: 2.2em;
-	max-height: 14em;
-	overflow-y: auto;
-}
 .icap-row-steps li {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr) auto;
+	gap: 0.6em;
+	align-items: baseline;
 	margin: 0;
-	overflow-wrap: anywhere;
+	line-height: 1.6;
 }
 .icap-step-tool {
 	@apply tw:font-code;
 	color: var(--text-muted);
 }
+.icap-row-steps li.is-error .icap-step-tool {
+	color: var(--text-error);
+}
+/* What the call returned: one faint line under it, red when it failed. */
+.icap-step-out {
+	grid-column: 1 / -1;
+	margin: -1px 0 3px;
+	padding-inline-start: 0.7em;
+	border-inline-start: 1px solid var(--background-modifier-border);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-family: var(--font-monospace);
+	font-size: 0.66rem;
+	line-height: 1.5;
+	color: var(--text-faint);
+}
+.icap-row-steps li.is-error .icap-step-out {
+	color: var(--text-error);
+	border-color: color-mix(in oklab, var(--text-error) 40%, transparent);
+}
 .icap-step-detail {
-	margin-inline-start: 0.6em;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.icap-ledger .icap-activity-strip {
+	margin: 6px 0 3px;
+}
+.icap-row-file {
+	display: inline-flex;
+	align-self: center;
+	color: var(--icap-ink);
 }
 .icap-row-status {
 	color: var(--icap-ink);
@@ -1253,9 +1333,10 @@ button.icap-row-title.icap-row-title:hover {
 	color: var(--icap-ink);
 }
 .icap-row-actions {
-	@apply tw:flex tw:items-baseline tw:gap-2;
+	@apply tw:flex tw:flex-col tw:items-end;
+	gap: 2px;
 	font-size: 0.76rem;
-	padding-top: 1px;
+	padding-top: 2px;
 }
 
 /* The learner's final version stands apart from the dialogue above it. */
@@ -1568,7 +1649,6 @@ body {
 	overflow-y: auto;
 }
 .icap-activity {
-	--icap-act-strip: 6px;
 	max-width: 46rem;
 	padding: var(--size-4-3) var(--size-4-4) var(--size-4-8);
 	font-size: var(--font-ui-small);
@@ -1714,38 +1794,39 @@ body {
 /* The strip: the task's time, left to right. The track itself is the time between calls (thinking). */
 .icap-activity-strip {
 	position: relative;
-	height: var(--icap-act-strip);
+	height: 14px;
 	margin: var(--size-4-2) 0 var(--size-2-1);
-	border-radius: 2px;
+	border-radius: 4px;
+	overflow: visible;
 	background: var(--icap-ink-wash);
 	transform-origin: left center;
 }
-.icap-activity .icap-activity-span {
+.icap-activity-strip .icap-activity-span {
 	all: unset;
 	position: absolute;
 	top: 0;
 	bottom: 0;
-	min-width: 2px;
-	border-radius: 2px;
+	min-width: 3px;
+	border-radius: 3px;
 	overflow: hidden;
 	cursor: default;
 	background: color-mix(in oklab, var(--icap-ink) 45%, transparent);
 }
-.icap-activity .icap-activity-span[data-kind="write"] {
+.icap-activity-strip .icap-activity-span[data-kind="write"] {
 	background: var(--icap-ink);
 }
-.icap-activity .icap-activity-span[data-kind="ask"] {
+.icap-activity-strip .icap-activity-span[data-kind="ask"] {
 	background: repeating-linear-gradient(-45deg, var(--icap-ink-soft) 0 2px, transparent 2px 4px);
 }
-.icap-activity .icap-activity-span:hover,
-.icap-activity .icap-activity-span:focus-visible {
+.icap-activity-strip .icap-activity-span:hover,
+.icap-activity-strip .icap-activity-span:focus-visible {
 	outline: 1.5px solid var(--icap-ink-soft);
 	outline-offset: 1px;
 }
-.icap-activity .icap-activity-span.is-running {
-	border-radius: 2px 0 0 2px;
+.icap-activity-strip .icap-activity-span.is-running {
+	border-radius: 3px 0 0 3px;
 }
-.icap-activity .icap-activity-span.is-running::after {
+.icap-activity-strip .icap-activity-span.is-running::after {
 	content: "";
 	position: absolute;
 	inset: 0;
@@ -1757,6 +1838,72 @@ body {
 	to {
 		transform: translateX(100%);
 	}
+}
+
+/* A row's trace: the toggle for its tool calls, left of its strip. */
+.icap-activity-trace {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2);
+	margin: var(--size-4-2) 0 var(--size-2-1);
+}
+.icap-activity-trace-strip {
+	flex: 1;
+	min-width: 0;
+}
+.icap-activity-trace-strip .icap-activity-strip {
+	margin: 0;
+}
+.icap-activity .icap-activity-trace-toggle {
+	all: unset;
+	flex: none;
+	display: inline-flex;
+	align-items: center;
+	gap: 0.3em;
+	height: 20px;
+	padding: 0 6px;
+	border-radius: var(--radius-s);
+	cursor: pointer;
+	color: var(--text-faint);
+	font-size: var(--font-ui-smaller);
+}
+.icap-activity .icap-activity-trace-toggle:hover,
+.icap-activity .icap-activity-trace-toggle[aria-expanded="true"] {
+	color: var(--text-normal);
+	background: var(--background-modifier-hover);
+}
+.icap-activity .icap-activity-trace-toggle:focus-visible {
+	outline: 1.5px solid var(--icap-ink-soft);
+	outline-offset: 1px;
+}
+.icap-activity .icap-row-steps {
+	margin: var(--size-2-3) 0 0 !important;
+	font-size: var(--font-ui-smaller);
+	max-height: 20em;
+}
+
+/* Under the steps: where the time between them went. The wait for the model is grey, thinking a tint, the learner hatched. */
+.icap-activity-strip .icap-activity-phase-span {
+	all: unset;
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	border-radius: 3px;
+	cursor: default;
+}
+.icap-activity-strip .icap-activity-phase-span[data-phase="wait"] {
+	background: repeating-linear-gradient(-45deg, color-mix(in oklab, var(--text-faint) 70%, transparent) 0 2px, transparent 2px 5px);
+}
+.icap-activity-strip .icap-activity-phase-span[data-phase="think"] {
+	background: color-mix(in oklab, var(--icap-ink) 22%, transparent);
+}
+.icap-activity-strip .icap-activity-phase-span[data-phase="you"] {
+	background: repeating-linear-gradient(-45deg, var(--icap-ink-soft) 0 2px, transparent 2px 4px);
+}
+.icap-activity-strip .icap-activity-phase-span:hover,
+.icap-activity-strip .icap-activity-phase-span:focus-visible {
+	outline: 1.5px solid var(--icap-ink-soft);
+	outline-offset: 1px;
 }
 
 /* Text only screen readers get: a name that must not be an aria-label (Obsidian shows those as tooltips). */
@@ -1799,6 +1946,23 @@ body {
 	color: var(--text-muted);
 	font-size: var(--font-ui-smaller);
 }
+.icap-activity-card-out {
+	margin-top: 3px;
+	display: -webkit-box;
+	-webkit-line-clamp: 3;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+	font-family: var(--font-monospace);
+	font-size: 0.68rem;
+	color: var(--text-faint);
+	overflow-wrap: anywhere;
+}
+.icap-activity-card-out.is-error {
+	color: var(--text-error);
+}
+.icap-activity-strip .icap-activity-span.is-error {
+	background: var(--text-error);
+}
 .icap-activity-card-how code {
 	font-size: 0.95em;
 	background: none;
@@ -1808,7 +1972,7 @@ body {
 @media (prefers-reduced-motion: reduce) {
 	.icap-activity-pulse,
 	[data-tone="live"] > .icap-activity-dot,
-	.icap-activity .icap-activity-span.is-running::after {
+	.icap-activity-strip .icap-activity-span.is-running::after {
 		animation: none;
 	}
 }
@@ -1852,4 +2016,40 @@ body {
 .icap-writing-foot .icap-attach {
 	margin-inline-end: auto;
 	align-self: center;
+}
+
+/* ───────────── Settings: connectors ───────────── */
+.icap-connector-kind {
+	margin-inline-start: 0.6em;
+	padding: 0 0.4em;
+	border-radius: var(--radius-s);
+	background: var(--background-modifier-hover);
+	font-size: var(--font-ui-smaller);
+	color: var(--text-muted);
+	vertical-align: 1px;
+}
+.icap-connector-target {
+	font-size: var(--font-ui-smaller);
+	background: none;
+	padding: 0;
+	overflow-wrap: anywhere;
+}
+.icap-connector-row.is-off .setting-item-name,
+.icap-connector-row.is-off .icap-connector-target {
+	color: var(--text-faint);
+}
+.icap-connector-field .setting-item-info {
+	display: none;
+}
+.icap-connector-field .setting-item-control,
+.icap-connector-input {
+	width: 100%;
+}
+.icap-connector-input {
+	font-family: var(--font-monospace);
+}
+.icap-connector-error {
+	min-height: 1.4em;
+	color: var(--text-error);
+	font-size: var(--font-ui-smaller);
 }

@@ -20,7 +20,19 @@ export interface Step {
 	/** When the call started and ended (ms); `end` is absent while it runs, and on steps from before 1.2. */
 	at?: number;
 	end?: number;
+	/** The tool call's id, to match its end when calls run side by side. */
+	id?: string;
+	/** It failed. */
+	error?: true;
+	/** The start of what it returned. */
+	out?: string;
 }
+
+export interface PhaseMark {
+	phase: AgentPhase;
+	at: number;
+}
+const MAX_PHASES = 400;
 
 /** Steps kept per task; the earliest ones go first. */
 export const MAX_STEPS = 40;
@@ -72,6 +84,8 @@ export class Task {
 	artifacts = $state<Artifact[]>([]);
 	steps = $state<Step[]>([]);
 	stepsDropped = $state(0);
+	/** When the agent's phase changed, in order: where this run's time went. This device only, never kept. */
+	phases = $state.raw<PhaseMark[]>([]);
 	/** Tokens and price so far; null until a model has answered (agent/usage.ts). */
 	usage = $state<RunUsage | null>(null);
 	/** The model that answered last, `provider/id`; null until one has. */
@@ -109,19 +123,29 @@ export class Task {
 		return this.status === "processing" || this.status === "waiting";
 	}
 
-	addStep(tool: string, detail: string, at = Date.now()) {
-		const next = [...this.steps, { tool, detail, at }];
+	addStep(tool: string, detail: string, at = Date.now(), id?: string) {
+		const next = [...this.steps, { tool, detail, at, ...(id ? { id } : {}) }];
 		const over = next.length - MAX_STEPS;
 		if (over > 0) this.stepsDropped += over;
 		this.steps = over > 0 ? next.slice(over) : next;
 	}
 
+	setPhase(phase: AgentPhase, at = Date.now()) {
+		this.phase = phase;
+		if (this.phases.at(-1)?.phase === phase) return;
+		const next = [...this.phases, { phase, at }];
+		this.phases = next.length > MAX_PHASES ? next.slice(next.length - MAX_PHASES) : next;
+	}
+
 	/** The earliest step still running has ended (tool calls end in the order they started, or near enough). */
-	endStep(at = Date.now()) {
-		const i = this.steps.findIndex((s) => s.at !== undefined && s.end === undefined);
+	endStep(at = Date.now(), result?: { id?: string; error: boolean; preview: string }) {
+		const open = (s: Step) => s.at !== undefined && s.end === undefined;
+		let i = result?.id ? this.steps.findIndex((s) => open(s) && s.id === result.id) : -1;
+		if (i < 0) i = this.steps.findIndex(open);
 		if (i < 0) return;
 		const next = [...this.steps];
-		next[i] = { ...next[i], end: at };
+		const { id: _id, ...done } = next[i];
+		next[i] = { ...done, end: at, ...(result?.error ? { error: true as const } : {}), ...(result?.preview ? { out: result.preview } : {}) };
 		this.steps = next;
 	}
 

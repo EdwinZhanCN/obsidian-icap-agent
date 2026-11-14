@@ -31,6 +31,7 @@ export type {
 	WriteOperations,
 } from "../../../pi/packages/coding-agent/src/index.ts";
 export { Type } from "typebox";
+export { addMcpServerConfig, loadMcpConfig, removeMcpServerConfig, updateMcpServerConfig } from "../../../pi/packages/coding-agent/src/extensions/mcp/config.ts";
 
 import { getShellConfig } from "../../../pi/packages/coding-agent/src/utils/shell.ts";
 

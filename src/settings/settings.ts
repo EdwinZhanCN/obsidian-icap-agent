@@ -1,9 +1,10 @@
 import { App, Modal, Notice, PluginSettingTab, Setting, SettingGroup, setIcon, type DropdownComponent } from "obsidian";
 import type IcapPlugin from "../main";
-import type { ConfirmMode, ToolScope } from "../agent/backend";
+import type { BackendConnectors, ConfirmMode, ConnectorSpec, ToolScope } from "../agent/backend";
 import type { MobileEndpoint } from "../agent/mobile/providers";
 import type { Visuals } from "../agent/prompts";
 import { RulesModal, VAULT_RULES } from "./rules-modal";
+import { splitCommand } from "../agent/connectors";
 import { L } from "../i18n";
 
 /** The property value create_note writes (before the rename ICPA → ICAP it was "icpa-agent"). */
@@ -488,6 +489,9 @@ export class IcapSettingTab extends PluginSettingTab {
 				}),
 			);
 
+		/* ── Connectors: the learner's MCP servers, in Pi's mcp.json (desktop) ── */
+		if (backend.connectors) this.connectorsGroup(group(L("Connectors", "Connector")), add, backend.connectors);
+
 		/* ── Advanced ── */
 		const advanced = group(L("Advanced", "高级"));
 		// The learner's own install is always their whole setup, and acts on its own: neither choice applies to it.
@@ -596,6 +600,122 @@ export class IcapSettingTab extends PluginSettingTab {
 					}),
 			);
 		check();
+	}
+
+	/**
+	 * One row per server: its name, what it runs or where it is, on or off, remove. With the built-in
+	 * agent's isolated tools, the list stays editable but is not used, which the heading says.
+	 */
+	private connectorsGroup(g: SettingGroup, add: (g: SettingGroup) => Setting, connectors: BackendConnectors) {
+		const s = this.plugin.settings;
+		const unused = s.desktopPi !== "rpc" && this.plugin.runtime.toolScope() === "isolated";
+		const head = add(g)
+			.setName(L("MCP servers", "MCP 服务器"))
+			.setDesc(unused ? L("Used with full tools.", "完整工具范围下可用。") : "")
+			.addExtraButton((b) => b.setIcon("folder-open").setTooltip(L("Show mcp.json", "显示 mcp.json")).onClick(() => void connectors.reveal().catch((e: Error) => new Notice(e.message))))
+			.addButton((b) => b.setButtonText(L("Add…", "添加…")).onClick(() => new ConnectorModal(this.app, connectors, () => this.display()).open()));
+		void connectors.list().then(
+			({ servers, errors }) => {
+				if (errors.length) head.setDesc(createFragment((f) => {
+					setIcon(f.createSpan({ cls: "icap-inline-icon is-warning" }), "alert-triangle");
+					f.appendText(errors.join(" · "));
+				}));
+				for (const c of servers) {
+					let armed = 0;
+					const row = add(g)
+						.setName(createFragment((f) => {
+							f.appendText(c.name);
+							f.createSpan({ cls: "icap-connector-kind", text: c.kind === "http" ? "HTTP" : "stdio" });
+						}))
+						.setDesc(createFragment((f) => f.createEl("code", { cls: "icap-connector-target", text: c.target })))
+						.addToggle((t) =>
+							t.setValue(c.enabled).onChange((v) => void connectors.setEnabled(c.name, v).catch((e: Error) => new Notice(e.message))),
+						)
+						.addExtraButton((b) =>
+							b
+								.setIcon("trash-2")
+								.setTooltip(L("Remove", "移除"))
+								.onClick(() => {
+									// Removing asks twice: the first click arms it for three seconds.
+									if (Date.now() - armed > 3000) {
+										armed = Date.now();
+										b.setIcon("check").setTooltip(L("Click again to remove", "再点一次移除"));
+										b.extraSettingsEl.addClass("mod-warning");
+										window.setTimeout(() => {
+											if (!armed) return;
+											b.setIcon("trash-2").setTooltip(L("Remove", "移除"));
+											b.extraSettingsEl.removeClass("mod-warning");
+										}, 3000);
+										return;
+									}
+									armed = 0;
+									void connectors.remove(c.name).then(() => this.display(), (e: Error) => new Notice(e.message));
+								}),
+						);
+					row.settingEl.addClass("icap-connector-row");
+					if (!c.enabled) row.settingEl.addClass("is-off");
+				}
+			},
+			(e: Error) => head.setDesc(e.message),
+		);
+	}
+}
+
+/** A new connector: a name, then a command that starts it or the URL it answers at. */
+class ConnectorModal extends Modal {
+	constructor(
+		app: App,
+		private connectors: BackendConnectors,
+		private done: () => void,
+	) {
+		super(app);
+	}
+	onOpen() {
+		this.setTitle(L("Add an MCP server", "添加 MCP 服务器"));
+		let name = "";
+		let kind: "stdio" | "http" = "stdio";
+		let target = "";
+		new Setting(this.contentEl).setName(L("Name", "名称")).addText((t) => t.setPlaceholder("notion").onChange((v) => (name = v.trim())));
+		let field!: Setting;
+		const placeholder = () => (kind === "http" ? "https://mcp.example.com/mcp" : "npx -y @modelcontextprotocol/server-filesystem ~/Documents");
+		new Setting(this.contentEl).setName(L("Type", "类型")).addDropdown((d) =>
+			d
+				.addOption("stdio", L("Command", "命令"))
+				.addOption("http", "URL")
+				.setValue(kind)
+				.onChange((v) => {
+					kind = v === "http" ? "http" : "stdio";
+					(field.components[0] as unknown as { setPlaceholder(p: string): void }).setPlaceholder(placeholder());
+				}),
+		);
+		field = new Setting(this.contentEl).setClass("icap-connector-field").addText((t) => {
+			t.setPlaceholder(placeholder()).onChange((v) => (target = v.trim()));
+			t.inputEl.addClass("icap-connector-input");
+		});
+		const error = this.contentEl.createDiv({ cls: "icap-connector-error" });
+		new Setting(this.contentEl)
+			.addButton((b) => b.setButtonText(L("Cancel", "取消")).onClick(() => this.close()))
+			.addButton((b) =>
+				b
+					.setButtonText(L("Add", "添加"))
+					.setCta()
+					.onClick(() => {
+						const spec: ConnectorSpec = kind === "http" ? { url: target } : (() => {
+							const [command = "", ...args] = splitCommand(target);
+							return { command, args };
+						})();
+						void this.connectors.add(name, spec).then(
+							() => {
+								this.close();
+								this.done();
+							},
+							(e: Error) => error.setText(e.message),
+						);
+					}),
+			);
+	}
+	onClose() {
+		this.contentEl.empty();
 	}
 }
 

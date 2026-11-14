@@ -11,7 +11,7 @@
 	import ExtensionErrors from "./ExtensionErrors.svelte";
 	import WritingLine from "./WritingLine.svelte";
 	import Choices from "./Choices.svelte";
-	import { CONTEXT_NEARLY_FULL, SUBMIT_KEYS, blockCaption, contextShare, phaseLine, stopLabel, touchCaption, usageLine } from "./phrases";
+	import { CONTEXT_NEARLY_FULL, SUBMIT_KEYS, blockCaption, contextShare, liveCue, phaseLine, stopLabel, touchCaption, usageLine } from "./phrases";
 	import { Notice, Platform } from "obsidian";
 	import Keys from "./Keys.svelte";
 	import { holdHeight } from "./hold-height";
@@ -296,6 +296,20 @@
 		}
 	});
 	const foldedStatus = $derived(!block ? "" : working ? L("working…", "进行中…") : blockCaption(block.phase, block.kind, false, !!block.error).split(SUBMIT_KEYS)[0].replace(/[—–-]\s*$/, "").trim());
+
+	/* While the agent works: what it is doing now and for how long, by the stop button. */
+	let clock = $state(Date.now());
+	$effect(() => {
+		if (!working) return;
+		clock = Date.now();
+		const t = window.setInterval(() => (clock = Date.now()), 500);
+		return () => window.clearInterval(t);
+	});
+	const cue = $derived.by(() => {
+		if (!block || !working) return "";
+		const task = rt.ledger.get(block.taskId ?? "");
+		return task?.active ? liveCue(task, clock) : "";
+	});
 
 	const caption = $derived(
 		!block || working
@@ -713,6 +727,7 @@
 
 		<div class="icap-actions" role="toolbar" aria-label={L("Interaction actions", "交互操作")} bind:this={actionsEl}>
 			<span class="icap-caption" aria-live="polite">
+				{#if cue}<span class="icap-live-cue">{cue}</span>{/if}
 				{#key caption}<span class="icap-roll" use:settleIn>{#each (Platform.isMobile ? touchCaption(caption) : caption).split(SUBMIT_KEYS) as part, i}{#if i}<Keys />{/if}{#if part}<span>{part}</span>{/if}{/each}</span>{/key}
 			</span>
 			{#if live}

@@ -1,10 +1,19 @@
 <script lang="ts">
-	import { L, isZh } from "../i18n";
+	import { L } from "../i18n";
 	import { tick } from "svelte";
+	import { SvelteSet } from "svelte/reactivity";
 	import X from "@lucide/svelte/icons/x";
+	import ListIcon from "@lucide/svelte/icons/list";
+	import FilePlus from "@lucide/svelte/icons/file-plus";
+	import FilePen from "@lucide/svelte/icons/file-pen";
+	import FileX from "@lucide/svelte/icons/file-x";
+	import Strip from "../activity/Strip.svelte";
+	import StepList from "../activity/StepList.svelte";
+	import { duration } from "../activity/rows";
+	import { formatCost } from "../agent/usage";
 	import type { LearningRuntime } from "../runtime/runtime";
 	import type { Task } from "../runtime/state.svelte";
-	import { ago, phaseLine, statusWord, stopLabel, usageLine } from "./phrases";
+	import { ago, kindWord, liveCue, statusWord, stopLabel, subjectOf } from "./phrases";
 	import { play, settleIn, spring, strokeIn } from "./motion";
 
 	let { rt }: { rt: LearningRuntime } = $props();
@@ -50,7 +59,7 @@
 	$effect(() => {
 		if (!ledger.open) return;
 		now = Date.now();
-		const tick$ = window.setInterval(() => (now = Date.now()), 30000);
+		const tick$ = window.setInterval(() => (now = Date.now()), working.length ? 1000 : 30000);
 		void tick().then(() => panel?.focus());
 		const away = (e: MouseEvent) => {
 			const t = e.target as HTMLElement;
@@ -75,10 +84,14 @@
 		return path.split("/").pop()!.replace(/\.md$/, "");
 	}
 
-	function line(t: Task) {
-		if (t.status === "processing") return t.title;
-		if (t.status === "waiting") return t.title;
-		return t.outcome || t.title;
+	/** Rows whose steps are open. */
+	const openSteps = new SvelteSet<string>();
+	function toggleSteps(id: string) {
+		if (openSteps.has(id)) openSteps.delete(id);
+		else openSteps.add(id);
+	}
+	function changed(t: Task) {
+		return t.artifacts.filter((a) => a.kind === "created" || a.kind === "edited" || a.kind === "deleted");
 	}
 
 	function go(t: Task) {
@@ -98,16 +111,12 @@
 		</header>
 
 		{#if !ledger.tasks.length}
-			<p class="icap-ledger-empty">
-				{#if isZh()}
-					还没有任何活动。选中一段文字后选择<em>解释</em>，或者读完一节后运行<em>凭记忆复述</em>。
-				{:else}
-					Nothing yet. Select a passage and choose <em>explain</em>, or run <em>Recall from memory</em> after reading a section.
-				{/if}
-			</p>
+			<p class="icap-ledger-empty">{L("No activity yet", "还没有活动")}</p>
 		{/if}
 
 		{#snippet row(t: Task)}
+			{@const files = changed(t)}
+			{@const cost = t.usage ? formatCost(t.usage) : null}
 			<li class="icap-row" data-status={t.status} use:rowIn={`row:${t.id}:${t.status}`}>
 				{#if t.status === "completed"}
 					<svg class="icap-row-check" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.2 6.6 L5 9.4 L10.2 2.6" use:strokeIn={`done:${t.id}`} /></svg>
@@ -116,30 +125,36 @@
 				{/if}
 				<div class="icap-row-main">
 					<p class="icap-row-line">
+						<span class="icap-row-kind">{kindWord(t.kind)}</span>
 						{#if t.status === "waiting" || t.blockId || t.glossId}
-							<button type="button" class="icap-row-title" onclick={() => go(t)}>{line(t)}</button>
+							<button type="button" class="icap-row-title" title={t.title} onclick={() => go(t)}>{subjectOf(t.title)}</button>
 						{:else}
-							<span class="icap-row-title">{line(t)}</span>
+							<span class="icap-row-title" title={t.title}>{subjectOf(t.title)}</span>
 						{/if}
 					</p>
 					<p class="icap-row-meta">
 						{#if t.status === "processing"}
-							<span>{phaseLine(t.phase, t.kind === "explain" || t.kind === "quiz" || t.kind === "note" || t.kind === "request" || t.kind === "read" ? t.kind : "check")}</span>
-						{:else if t.status === "waiting"}
-							<span class="icap-row-status">{statusWord(t.status)}</span>
+							<span class="icap-row-live">{liveCue(t, now)}</span>
 						{:else if t.status !== "completed"}
-							<span class="icap-row-status" title={t.interrupted ? (t.error ?? L("Obsidian closed while this was running", "运行时 Obsidian 被关闭")) : undefined}>{t.interrupted ? L("interrupted", "已中断") : statusWord(t.status)}</span>
+							<span class="icap-row-status" title={t.interrupted ? (t.error ?? undefined) : undefined}>{t.interrupted ? L("interrupted", "已中断") : statusWord(t.status)}</span>
 						{/if}
-						<span>{L("in", "于")} <button type="button" class="icap-link" onclick={() => rt.openPath(t.notePath)}>{noteName(t.notePath)}</button></span>
-						<span class="icap-row-time">{ago(t.endedAt ?? t.createdAt, now)}</span>
+						<button type="button" class="icap-link" onclick={() => rt.openPath(t.notePath)}>{noteName(t.notePath)}</button>
+						{#if !t.active && t.endedAt}<span class="icap-row-num">{duration(t.endedAt - t.createdAt)}</span>{/if}
+						{#if cost && !t.active}<span class="icap-row-num">{cost}</span>{/if}
+						{#if t.steps.length}
+							<button type="button" class="icap-row-steps-toggle" aria-expanded={openSteps.has(t.id)} aria-label={L("Steps", "步骤")} onclick={() => toggleSteps(t.id)}><ListIcon size={11} aria-hidden="true" /><span class="icap-row-num">{t.steps.length + t.stepsDropped}</span></button>
+						{/if}
 					</p>
-					{#if t.usage && !t.active}<p class="icap-usage">{usageLine(t.usage)}</p>{/if}
-					{#if t.error}<p class="icap-row-error">{t.error}</p>{/if}
-					{#if t.artifacts.some((a) => a.kind === "created" || a.kind === "edited" || a.kind === "deleted")}
+					{#if t.phases.length}<Strip task={t} start={t.createdAt} key={`ledger:${t.id}`} />{/if}
+					{#if openSteps.has(t.id)}
+						<div use:settleIn={`steps:${t.id}`}><StepList steps={t.steps} active={t.active} /></div>
+					{/if}
+					{#if t.error && !t.interrupted}<p class="icap-row-error">{t.error}</p>{/if}
+					{#if files.length}
 						<ul class="icap-row-artifacts">
-							{#each t.artifacts.filter((a) => a.kind === "created" || a.kind === "edited" || a.kind === "deleted") as a (a.path + a.kind)}
+							{#each files as a (a.path + a.kind)}
 								<li use:settleIn={`art:${t.id}:${a.kind}:${a.path}`}>
-									<span class="icap-artifact-kind">{a.kind === "created" ? L("new", "新建") : a.kind === "edited" ? L("changed", "修改") : L("deleted", "删除")}</span>
+									<span class="icap-row-file" title={a.kind === "created" ? L("new", "新建") : a.kind === "edited" ? L("changed", "修改") : L("deleted", "删除")}>{#if a.kind === "created"}<FilePlus size={11} aria-hidden="true" />{:else if a.kind === "edited"}<FilePen size={11} aria-hidden="true" />{:else}<FileX size={11} aria-hidden="true" />{/if}</span>
 									{#if a.kind === "deleted"}
 										<span>{a.label}</span>
 									{:else}
@@ -149,19 +164,9 @@
 							{/each}
 						</ul>
 					{/if}
-					<!-- The agent's tool calls: closed by default, here only — the note never shows them. -->
-					{#if t.steps.length}
-						<details class="icap-row-steps">
-							<summary>{L(`${t.steps.length + t.stepsDropped} steps`, `${t.steps.length + t.stepsDropped} 个步骤`)}</summary>
-							<ol start={t.stepsDropped + 1}>
-								{#each t.steps as s, i (i)}
-									<li><span class="icap-step-tool">{s.tool}</span>{#if s.detail}<span class="icap-step-detail">{s.detail}</span>{/if}</li>
-								{/each}
-							</ol>
-						</details>
-					{/if}
 				</div>
 				<div class="icap-row-actions">
+					<span class="icap-row-time">{ago(t.endedAt ?? t.createdAt, now)}</span>
 					{#if t.status === "waiting"}
 						<button type="button" class="icap-link icap-primary" onclick={() => go(t)}>{L("answer", "去回答")}</button>
 					{/if}

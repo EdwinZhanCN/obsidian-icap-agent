@@ -129,15 +129,22 @@ export interface AgentRequest {
 	images?: AgentImage[];
 }
 
+/** What a tool call returned, for the activity's steps: its call id, whether it failed, and the start of its text. */
+export interface StepResult {
+	id?: string;
+	error: boolean;
+	preview: string;
+}
+
 /** What a run tells the runtime while it goes. */
 export interface AgentEvents {
 	/** Full text of the assistant message currently streaming (narration before tool calls is dropped). */
 	onText?: (text: string) => void;
 	onPhase?: (phase: AgentPhase) => void;
-	/** A tool call started (true) or finished (false); file changes in between are the agent's. */
-	onTool?: (running: boolean) => void;
-	/** A tool call started: its name and a one-line gist of its arguments (for the activity's steps). */
-	onStep?: (tool: string, detail: string) => void;
+	/** A tool call started (true) or finished (false, with what it returned); file changes in between are the agent's. */
+	onTool?: (running: boolean, result?: StepResult) => void;
+	/** A tool call started: its name, a one-line gist of its arguments and its call id (for the activity's steps). */
+	onStep?: (tool: string, detail: string, id?: string) => void;
 	/**
 	 * An assistant message ended: the tokens and price it reports (agent/usage.ts), summed by the runtime, and
 	 * the model that wrote it as `provider/id` (what the task records in `icap-model`).
@@ -248,6 +255,33 @@ export interface BackendAccounts {
 	render?(el: HTMLElement, done: () => void): void;
 }
 
+/** One of the learner's connectors: an MCP server in Pi's global `mcp.json`. */
+export interface Connector {
+	name: string;
+	kind: "stdio" | "http";
+	/** The command line, or the URL. */
+	target: string;
+	enabled: boolean;
+}
+
+/** What a new connector is: a program to start, or a URL. */
+export type ConnectorSpec = { command: string; args: string[] } | { url: string };
+
+/**
+ * The learner's connectors, read and written in Pi's global `mcp.json` (shared with their own Pi).
+ * Changes apply to the next task. Desktop only: a phone cannot start a program or hold a connector.
+ */
+export interface BackendConnectors {
+	/** The servers, the file they are in, and what in it could not be read. */
+	list(): Promise<{ servers: Connector[]; file: string; errors: string[] }>;
+	setEnabled(name: string, enabled: boolean): Promise<void>;
+	/** Rejects when the name is taken or the entry is invalid, saying why. */
+	add(name: string, spec: ConnectorSpec): Promise<void>;
+	remove(name: string): Promise<void>;
+	/** Show the file in the system's file manager. */
+	reveal(): Promise<void>;
+}
+
 /**
  * An agent that is a program the learner installs themselves (desktop: their own Pi). The plugin looks
  * for it and says how to get it; it never installs or updates it.
@@ -279,6 +313,8 @@ export interface AgentBackend {
 	readonly accounts?: BackendAccounts;
 	/** Present while the agent in use is the learner's own install. */
 	readonly ownInstall?: OwnInstall;
+	/** The learner's connectors (MCP servers). */
+	readonly connectors?: BackendConnectors;
 	/** Is the learner's own install on this computer and able to run (whichever agent is in use now)? */
 	hasOwnInstall?(): Promise<boolean>;
 	/** The plugin unloads: stop what runs and give back what was taken (processes, sockets, temporary files). */

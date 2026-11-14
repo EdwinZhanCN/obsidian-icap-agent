@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { costText, duration, modelName, parseLocal, rowOf, spans, stepKind, tone } from "./rows";
+import { costText, duration, modelName, parseLocal, phaseSpans, rowOf, spans, stepKind, tone } from "./rows";
 
 describe("activity rows", () => {
 	it("reads a task note's properties", () => {
@@ -52,6 +52,28 @@ describe("the strip", () => {
 	});
 	it("knows a tool by what it does", () => {
 		expect([stepKind("grep"), stepKind("obsidian"), stepKind("create_note"), stepKind("bash"), stepKind("ask_learner")]).toEqual(["read", "read", "write", "write", "ask"]);
+	});
+});
+
+describe("phases", () => {
+	it("shows where the time went: getting ready, waiting for the model, thinking, replying", () => {
+		const marks = [
+			{ phase: "starting" as const, at: 1000 },
+			{ phase: "sending" as const, at: 1500 },
+			{ phase: "thinking" as const, at: 8500 },
+			{ phase: "replying" as const, at: 9000 },
+			{ phase: "writing" as const, at: 9500 },
+		];
+		const s = phaseSpans(marks, 0, 10_000);
+		expect(s.map((p) => [p.kind, p.ms, p.running])).toEqual([
+			["prep", 1500, false],
+			["wait", 7000, false],
+			["think", 500, false],
+			["reply", 1000, true],
+		]);
+		expect(s[1].left).toBeCloseTo(0.15);
+		expect(s[1].width).toBeCloseTo(0.7);
+		expect(phaseSpans([], 0, 10)).toEqual([]);
 	});
 });
 

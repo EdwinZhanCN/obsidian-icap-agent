@@ -311,8 +311,8 @@ export class LearningRuntime {
 					},
 					onImagesDropped: opts.onImagesDropped,
 					onSteered: opts.onSteered,
-					onStep: (tool, detail) => {
-						task.addStep(tool, detail);
+					onStep: (tool, detail, id) => {
+						task.addStep(tool, detail, Date.now(), id);
 						this.persist();
 					},
 					onUsage: (used, model) => {
@@ -320,18 +320,19 @@ export class LearningRuntime {
 						if (model) task.model = model;
 						this.persist();
 					},
-					onTool: (running) => {
+					onTool: (running, result) => {
 						task.toolsRunning = Math.max(0, task.toolsRunning + (running ? 1 : -1));
 						if (!running) {
 							task.toolEndedAt = Date.now();
-							task.endStep(task.toolEndedAt);
+							task.endStep(task.toolEndedAt, result);
+							this.persist();
 						}
 					},
 					onExtensionError: (message) => {
 						if (!task.extensionErrors.includes(message) && task.extensionErrors.length < 5) task.extensionErrors.push(message);
 					},
 					onPhase: (p) => {
-						task.phase = p;
+						task.setPhase(p);
 						if (p === "waiting") task.status = "waiting";
 						else if (task.status === "waiting") task.status = "processing";
 						opts.onPhase?.(p);

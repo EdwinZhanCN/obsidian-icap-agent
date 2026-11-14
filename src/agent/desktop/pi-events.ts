@@ -1,4 +1,5 @@
 import type { AgentEvents, AgentImage, AgentResult } from "../backend";
+import { stepResult } from "../steps";
 import { messageUsage } from "../usage";
 
 /**
@@ -21,7 +22,10 @@ export interface PiEventView {
 	};
 	assistantMessageEvent?: { type?: string; delta?: string };
 	toolName?: unknown;
+	toolCallId?: unknown;
 	args?: unknown;
+	result?: unknown;
+	isError?: boolean;
 	success?: boolean;
 	finalError?: string;
 }
@@ -176,12 +180,12 @@ export class PiEvents {
 				return;
 			}
 			case "tool_execution_start":
-				if (typeof rec.toolName === "string") o.onStep?.(rec.toolName, stepDetail(rec.args));
+				if (typeof rec.toolName === "string") o.onStep?.(rec.toolName, stepDetail(rec.args), typeof rec.toolCallId === "string" ? rec.toolCallId : undefined);
 				o.onTool?.(true);
 				o.onPhase?.(rec.toolName === "ask_learner" || rec.toolName === "propose_edit" ? "waiting" : "reading");
 				return;
 			case "tool_execution_end":
-				o.onTool?.(false);
+				o.onTool?.(false, stepResult(rec.result, rec.isError, rec.toolCallId));
 				o.onPhase?.("thinking");
 				return;
 			case "auto_retry_start":
