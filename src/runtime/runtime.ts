@@ -1072,6 +1072,7 @@ export class LearningRuntime {
 		block.live = true;
 		// The note they came from is most likely what they mean: linked in the first request, theirs to delete.
 		const link = from && from.extension === "md" ? `[[${this.app.metadataCache.fileToLinktext(from, path, true)}]] ` : "";
+		block.prefill = link;
 		block.turns = [{ id: newId("u"), kind: "text", question: "", placeholder: L("Ask your agent anything… ([[ to link a file, / for commands)", "向你的 Agent 提任何请求…（[[ 链接文件，/ 使用命令）"), local: true, request: true, ...(link ? { draft: link } : {}) }];
 		block.phase = "idle";
 		this.blocks.set(id, block);
@@ -1126,6 +1127,8 @@ export class LearningRuntime {
 			return false;
 		}
 		block.recorded += rounds.length;
+		// What the plugin said about these rounds stays in sight once their turns have left the block.
+		block.remark = block.turns.map((t) => t.note).filter(Boolean).join(" ");
 		block.turns = [];
 		block.summary = "";
 		return true;
@@ -1197,10 +1200,11 @@ export class LearningRuntime {
 		// A session: the rounds that are finished are in the note's record, and are read from there.
 		const record = block.live ? (findLiveRecord(await this.textOf(block.notePath), block.id)?.record ?? null) : null;
 		if (block.live) {
+			block.remark = "";
 			block.recorded = record?.rounds.length ?? 0;
 			if (!block.firstRequest) block.firstRequest = record?.rounds[0]?.request || request;
 			if (!block.topic) block.topic = record?.title || short(request);
-			if (!block.recorded) await this.nameSession(file, request);
+			if (!block.recorded) await this.nameSession(file, block.prefill && request.startsWith(block.prefill.trim()) ? request.slice(block.prefill.trim().length) : request);
 		}
 		if (!block.topic) block.topic = short(request);
 		// An unanswered question from an interrupted run is asked again by the agent.

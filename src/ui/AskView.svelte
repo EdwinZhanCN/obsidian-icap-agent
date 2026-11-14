@@ -706,6 +706,7 @@
 
 		{#each block.turns.filter((t) => t.final) as turn (turn.id)}{@render turnView(turn, 1)}{/each}
 
+		{#if block.live && block.remark && !working}<p class="icap-usage icap-context-hint" role="status" use:settleIn>{block.remark}</p>{/if}
 		{#if block.error}
 			<p class="icap-error" role="alert" use:settleIn>{block.error}</p>
 		{/if}

@@ -424,6 +424,13 @@ export class AskBlock {
 	recorded = $state(0);
 	/** A live record: the conversation's first request (the task note's name). */
 	firstRequest = "";
+	/**
+	 * A live record: the plugin's remark on the round just written into the note (its images were not
+	 * sent). The round's turns, which carried it, have left the block. Runtime state.
+	 */
+	remark = $state("");
+	/** A new session: the link to the note it was started from, put in its first request (not part of the note's name). */
+	prefill = "";
 
 	constructor(id: string, kind: BlockKind, topic: string, notePath: string, createdAt = Date.now()) {
 		this.id = id;

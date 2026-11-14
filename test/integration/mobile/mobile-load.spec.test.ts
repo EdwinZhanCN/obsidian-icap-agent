@@ -126,7 +126,9 @@ describe.skipIf(!existsSync(MAIN))("main.js on a phone (no Node)", () => {
 	});
 
 	it("a session note: each round goes into its record, a message written meanwhile follows, regenerate asks the last again", async () => {
-		const phone = await boot(main, { secrets: { "icap-deepseek": "sk-test" } });
+		const phone = await boot(main, { files: { "Heap.md": NOTE }, secrets: { "icap-deepseek": "sk-test" } });
+		// Started from a note: the first request links it, and that link is not what names the session.
+		phone.app.workspace.getActiveFile = () => phone.app.vault.getFileByPath("Heap.md");
 		const bodies: any[] = [];
 		let n = 0;
 		let release: (() => void) | null = null;
@@ -150,7 +152,8 @@ describe.skipIf(!existsSync(MAIN))("main.js on a phone (no Node)", () => {
 		expect(block.live).toBe(true);
 
 		// The first request; while the agent works, the learner writes another.
-		void rt.answer(block, block.turns[0], { text: "What is RAII?" });
+		expect(block.turns[0].draft).toBe("[[Heap]] ");
+		void rt.answer(block, block.turns[0], { text: "[[Heap]] What is RAII?" });
 		await settle(phone, () => release !== null);
 		rt.enqueue(block, "And move semantics?");
 		expect(block.queue.map((q: any) => q.text)).toEqual(["And move semantics?"]);
@@ -162,7 +165,7 @@ describe.skipIf(!existsSync(MAIN))("main.js on a phone (no Node)", () => {
 		expect(phone.files.has(path)).toBe(false);
 		expect(block.notePath).toBe(named);
 		const note = phone.files.get(named)!;
-		expect(note).toContain("> [!request] What is RAII?\n> **Request:** What is RAII?\n>\n> Reply 1.\n>\n> **Request:** And move semantics?\n>\n> Reply 2.\n\n```icap-ask");
+		expect(note).toContain("> [!request] [[Heap]] What is RAII?\n> **Request:** [[Heap]] What is RAII?\n>\n> Reply 1.\n>\n> **Request:** And move semantics?\n>\n> Reply 2.\n\n```icap-ask");
 		expect(block.turns).toEqual([]);
 		expect(readRecords(note)).toMatchObject({ session: { id: block.id }, recording: [block.id] });
 		// The second round was told the first from the record.
