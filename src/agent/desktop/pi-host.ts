@@ -1,7 +1,7 @@
 import { execFile } from "child_process";
 import { pathToFileURL } from "url";
 import type * as Sdk from "./pi-sdk-entry";
-import type { AgentConfig } from "../backend";
+import type { ToolScope } from "../backend";
 import { L } from "../../i18n";
 
 /**
@@ -174,8 +174,8 @@ export function findModel(runtime: Sdk.ModelRuntime, ref: string) {
  * decision, else only when there is nothing there that needs trust — what non-interactive Pi does.
  * "ICAP only" never loads them.
  */
-export function projectTrusted(pi: PiSdk, cwd: string, config: AgentConfig): boolean {
-	if (config === "isolated") return false;
+export function projectTrusted(pi: PiSdk, cwd: string, scope: ToolScope): boolean {
+	if (scope === "isolated") return false;
 	const stored = new pi.ProjectTrustStore(pi.getAgentDir()).get(cwd);
 	return stored ?? !pi.hasTrustRequiringProjectResources(cwd);
 }

@@ -109,24 +109,30 @@ Without the Bases core plugin, the mark unfolds into the plugin's own ledger ins
 
 ## 5. The agent
 
-### It is the learner's own Pi
+### It is Pi, and the configuration is the learner's
 
-Pi is a general agent runtime, not a product UI. ICAP bundles Pi's SDK and runs it inside Obsidian, but the configuration belongs to the learner. The plugin reads the same `~/.pi/agent/` the Pi CLI uses, plus the vault's `.pi/`.
+Pi is a general agent runtime, not a product UI. ICAP builds a trimmed fork of Pi's coding agent into the plugin and runs it inside Obsidian: Pi's sessions, models, settings, skills and tools, without its terminal and without anything that loads code from disk. The configuration belongs to the learner. The plugin reads the same `~/.pi/agent/` the Pi CLI uses, plus the vault's `.pi/`. Nothing has to be installed.
 
-A learner who has installed Pi can have ICAP run that one instead (*Pi to run → Your own install*): each task starts their `pi` as a process of its own, and ICAP's tools reach the plugin over a socket on the same computer. Nothing changes in the note: the same blocks, the same questions, the same record of changed files. What changes is where their extensions run: in Pi's own process, exactly as in a terminal, instead of inside Obsidian. This setup is always the learner's whole Pi; isolated mode belongs to the built-in one. ICAP looks for Pi and says how to install it; it never installs anything.
+A learner who has installed Pi can have ICAP run that one instead (*Pi to run → Your own install*): each task starts their `pi` as a process of its own, and ICAP's tools reach the plugin over a socket on the same computer. Nothing changes in the note: the same blocks, the same questions, the same record of changed files. This is where Pi extensions run, in Pi's own process, exactly as in a terminal. ICAP looks for Pi and says how to install it; it never installs anything.
 
 | Belongs to | What |
 |---|---|
-| The learner's Pi | models, credentials, built-in tools (including the shell), skills, extensions, MCP, `AGENTS.md`, project trust |
+| The learner's Pi configuration | models, credentials, skills, prompt templates, connectors (MCP servers), `AGENTS.md`, project trust; with their own Pi also its extensions |
 | ICAP's tools | `ask_learner`, `create_note`, `propose_edit`, the vault tools, `read_document`, `documents` |
-| ICAP's protocol | appended to the learner's system prompt: the learning rules, never rewriting the learner's answer, preferring `propose_edit` for existing notes, the evidence guide below |
-| The plugin | rendering, blocks, requests, edit review, file-change records, Activity |
+| ICAP's protocol | the learning rules, never rewriting the learner's answer, preferring `propose_edit` for existing notes, the evidence guide below |
+| The plugin | rendering, blocks, requests, edit review, permissions, file-change records, Activity |
 
-**By default** every task runs with the learner's full Pi setup plus ICAP's tools, with the protocol appended rather than replacing anything. Each fixed action hides the ICAP tools it doesn't need and never restricts the learner's own. This means the agent can edit files without `propose_edit`, and content in the vault can influence it. That is the same position as running Pi in the vault directly, and it is the learner's choice.
+**Two settings, kept apart.** What the built-in agent *has* and when it *stops to ask* are different questions, so they are different settings.
 
-**Transparency instead of restriction.** For every task, the plugin records the files the agent creates, changes, deletes or renames, and attributes each change to the task whose agent was running a tool. The plugin records changes; it does not block them.
+*Tools.* **Isolated**, the default for a new install: ICAP's tools, and reading and changing files inside the vault. The protocol is the whole system prompt, and only the vault's own `AGENTS.md` loads, because it belongs to the vault. There is no shell and no connector, remote ones included: a remote connector can send what is in the vault elsewhere, and the vault as a boundary would then mean nothing. **Full**: also the shell, the learner's connectors and files outside the vault, with their Pi skills and prompt templates; the protocol is appended to Pi's own prompt.
 
-**Isolated mode**, for predictable behaviour, registers only ICAP's tools and Pi's read-only ones: no shell, no extensions, skills, MCP or prompt templates, no global `AGENTS.md`. The protocol becomes the whole system prompt. Reading is limited to the vault and the folders the learner allows. The vault's own `AGENTS.md` still loads, because it belongs to the vault, not to the learner's Pi.
+*Confirmation.* **Ask**, the default: a change shows its diff in the block and lands when the learner agrees; a shell command and a connector call ask each time. **Accept edits**: changes inside the vault land at once and leave their diff in the block, folded; the shell and connectors still ask. **Skip all**: with the isolated tools the vault is still the boundary; with the full tools nothing is asked and there is no boundary, which is why that pair is turned on only through a warning.
+
+Three things no setting changes. `ask_learner` always waits: it is a question, not a permission. A write to Obsidian's own folder or to Pi's always asks: the first can install a plugin, the second holds credentials and connector configuration. And the original of every file the agent's tools change is kept for a month: once changes may land unseen, being able to put one back is worth more than having been able to stop it.
+
+A permission is a turn in the block, like any question: what the agent wants to do, *allow once*, *always in this block*, *deny*. "Always" ends with the block and is never written to the settings. There is no mode in which a second model judges each action: the learner brings their own key, and that cost and delay would be theirs. "Inside the vault by itself, outside it asks" needs only rules.
+
+**Transparency as well.** For every task, the plugin records the files the agent creates, changes, deletes or renames. The agent's own file tools report theirs; with the full tools, and with the learner's own Pi, a change in the vault is also attributed to the task whose agent was running a tool. The learner's own Pi acts by its own rules: the plugin records what it changes and does not review it.
 
 **Credentials stay with Pi.** Login (OAuth or API key) goes through Pi and is stored in Pi's `auth.json`; keys exported in the shell are found even when Obsidian is launched from the Dock. A custom endpoint (Ollama, a proxy, any OpenAI-compatible API) is a provider in Pi's `models.json`, edited from the settings without disturbing the rest of that file. The model list shows only models with credentials, and probing it sends no prompt and costs nothing.
 

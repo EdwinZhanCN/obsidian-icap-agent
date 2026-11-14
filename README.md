@@ -1,6 +1,6 @@
 # ICAP Learning Agent
 
-An Obsidian plugin for learning inside your own notes. There is no chat panel: explanations, questions and feedback appear in the note you are reading, and whatever you keep is plain Markdown. Its agent is [Pi](https://pi.dev), built into the plugin and connected to your own model provider.
+An Obsidian plugin for learning inside your own notes. There is no chat panel: explanations, questions and feedback appear in the note you are reading, and whatever you keep is plain Markdown. Its agent is [Pi](https://pi.dev), built into the plugin and connected to your own model provider; nothing else needs to be installed.
 
 **[中文说明](README.zh-CN.md)** · Obsidian 1.11.4+ on desktop, iPhone, iPad and Android · English and Chinese interface
 
@@ -36,22 +36,28 @@ For a service Pi does not list (Ollama, LM Studio, vLLM, a proxy, any OpenAI-com
 
 **On a phone or tablet.** Pi needs Node, which Obsidian mobile does not have, so there ICAP runs its own agent on Pi's model libraries, with ICAP's tools only. Open **Settings → ICAP Learning Agent → Model providers** and add an API key for Anthropic, OpenAI, Google Gemini, OpenRouter, DeepSeek, Mistral, Groq or xAI. Keys are kept in Obsidian's keychain on that device only: never in the vault, never synced, so each device gets its own. **Add endpoint…** connects Ollama or LM Studio on your network, a proxy, or any OpenAI- or Anthropic-compatible API. When saved, ICAP checks once whether the server allows the app to stream from it. If it doesn't, replies go through Obsidian and arrive whole: you see "waiting for the complete reply" instead of text appearing, and stopping only stops the wait (the request is still billed). Subscription logins, Bedrock and Vertex are desktop only. The model you choose on mobile is separate from the desktop's.
 
-**Agent setup.** By default the agent runs with your own Pi setup (skills, extensions, MCP servers, shell) and can edit files directly; every change is listed in Activity. Choose **ICAP only (isolated)** for read-only tools inside the vault and the folders you allow.
+**What the agent may do.** Two settings under **Advanced** decide it.
 
-**Your own Pi.** If you have [installed Pi](https://pi.dev) (1.5.0 or later), **Pi to run → Your own install** makes each task start your `pi` as its own process instead of the one inside the plugin. Your extensions then run in Pi itself, as they do in a terminal. Logins, models, MCP servers and sessions are the same files either way. ICAP finds Pi on your PATH, or at the path you give under **Pi location**; it does not install or update it. This setup is always your whole Pi setup: isolated mode needs the built-in Pi.
+- **Tools.** *ICAP and the vault (isolated)*, the default: the agent asks you questions, creates notes, and reads and changes files inside the vault. *Also shell and connectors (full)* adds a shell, your connectors (the MCP servers in Pi's `mcp.json`), files outside the vault, and your Pi skills and prompt templates.
+- **Confirmation.** *Ask for each*, the default: every change shows its diff in the note first, and every shell command and connector call asks. *Accept edits in the vault*: changes inside the vault land at once and leave their diff in the block. *Skip all confirmations*: nothing asks; with the full tools that means anything on this computer, so ICAP shows a warning before turning it on.
+
+Whatever you choose, a write to Obsidian's own folder or Pi's always asks, the original of each changed file is kept for a month in the plugin's folder, and every change is listed in Activity.
+
+**Your own Pi.** If you have [installed Pi](https://pi.dev) (1.5.0 or later), **Pi to run → Your own install** makes each task start your `pi` as its own process instead of the one inside the plugin. Your extensions then run in Pi itself, as they do in a terminal. Logins, models, MCP servers and sessions are the same files either way. ICAP finds Pi on your PATH, or at the path you give under **Pi location**; it does not install or update it. This is how to use Pi extensions. Your own Pi acts by its own rules: the two settings above do not apply to it, and ICAP records what it changes without reviewing it.
 
 ## Network, accounts and files outside the vault
 
-- **Network.** Requests, with the parts of your notes and documents the agent reads, go only to the model provider you choose. ICAP has no server, no telemetry and no analytics. Visuals have no network access. In the default setup your own Pi extensions and MCP servers may contact their own services.
+- **Network.** Requests, with the parts of your notes and documents the agent reads, go only to the model provider you choose. ICAP has no server, no telemetry and no analytics. Visuals have no network access. With the full tools, your connectors contact their own services, and so do the extensions of your own Pi.
 - **Accounts.** You need an account with a model provider, which bills you directly. ICAP needs no account.
-- **Files outside the vault.** ICAP reads Pi's folder `~/.pi/agent/` (settings, credentials, extensions, skills) and writes there when you sign in, add a custom endpoint, change the model or trust a project, as the Pi CLI does. On first use it runs your login shell once to pick up missing environment variables such as provider keys. In isolated mode the agent reads only the outside folders you allow; in the default setup it has Pi's shell. With **Your own install**, ICAP starts the `pi` program on your computer for each task and talks to it over a socket only your user account can open; nothing listens on the network.
+- **Files outside the vault.** ICAP reads Pi's folder `~/.pi/agent/` (settings, credentials, extensions, skills) and writes there when you sign in, add a custom endpoint, change the model or trust a project, as the Pi CLI does. On first use it runs your login shell once to pick up missing environment variables such as provider keys. With the isolated tools the agent reads only the outside folders you allow and writes only inside the vault; with the full tools it has a shell. With **Your own install**, ICAP starts the `pi` program on your computer for each task and talks to it over a socket only your user account can open; nothing listens on the network.
 - **On mobile.** Nothing outside the vault is read. API keys are in Obsidian's keychain on the device.
 - **In the vault.** Settings and sessions live in `.obsidian/plugins/icap-agent/`; so does the document cache (`docs/`). The vault gets task notes and `Activity.base` only if you turn on *Record tasks as notes*.
 
 ## Troubleshooting and limitations
 
 - **"No model has credentials":** log in under **Model providers**. A key added to `~/.zshrc` reaches Obsidian on its next launch; then press ↻.
-- `main.js` is about 13 MB: Pi for the desktop and the model libraries the mobile agent uses; a phone loads only the latter.
+- `main.js` is about 9 MB: Pi for the desktop and the model libraries the mobile agent uses; a phone loads only the latter.
+- **Upgrading from 1.3 or earlier with "Your Pi setup":** if Pi 1.5.0 or later is installed, ICAP now runs it, and nothing changes. If not, ICAP keeps the built-in agent with the full tools and no confirmations, as before, but Pi extensions no longer load there; a notice says so once.
 - **On mobile:** no Pi setup (your skills, extensions, MCP servers, `/compact`), no file or shell tools, no folders outside the vault. Each turn of a request block replays the conversation to the model, since sessions are not cached there. If iOS suspends Obsidian while a reply is coming in, the task pauses; open it again and press **continue**.
 - Scanned PDFs without a text layer can't be read (no OCR).
 - An explanation you haven't kept disappears when the plugin reloads.

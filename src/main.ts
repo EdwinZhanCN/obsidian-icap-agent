@@ -47,12 +47,23 @@ export default class IcapPlugin extends Plugin {
 	async onload() {
 		setLocale(this.language());
 		const data = ((await this.loadData()) ?? (await this.legacyData()) ?? {}) as StoredData;
-		const stored = (data.settings ?? {}) as Partial<IcapSettings> & { ink?: string };
+		const stored = (data.settings ?? {}) as Partial<IcapSettings> & { ink?: string; agentConfig?: "mine" | "isolated" };
 		// Earlier versions let only the ink follow the theme accent; that choice now means the theme's look.
 		if (!stored.style && stored.ink === "accent") stored.style = "theme";
 		delete stored.ink;
 		// Before "record tasks as notes" was a choice, a vault got task notes unasked: one that has them keeps them.
 		if (!stored.taskNotes) stored.taskNotes = stored.activityBaseMade ? "on" : "off";
+		// Before 1.4 one setting chose the agent's setup; it is now a tool scope and a confirmation mode
+		// (agent/permissions.ts). "ICAP only" was read-only with every edit proposed: isolated, asking.
+		// "Your Pi setup" ran the learner's whole Pi with nothing asked: full, skipping confirmations, so
+		// nothing changes under them; which Pi runs it is decided on a desktop (choosePi). The old key
+		// stays in the data: an earlier version of the plugin still reads it.
+		if (stored.agentConfig && !stored.toolScope) {
+			const whole = stored.agentConfig === "mine";
+			stored.toolScope = whole ? "full" : "isolated";
+			stored.confirm = whole ? "skip" : "ask";
+			if (whole) stored.piChoice = "pending";
+		}
 		this.settings = { ...DEFAULT_SETTINGS, ...stored };
 		this.backend = await this.chooseBackend();
 		this.runtime = new LearningRuntime(this);
@@ -138,6 +149,9 @@ export default class IcapPlugin extends Plugin {
 		// First install: the guide is the first thing the learner sees — a note to learn in, not a welcome page.
 		this.app.workspace.onLayoutReady(() => {
 			void this.firstRun();
+			void this.choosePi();
+			// The originals kept before the agent's tools changed a file, older than a month.
+			rt.pruneBackups();
 			// Task notes: what was running when Obsidian closed, and the one-time move of earlier activity into notes.
 			void rt.startTaskNotes();
 			// Pi sessions of request blocks that were kept or cleared elsewhere (another device, a crash).
@@ -173,6 +187,29 @@ export default class IcapPlugin extends Plugin {
 		}
 		const { MobileBackend } = await import("./agent/mobile/mobile-backend");
 		return new MobileBackend(this.app, { settings: () => this.settings, save: () => this.saveSettings(), requestUrl });
+	}
+
+	/**
+	 * An install that ran the learner's whole Pi setup inside Obsidian (before 1.4): their extensions no
+	 * longer load there, so with a Pi on this computer (1.5.0 or later) the tasks move to it and nothing
+	 * changes for them. Without one they stay on the built-in Pi with everything else they had (the shell,
+	 * the file tools, connectors, skills), and are told once what went and how to get it back. Decided on
+	 * the first start on a desktop: a phone cannot look for Pi.
+	 */
+	private async choosePi() {
+		if (this.settings.piChoice !== "pending" || Platform.isMobile) return;
+		const found = (await this.backend.hasOwnInstall?.()) ?? false;
+		this.settings.desktopPi = found ? "rpc" : "builtin";
+		this.settings.piChoice = "";
+		await this.saveSettings();
+		if (found) return;
+		new Notice(
+			L(
+				"ICAP Learning Agent: Pi extensions no longer run inside Obsidian. Your skills, prompt templates, connectors, shell and file tools work as before. To use your extensions again, install Pi (pi.dev) and choose Settings → ICAP Learning Agent → Pi to run → Your own install.",
+				"ICAP Learning Agent：Pi 扩展不再在 Obsidian 里运行。你的 skills、提示模板、Connector、shell 和文件工具照常可用。要继续使用扩展，请安装 Pi（pi.dev），并在 设置 → ICAP Learning Agent → 运行哪个 Pi 里选择“你自己安装的”。",
+			),
+			0,
+		);
 	}
 
 	private async firstRun() {

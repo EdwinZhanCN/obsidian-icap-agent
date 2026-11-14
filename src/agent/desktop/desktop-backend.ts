@@ -1,7 +1,7 @@
 import { FileSystemAdapter, type App } from "obsidian";
 import { join } from "path";
 import { L } from "../../i18n";
-import type { AgentBackend, AgentConfig, AgentEvents, AgentRequest, AgentResult, AgentRun, BackendAccounts, BackendCapabilities, OwnInstall, SessionCache } from "../backend";
+import type { AgentBackend, ToolScope, AgentEvents, AgentRequest, AgentResult, AgentRun, BackendAccounts, BackendCapabilities, OwnInstall, SessionCache } from "../backend";
 import { EndpointModal } from "./endpoint-modal";
 import { DesktopFiles } from "./files";
 import { ensureSkills } from "./icap-skills";
@@ -22,8 +22,9 @@ import { ensureDir, removeSessions, sessionExists, sessionId } from "./session-c
 export type DesktopPi = "builtin" | "rpc";
 
 const CAPABILITIES: BackendCapabilities = {
-	ownSetup: true,
-	isolatedSetup: true,
+	fullScope: true,
+	isolatedScope: true,
+	confirms: true,
 	sessionCache: true,
 	compact: true,
 	oauthLogin: true,
@@ -67,7 +68,8 @@ export class DesktopBackend implements AgentBackend {
 		this.files = new DesktopFiles(() => this.vaultRoot(), opts.externalFolders);
 		this.sessions = {
 			ready: () => this.sessionDir() !== null,
-			setup: (config) => `${config}|${this.vaultRoot()}`,
+			// "mine" is what the full scope was called when these sessions were first written: a block's session from then still resumes.
+			setup: (scope) => `${scope === "full" ? "mine" : scope}|${this.vaultRoot()}`,
 			id: sessionId,
 			exists: (id) => {
 				const dir = this.sessionDir();
@@ -91,7 +93,7 @@ export class DesktopBackend implements AgentBackend {
 
 	/** The learner's own Pi cannot be told to leave their tools out: it has no isolated setup. */
 	get capabilities(): BackendCapabilities {
-		return this.opts.pi() === "rpc" ? { ...CAPABILITIES, isolatedSetup: false } : CAPABILITIES;
+		return this.opts.pi() === "rpc" ? { ...CAPABILITIES, isolatedScope: false, confirms: false } : CAPABILITIES;
 	}
 
 	/** Pi's SDK, bundled into main.js and loaded on first use (pi-host.ts). */
@@ -142,9 +144,10 @@ export class DesktopBackend implements AgentBackend {
 				...events,
 				pi,
 				cwd,
-				config: req.config,
-				// Isolated mode: file tools may only reach the vault and the folders the learner allowed.
+				scope: req.scope,
+				// Isolated scope: `read` may only reach the vault and the folders the learner allowed.
 				allowedRoots: [cwd, ...this.files.roots()],
+				configDir: this.app.vault.configDir,
 				skillPaths: this.icapSkills(req.icapSkills),
 				systemPrompt: req.systemPrompt,
 				prompt: req.prompt,
@@ -199,9 +202,16 @@ export class DesktopBackend implements AgentBackend {
 		return { locate: async (fresh) => (await this.rpc.locate(fresh)).path, installCommand: installCommands().installer };
 	}
 
-	async probeModels(config: AgentConfig, fresh = false) {
+	hasOwnInstall(): Promise<boolean> {
+		return this.rpc.locate(true).then(
+			() => true,
+			() => false,
+		);
+	}
+
+	async probeModels(scope: ToolScope, fresh = false) {
 		if (this.opts.pi() === "rpc") return (await this.rpc.probe(this.vaultRoot(), fresh)).models;
-		return probeModels(await this.pi(), this.vaultRoot(), config, fresh);
+		return probeModels(await this.pi(), this.vaultRoot(), scope, fresh);
 	}
 
 	async probeCommands() {

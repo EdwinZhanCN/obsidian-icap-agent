@@ -32,7 +32,8 @@ export default defineConfig(({ mode }) => ({
   check: { fmt: false },
   lint: {
     options: { typeAware: true, typeCheck: true },
-    ignorePatterns: ["docs/**", "dev-vault/**", "build/**", "main.js", "styles.css", "marketing/**"],
+    // pi/ is the harness's own repository (a submodule): its code is checked by its own rules (tsconfig.pi.json).
+    ignorePatterns: ["docs/**", "dev-vault/**", "build/**", "main.js", "styles.css", "marketing/**", "pi/**"],
     // Node's built-ins only where Node is certain: the desktop backend, tests and the build. Everything
     // else must also run on Obsidian mobile (agent/backend.ts).
     rules: {

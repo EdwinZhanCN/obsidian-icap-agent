@@ -9,7 +9,7 @@ import { PI_AI_VERSION } from "@earendil-works/pi-ai/utils/version";
 import type { App } from "obsidian";
 import { L } from "../../i18n";
 import type { IcapSettings } from "../../settings/settings";
-import { SetupNeeded, type AgentBackend, type AgentConfig, type AgentEvents, type AgentRequest, type AgentResult, type AgentRun, type BackendAccounts, type BackendCapabilities, type ModelList } from "../backend";
+import { SetupNeeded, type AgentBackend, type ToolScope, type AgentEvents, type AgentRequest, type AgentResult, type AgentRun, type BackendAccounts, type BackendCapabilities, type ModelList } from "../backend";
 import { MobileSession, type StreamFunction } from "./mobile-session";
 import { MOBILE_PROVIDERS, defaultModel, endpointModel, endpointSecretId, providerById, providerSecretId, transportOf, type MobileApi } from "./providers";
 import { renderAccounts } from "./settings-ui";
@@ -41,8 +41,9 @@ interface Resolved {
 export class MobileBackend implements AgentBackend {
 	readonly platform = "mobile" as const;
 	readonly capabilities: BackendCapabilities = {
-		ownSetup: false,
-		isolatedSetup: true,
+		fullScope: false,
+		isolatedScope: true,
+		confirms: false,
 		sessionCache: false,
 		compact: false,
 		oauthLogin: false,
@@ -173,7 +174,7 @@ export class MobileBackend implements AgentBackend {
 		return Promise.resolve(L(`Built-in agent (pi-ai ${PI_AI_VERSION})`, `内置 Agent（pi-ai ${PI_AI_VERSION}）`));
 	}
 
-	probeModels(_config: AgentConfig): Promise<ModelList> {
+	probeModels(_config: ToolScope): Promise<ModelList> {
 		return Promise.resolve({ current: this.defaultRef(), available: this.available().map((m) => `${m.provider}/${m.id}`) });
 	}
 }

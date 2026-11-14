@@ -266,7 +266,18 @@ export interface Turn {
 	revise?: boolean;
 	confirmLabel?: string;
 	cancelLabel?: string;
-	review?: { path: string; find: string; replace: string; summary: string };
+	review?: {
+		path: string;
+		find: string;
+		replace: string;
+		summary: string;
+		/** A change from the agent's edit or write tool: where `find` stood in the file the tool read (runtime/file-change.ts). */
+		at?: number;
+		/** The file does not exist yet: `replace` is all of it. */
+		create?: boolean;
+		/** The file is outside the vault (`path` is absolute): the backend writes it, the plugin cannot. */
+		outside?: boolean;
+	};
 	/** Plugin-authored turn (e.g. the opening recall prompt); not from the agent. */
 	local?: boolean;
 	/** For "check": the learner's text lives in the note above the block. */
@@ -353,6 +364,11 @@ export class AskBlock {
 	resolver: ((answer: Record<string, unknown>) => void) | null = null;
 	/** Resolves a pending dialog from one of the learner's extensions; not persisted. */
 	dialogResolver: ((answer: Answer | undefined) => void) | null = null;
+	/**
+	 * What the learner allowed "always in this block" when the built-in agent asked (runtime: permit):
+	 * "shell", or `connector:<tool>`. It lasts as long as the block is open; not persisted, never a setting.
+	 */
+	allowed = new Set<string>();
 
 	constructor(id: string, kind: BlockKind, topic: string, notePath: string, createdAt = Date.now()) {
 		this.id = id;

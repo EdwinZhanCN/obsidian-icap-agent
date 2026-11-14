@@ -223,7 +223,7 @@ describe("the same script, both backends", () => {
 
 	it("gives the runtime the same reply, bridge calls and steps", async () => {
 		faux.setResponses(script());
-		const desktop = await trace((ev) => new PiSession({ pi, cwd: vault, config: "isolated", systemPrompt: "PROTOCOL", prompt: "go", tools: [...ICAP_TOOLS], allowedRoots: [vault], model: "faux2/m", ...ev }).run());
+		const desktop = await trace((ev) => new PiSession({ pi, cwd: vault, scope: "isolated", systemPrompt: "PROTOCOL", prompt: "go", tools: [...ICAP_TOOLS], allowedRoots: [vault], model: "faux2/m", ...ev }).run());
 		core.setResponses(script());
 		const mobile = await trace((ev) => session("go", ev).run());
 		expect(mobile).toEqual(desktop);

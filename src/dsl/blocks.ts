@@ -412,3 +412,14 @@ export function findRequestRecord(text: string, request: string): number | null 
 	}
 	return found;
 }
+
+/** Text for a permission turn, cut where it stops being readable in a note; says how much was left out. */
+export function clipText(text: string, max: number): string {
+	return text.length > max ? `${text.slice(0, max)}\n… (${text.length - max} more characters)` : text;
+}
+
+/** A connector's tool as the learner knows it: `mcp__notion__search` → "notion: search". */
+export function connectorLabel(tool: string): string {
+	const m = tool.match(/^mcp__(.+?)__(.+)$/);
+	return m ? `${m[1]}: ${m[2]}` : tool;
+}

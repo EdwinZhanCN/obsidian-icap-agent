@@ -22,16 +22,24 @@ describe("context files", () => {
 
 describe("pi session plan", () => {
 	const base = { systemPrompt: "PROTOCOL", tools: ["read", "obsidian", "read_document", "documents", "ask_learner"] };
-	it("uses the learner's own setup, appending the protocol and hiding unused ICAP tools", () => {
-		const p = sessionPlan({ ...base, config: "mine" });
-		expect(p).toMatchObject({ bare: false, contextFiles: "vault+pi", builtins: true, appendSystemPrompt: ["PROTOCOL"], excludeTools: ["create_note", "propose_edit"] });
+	it("full scope: the learner's skills and connectors, the protocol appended, unused ICAP tools hidden", () => {
+		const p = sessionPlan({ ...base, scope: "full" });
+		expect(p).toMatchObject({ bare: false, contextFiles: "vault+pi", connectors: true, appendSystemPrompt: ["PROTOCOL"], excludeTools: ["create_note", "propose_edit"] });
 		expect(p.systemPrompt).toBeUndefined();
 		expect(p.tools).toBeUndefined();
 	});
-	it("isolates: only ICAP, the given tools, the protocol as the whole prompt, the vault's own AGENTS.md", () => {
-		const p = sessionPlan({ ...base, config: "isolated" });
-		expect(p).toMatchObject({ bare: true, contextFiles: "vault", builtins: false, systemPrompt: "PROTOCOL", tools: ["read", "obsidian", "read_document", "documents", "ask_learner"] });
+	it("isolated scope: only ICAP's tools and the file tools given, no connectors, the protocol as the whole prompt", () => {
+		const p = sessionPlan({ ...base, scope: "isolated" });
+		expect(p).toMatchObject({ bare: true, contextFiles: "vault", connectors: false, systemPrompt: "PROTOCOL", tools: ["read", "obsidian", "read_document", "documents", "ask_learner"] });
 		expect(p.appendSystemPrompt).toBeUndefined();
+	});
+	it("isolated scope never has the shell or a connector, whatever the task lists", () => {
+		const p = sessionPlan({ systemPrompt: "P", tools: ["read", "edit", "write", "bash", "powershell", "mcp__notion__search", "grep", "ask_learner"], scope: "isolated" });
+		expect(p.tools).toEqual(["read", "edit", "write", "ask_learner"]);
+	});
+	it("full scope on Windows without a bash uses PowerShell instead, so nothing has to be installed", () => {
+		expect(sessionPlan({ ...base, scope: "full" }, "powershell").tools).toEqual(["+powershell", "-bash"]);
+		expect(sessionPlan({ ...base, scope: "full" }, "bash").tools).toBeUndefined();
 	});
 });
 

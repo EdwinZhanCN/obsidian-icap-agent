@@ -3,7 +3,10 @@ import { EditorView } from "@codemirror/view";
 import { mount, unmount } from "svelte";
 import { SvelteMap } from "svelte/reactivity";
 import type IcapPlugin from "../main";
-import { SetupNeeded, type AgentBackend, type AgentConfig, type AgentPhase, type Control, type DialogAnswer, type DialogRequest, type SessionCache } from "../agent/backend";
+import { SetupNeeded, type AgentBackend, type AgentPhase, type ConfirmMode, type Control, type DialogAnswer, type DialogRequest, type SessionCache, type ToolScope } from "../agent/backend";
+import { actionDecision, writeDecision, type WriteTarget } from "../agent/permissions";
+import { Backups } from "./backups";
+import { hunk, locate, type Hunk } from "./file-change";
 import { extractLinks } from "../dsl/links";
 import { THINKING_LEVELS, isIcapCommand, parseCommand, type CommandProvider, type IcapCommandName, type SlashCommand } from "../dsl/commands";
 import { L } from "../i18n";
@@ -34,7 +37,7 @@ import { buildContext } from "./context";
 import { TaskNotes, announceMigration, basesEnabled } from "./task-notes";
 import { keptMarkdown } from "./kept";
 import { coveredTranscript, reusable, sessionSig, transcriptOf, withReply } from "./transcript";
-import { editProblem, findAskBlock, findRequestRecord, isoDate, parseAskSource, parseAuthored, type AskSource, glossCallout, newId, serializeAsk, splitSources, tidyOptionLabel, tidyQuestion, dialogTitle, type Depth } from "../dsl/blocks";
+import { editProblem, findAskBlock, findRequestRecord, isoDate, parseAskSource, parseAuthored, type AskSource, glossCallout, newId, serializeAsk, splitSources, tidyOptionLabel, tidyQuestion, dialogTitle, clipText, connectorLabel, type Depth } from "../dsl/blocks";
 import { askReplacement, blockInsertion, editorFor, spliceFile, uniqueNotePath, type Splice } from "../dsl/doc-ops";
 import { NOTE_EXT, baseProblem, canvasProblem, noteTypeOf, type NoteType } from "../dsl/structures";
 import { flashRange } from "../editor/fresh";
@@ -56,9 +59,11 @@ import {
 	type Turn,
 } from "./state.svelte";
 
-const READ_TOOLS = ["read", "grep", "find", "ls", "obsidian", "read_document", "documents"];
+// `read` is the harness's own file tool; searching the vault is ICAP's `obsidian` tool.
+const READ_TOOLS = ["read", "obsidian", "read_document", "documents"];
 const ASK_TOOLS = [...READ_TOOLS, "ask_learner"];
-const NOTE_TOOLS = [...READ_TOOLS, "ask_learner", "create_note", "propose_edit"];
+// Tasks that may change notes also get the harness's edit and write: what they write goes through the learner (writeFile below).
+const NOTE_TOOLS = [...READ_TOOLS, "ask_learner", "create_note", "propose_edit", "edit", "write"];
 const REQUEST_TOOLS = NOTE_TOOLS;
 /** A file change this soon after one of a task's tool calls ended is still that call's (watchers lag). */
 const TOOL_GRACE_MS = 3000;
@@ -239,13 +244,18 @@ export class LearningRuntime {
 		};
 	}
 
-	/** The agent setup tasks run with: the learner's choice, when the backend can run both. */
-	agentConfig(): AgentConfig {
+	/** The tool scope tasks run with: the learner's choice, when the backend can run both. */
+	toolScope(): ToolScope {
 		const can = this.backend.capabilities;
-		if (!can.ownSetup) return "isolated";
+		if (!can.fullScope) return "isolated";
 		// The learner's own install (Pi over RPC) is their whole setup: there is nothing to isolate it to.
-		if (!can.isolatedSetup) return "mine";
-		return this.settings.agentConfig;
+		if (!can.isolatedScope) return "full";
+		return this.settings.toolScope;
+	}
+
+	/** When the built-in agent stops to ask (agent/permissions.ts). */
+	confirmMode(): ConfirmMode {
+		return this.settings.confirm;
 	}
 
 	private async runAgent(
@@ -265,11 +275,11 @@ export class LearningRuntime {
 		const release = await this.slot();
 		try {
 			if (cancelledEarly) throw new Cancelled();
-			const config = this.agentConfig();
+			const config = this.toolScope();
 			const visuals = this.settings.visuals;
 			const run = this.backend.run(
 				{
-					config,
+					scope: config,
 					icapSkills: offeredSkills(visuals),
 					systemPrompt: systemPrompt(config, this.settings.preferences, visuals, { fileTools: this.backend.capabilities.fileTools, skills: this.backend.capabilities.skillFiles }) + (opts.systemExtra ? `\n\n${opts.systemExtra}` : ""),
 					prompt: opts.prompt,
@@ -310,6 +320,9 @@ export class LearningRuntime {
 						// The read-only vault tools work in every task; the rest depends on the task.
 						if (op === "vault") return vaultCommand(this.app, p);
 						if (op === "read_document" || op === "documents") return this.documentTool(op, p, config === "isolated");
+						// What the harness's own tools may do: a file written, a shell command, a connector called.
+						if (op === "write_file") return this.writeFile(task, p);
+						if (op === "permit") return this.permit(task, p);
 						return opts.onBridge ? opts.onBridge(op, p) : { status: "error", message: "Not available for this task." };
 					},
 					// A dialog from one of the learner's own extensions is asked in the task's block.
@@ -384,7 +397,7 @@ export class LearningRuntime {
 	}
 
 	private catalogKey() {
-		return this.agentConfig();
+		return this.toolScope();
 	}
 
 	private icapCommands(): SlashCommand[] {
@@ -400,9 +413,9 @@ export class LearningRuntime {
 	/** Every command a request block offers. The learner's own come from their Pi (cached). */
 	async slashCommands(): Promise<SlashCommand[]> {
 		const own = this.icapCommands();
-		// "ICAP only" runs Pi without extensions, skills and prompt templates: there is nothing to ask.
+		// The isolated scope runs without the learner's skills, prompt templates and connectors: there is nothing to ask.
 		const probe = this.backend.probeCommands?.bind(this.backend);
-		if (this.agentConfig() === "isolated" || !probe || !this.backend.capabilities.commandProbe) return own;
+		if (this.toolScope() === "isolated" || !probe || !this.backend.capabilities.commandProbe) return own;
 		const key = this.catalogKey();
 		const c = this.commandCache;
 		if (!c || c.key !== key || Date.now() - c.at > CATALOG_TTL_MS) {
@@ -430,7 +443,7 @@ export class LearningRuntime {
 		const c = this.modelCache;
 		if (!c || c.key !== key || Date.now() - c.at > CATALOG_TTL_MS) {
 			const list = (async () => {
-				return (await probe(this.agentConfig())).available;
+				return (await probe(this.toolScope())).available;
 			})();
 			const entry = { key, at: Date.now(), list };
 			this.modelCache = entry;
@@ -443,7 +456,7 @@ export class LearningRuntime {
 
 	/** What a request block's writing line offers after "/". Learning blocks get none: see AskView. */
 	commandProvider(): CommandProvider {
-		const config = () => this.agentConfig();
+		const config = () => this.toolScope();
 		return {
 			list: () => this.slashCommands(),
 			args: (name) =>
@@ -451,7 +464,7 @@ export class LearningRuntime {
 			// Read when shown, so a change of agent setup is reflected without re-rendering the block.
 			get note() {
 				return config() === "isolated"
-					? L("Your own Pi skills and commands are off in “ICAP only” mode (settings → Agent setup).", "“仅 ICAP”模式下不加载你自己的 Pi skills 和命令（设置 → Agent 配置）。")
+					? L("Your own Pi skills and commands are off with the isolated tools (settings → Tools).", "隔离的工具范围下不加载你自己的 Pi skills 和命令（设置 → 工具范围）。")
 					: undefined;
 			},
 		};
@@ -467,7 +480,7 @@ export class LearningRuntime {
 
 	/** What a session was made under; a session made under another setup is not resumed. */
 	private sessionSetup(): string {
-		const config = this.agentConfig();
+		const config = this.toolScope();
 		return this.backend.sessions?.setup(config) ?? config;
 	}
 
@@ -1059,7 +1072,7 @@ export class LearningRuntime {
 	 * agent is running a tool call — the learner's own shell, write or edit tools, or MCP — or just finished one.
 	 */
 	onVaultChange(kind: "created" | "edited" | "deleted", file: TAbstractFile, oldPath?: string) {
-		if (this.agentConfig() !== "mine" || !(file instanceof TFile)) return;
+		if (this.toolScope() !== "full" || !(file instanceof TFile)) return;
 		// The document cache is the plugin's own, never the agent's. Its folder (in the plugin's own, or
 		// `.icap/docs/` before) raises no vault events; the visible folder of earlier versions does, while
 		// it is being moved.
@@ -1091,7 +1104,7 @@ export class LearningRuntime {
 		return false;
 	}
 
-	/* ───────────── Dialogs from the learner's own Pi extensions ───────────── */
+	/* ───────────── Dialogs: the agent asks in the note (a permission, a connector's sign-in, an extension of the learner's own Pi) ───────────── */
 
 	private async dialog(task: Task, req: DialogRequest, signal: AbortSignal): Promise<DialogAnswer> {
 		const existing = task.blockId ? this.blocks.get(task.blockId) : undefined;
@@ -1103,7 +1116,7 @@ export class LearningRuntime {
 		const turn: Turn = {
 			id: newId("u"),
 			kind,
-			question: question || L("One of your Pi extensions asks for input.", "你的一个 Pi 扩展需要你输入。"),
+			question: question || L("The agent asks for input.", "Agent 需要你输入。"),
 			options,
 			placeholder: req.placeholder,
 			draft: req.method === "editor" ? req.prefill : undefined,
@@ -1694,7 +1707,175 @@ export class LearningRuntime {
 		return ok ? { status: "accepted" } : { status: "error", message: "The note changed; the edit could not be applied." };
 	}
 
+	/* ───────────── What the built-in agent's own tools may do (agent/permissions.ts) ───────────── */
+
+	private backups: Backups | null = null;
+
+	/** The originals of the files the agent's tools change, in the plugin's own folder. */
+	private backupStore(): Backups {
+		this.backups ??= new Backups(this.app.vault.adapter, `${this.plugin.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.plugin.manifest.id}`}/backups`);
+		return this.backups;
+	}
+
+	/** Remove the originals that are older than a month. */
+	pruneBackups() {
+		void this.backupStore().prune();
+	}
+
+	/**
+	 * The agent's edit or write tool wants a file to hold `content` (agent/desktop/tool-ops.ts). By the
+	 * tool scope and the confirmation mode this refuses, shows the learner the change and waits, or lets it
+	 * land at once; either way the original is kept first, and the file is recorded on the task.
+	 *
+	 * `rel`: the vault path, when the file is inside the vault's folder (its Obsidian folder included);
+	 * the plugin then writes it itself, through the open editor when there is one. Without `rel` the
+	 * answer "direct" tells the backend to write.
+	 */
+	private async writeFile(task: Task, p: Json): Promise<Json> {
+		const abs = String(p.path ?? "");
+		const rel = typeof p.rel === "string" ? p.rel : undefined;
+		const target: WriteTarget = p.target === "protected" || p.target === "outside" ? p.target : "vault";
+		const content = String(p.content ?? "");
+		const shown = rel ?? abs;
+		const decision = writeDecision(this.toolScope(), this.confirmMode(), target, rel !== undefined);
+		if (decision === "refuse") {
+			return { status: "refused", message: `"${shown}" is outside the vault: in this setup files are written only inside it.` };
+		}
+		const adapter = this.app.vault.adapter;
+		const file = rel !== undefined ? this.fileOf(rel) : null;
+		// The file as the tool read it: from disk, which is what its edit was computed against.
+		let before: string | null;
+		try {
+			before = rel !== undefined ? ((await adapter.exists(rel)) ? await adapter.read(rel) : null) : ((await this.backend.files?.readText(abs)) ?? null);
+		} catch {
+			before = null;
+		}
+		if (before === content) return { status: "written" };
+		const change: Hunk = before === null ? { find: "", replace: content, at: 0 } : hunk(before, content);
+		if (file && target === "vault") {
+			// The rules the prompt states for propose_edit hold for these tools too, before the learner sees anything.
+			const kind = noteTypeOf(file.path);
+			if (kind !== "note") {
+				const broken = structureProblem(kind, content);
+				if (broken) return { status: "error", message: `After this change the ${kind} would not open: ${broken}` };
+			} else {
+				const problem = editProblem(before ?? "", change.find, change.replace);
+				if (problem === "visual") return { status: "error", message: "A change to an existing note cannot add an ```icap-ui visual. Put the visual in your reply to the learner instead (or in a new note)." };
+				if (problem === "block") return { status: "error", message: "That change touches an ICAP block (an ```icap-ask fence), which belongs to the plugin. Change only the learner's own text, outside those blocks." };
+			}
+		}
+		const review: NonNullable<Turn["review"]> = {
+			path: shown,
+			find: change.find,
+			replace: change.replace,
+			// The path stands above the diff already: say whose change this is.
+			summary: before === null ? L("A new file the agent wants to create", "Agent 想新建的文件") : L("A change the agent's file tool wants to make", "Agent 的文件工具想做的修改"),
+			at: change.at,
+			...(before === null ? { create: true } : {}),
+			...(rel === undefined ? { outside: true } : {}),
+		};
+		if (decision === "ask") {
+			const block = (task.blockId ? this.blocks.get(task.blockId) : undefined) ?? (await this.ensureAgentBlock(task));
+			const pending = this.ask(task, block, { kind: "confirm", question: review.summary });
+			const turn = block.current!;
+			turn.kind = "review";
+			turn.review = review;
+			this.persist();
+			const a = await pending;
+			if (!a.confirmed) return { status: "declined", message: "The learner declined this change; the file is as it was." };
+		}
+		await this.backupStore().keep(task.id, shown, before);
+		if (rel === undefined) {
+			// Outside the vault the backend writes; the change is the task's all the same.
+			this.noteChange(task, review, before === null ? "created" : "edited", decision === "direct");
+			return { status: "direct" };
+		}
+		const ok = await this.applyChange(review, content);
+		if (!ok) return { status: "error", message: "The file changed in the meantime; the change could not be applied. Read it again." };
+		this.noteChange(task, review, before === null ? "created" : "edited", decision === "direct");
+		return { status: "written" };
+	}
+
+	/**
+	 * Record a file the agent's tools changed on its task. A change that landed without being asked about
+	 * (auto-accepted) also leaves its diff in the task's block, as a review already decided, so the learner
+	 * can open what happened; it is not part of the conversation and is not kept in the note.
+	 */
+	private noteChange(task: Task, review: NonNullable<Turn["review"]>, kind: "created" | "edited", landedByItself: boolean) {
+		if (!review.outside) addArtifact(task, { kind, path: review.path, label: basename(review.path) });
+		const block = task.blockId ? this.blocks.get(task.blockId) : undefined;
+		if (landedByItself && block) {
+			block.turns.push({ id: newId("u"), kind: "review", question: review.summary, review, answer: { confirmed: true }, confirmLabel: L("applied", "已应用"), control: true });
+		}
+		this.persist();
+	}
+
+	/** Write a change the learner agreed to (or need not be asked about) into the vault's folder. */
+	private async applyChange(r: NonNullable<Turn["review"]>, content?: string): Promise<boolean> {
+		const file = this.fileOf(r.path);
+		if (file) {
+			// An existing note: only the changed lines, in the note as it is now, through the open editor.
+			return this.writeAndShow(r.path, "point", (t) => {
+				const at = locate(t, { find: r.find, replace: r.replace, at: r.at ?? 0 });
+				return at ? { ...at, insert: r.replace } : null;
+			});
+		}
+		// A new file, or one Obsidian does not index (its own folder): written whole.
+		const adapter = this.app.vault.adapter;
+		const text = content ?? r.replace;
+		try {
+			const dir = r.path.split("/").slice(0, -1).join("/");
+			if (dir && !(await adapter.exists(dir))) await adapter.mkdir(dir);
+			if (r.create && (await adapter.exists(r.path))) return false;
+			await adapter.write(r.path, text);
+			return true;
+		} catch {
+			return false;
+		}
+	}
+
+	/**
+	 * The built-in agent wants to run a shell command or call one of the learner's connectors
+	 * (agent/desktop/icap-extension.ts). Asked in the task's block unless the confirmation mode lets it run,
+	 * or the learner already said "always" for this block. "Always" lasts as long as the block: it is never
+	 * written to the settings, and never covers a command that names a protected folder.
+	 */
+	private async permit(task: Task, p: Json): Promise<Json> {
+		const connector = p.kind === "connector";
+		const guarded = p.protected === true;
+		const decision = actionDecision(this.toolScope(), this.confirmMode(), guarded);
+		if (decision === "refuse") return { status: "refused", message: connector ? "Connectors are not available in this setup." : "The shell is not available in this setup." };
+		if (decision === "direct") return { status: "allowed" };
+		const tool = String(p.tool ?? "");
+		const key = connector ? `connector:${tool}` : "shell";
+		const block = (task.blockId ? this.blocks.get(task.blockId) : undefined) ?? (await this.ensureAgentBlock(task));
+		if (!guarded && block.allowed.has(key)) return { status: "allowed" };
+		const once = L("Allow once", "允许这一次");
+		const always = connector ? L("Always allow this tool in this block", "本块内总是允许这个工具") : L("Always allow commands in this block", "本块内总是允许命令");
+		const deny = L("Deny", "拒绝");
+		const what = connector
+			? `**${connectorLabel(tool)}**\n\n\`\`\`json\n${clipText(JSON.stringify(p.input ?? {}, null, 2), 1200)}\n\`\`\``
+			: `\`\`\`sh\n${clipText(String(p.command ?? ""), 2000)}\n\`\`\``;
+		const answer = await this.dialog(
+			task,
+			{
+				method: "select",
+				title: connector ? L("The agent wants to use a connector", "Agent 想使用一个 Connector") : L("The agent wants to run a command", "Agent 想运行一条命令"),
+				message: guarded ? `${what}\n\n${L("It names a protected folder (Obsidian's or Pi's own), so it always asks.", "它涉及受保护的文件夹（Obsidian 或 Pi 自己的），所以总是要问。")}` : what,
+				// A command that names a protected folder is decided one at a time.
+				options: guarded ? [once, deny] : [once, always, deny],
+			},
+			new AbortController().signal,
+		);
+		const chosen = answer && "value" in answer ? answer.value : "";
+		if (chosen === always) block.allowed.add(key);
+		if (chosen === once || chosen === always) return { status: "allowed" };
+		return { status: "denied", message: connector ? "The learner did not allow this connector call." : "The learner did not allow this command." };
+	}
+
 	private applyReview(r: NonNullable<Turn["review"]>): Promise<boolean> {
+		// A change from the agent's file tools (writeFile), decided after its agent was gone: inside the vault it can still be applied.
+		if (r.at !== undefined || r.create) return r.outside ? Promise.resolve(false) : this.applyChange(r);
 		return this.writeAndShow(r.path, "point", (t) => {
 			if (!r.find) return { from: t.length, to: t.length, insert: (t.endsWith("\n") ? "\n" : "\n\n") + r.replace };
 			const i = t.indexOf(r.find);

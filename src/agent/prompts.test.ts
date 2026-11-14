@@ -10,7 +10,7 @@ describe("visuals in the protocol", () => {
 		expect(p).not.toContain("icap-ui");
 	});
 	it("auto: the agent decides, after reading the skill", () => {
-		const p = systemPrompt("mine", "", "auto");
+		const p = systemPrompt("full", "", "auto");
 		expect(p).toContain("No HTML outside an icap-ui block.");
 		expect(p).toContain("read the icap-visual skill");
 		expect(p).toContain("never for decoration");
@@ -23,9 +23,9 @@ describe("visuals in the protocol", () => {
 describe("the protocol on mobile (no file tools, no skill files)", () => {
 	const mobile = { fileTools: false, skills: false };
 	it("lists only ICAP's tools", () => {
-		expect(systemPrompt("isolated")).toContain("read / grep / find / ls");
+		expect(systemPrompt("isolated")).toContain("read opens a file inside the vault");
 		const p = systemPrompt("isolated", "", "off", mobile);
-		expect(p).not.toContain("read / grep / find / ls");
+		expect(p).not.toContain("read opens a file inside the vault");
 		expect(p).toContain("ask_learner");
 	});
 	it("carries the icap-visual rules itself instead of pointing at a skill to read", () => {
@@ -38,7 +38,7 @@ describe("the protocol on mobile (no file tools, no skill files)", () => {
 	it("carries the Mermaid, Canvas and Bases rules too; desktop points at the skills", () => {
 		const p = systemPrompt("isolated", "", "off", mobile);
 		for (const name of ["icap-mermaid", "icap-canvas", "icap-bases"]) expect(p).toContain(`<${name}>`);
-		const d = systemPrompt("mine", "", "off");
+		const d = systemPrompt("full", "", "off");
 		expect(d).toContain("read its skill: icap-mermaid, icap-canvas or icap-bases");
 		expect(d).not.toContain("<icap-bases>");
 	});

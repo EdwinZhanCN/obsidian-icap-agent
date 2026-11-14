@@ -13,6 +13,7 @@
  * "awaiting": the reply arrives whole, not streamed (a "whole" transport, agent/mobile/transport.ts): nothing
  * shows until it is complete, and stopping cannot cancel the request, only discard its result.
  */
+import type { ToolScope } from "./permissions";
 import type { RunUsage } from "./usage";
 
 /**
@@ -21,16 +22,9 @@ import type { RunUsage } from "./usage";
  */
 export type AgentPhase = "starting" | "sending" | "replying" | "thinking" | "reading" | "writing" | "waiting" | "retrying" | "awaiting";
 
-/**
- * How a task's agent is set up.
- * - "mine": the learner's own agent setup — their skills, extensions, MCP, context files and built-in
- *   tools — plus ICAP's tools; the ICAP protocol is appended to their system prompt.
- * - "isolated": only ICAP's tools and read-only built-in tools, and the ICAP protocol as the whole
- *   system prompt. The vault's own AGENTS.md still applies: it belongs to the vault.
- */
-export type AgentConfig = "mine" | "isolated";
+export type { ConfirmMode, ToolScope } from "./permissions";
 
-/** A dialog requested by one of the learner's own extensions. */
+/** A dialog the agent asks through the note: one of the learner's own extensions (their Pi), a connector's sign-in, or a permission. */
 export interface DialogRequest {
 	method: "select" | "confirm" | "input" | "editor";
 	title: string;
@@ -60,13 +54,22 @@ export interface BlockSession {
 }
 
 export interface BackendCapabilities {
-	/** "mine" can run: the learner's own setup. Without it every task runs "isolated". */
-	ownSetup: boolean;
 	/**
-	 * "isolated" can run: only ICAP's tools, the protocol as the whole system prompt. Without it every task
-	 * runs "mine": the agent is the learner's own install, whose tools the plugin cannot take away.
+	 * The full tool scope can run: the shell, the learner's connectors, files outside the vault (with the
+	 * learner's own installed Pi: their whole setup). Without it every task runs "isolated".
 	 */
-	isolatedSetup: boolean;
+	fullScope: boolean;
+	/**
+	 * The isolated scope can run: ICAP's tools and files in the vault only. Without it every task runs
+	 * "full": the agent is the learner's own install, whose tools the plugin cannot take away.
+	 */
+	isolatedScope: boolean;
+	/**
+	 * The agent asks the plugin before it writes a file, runs a shell command or calls a connector
+	 * (bridge operations `write_file` and `permit`), so the confirmation modes apply (agent/permissions.ts).
+	 * Without it the agent acts on its own: the learner's own Pi, whose changes are recorded, not reviewed.
+	 */
+	confirms: boolean;
 	/** Request blocks' sessions can be kept and resumed (`sessions`). Without it a follow-up replays the block. */
 	sessionCache: boolean;
 	/** `/compact` of a cached session (needs `sessionCache`). */
@@ -75,7 +78,7 @@ export interface BackendCapabilities {
 	oauthLogin: boolean;
 	/** The settings can add a custom model endpoint (`accounts.endpoints`). */
 	customEndpoints: boolean;
-	/** The learner's extensions may open dialogs; they are asked as turns in the task's block (`onDialog`). */
+	/** The agent may open dialogs (a connector's sign-in, an extension of the learner's own Pi); they are asked as turns in the task's block (`onDialog`). */
 	extensionDialogs: boolean;
 	/** Which models have credentials, and the default one (`probeModels`). */
 	modelProbe: boolean;
@@ -83,7 +86,7 @@ export interface BackendCapabilities {
 	commandProbe: boolean;
 	/** Documents in folders outside the vault can be read (`files`). */
 	externalFiles: boolean;
-	/** The agent has Pi's file tools (read, grep, find, ls) besides ICAP's. */
+	/** The agent has Pi's file tools (read, edit, write) besides ICAP's. */
 	fileTools: boolean;
 	/** ICAP's skills are files the agent reads on demand; without, their text is part of the system prompt. */
 	skillFiles: boolean;
@@ -97,12 +100,12 @@ export class SetupNeeded extends Error {}
 
 /** One agent run: a task's turn, or a control. */
 export interface AgentRequest {
-	config: AgentConfig;
+	scope: ToolScope;
 	systemPrompt: string;
 	prompt: string;
 	/**
-	 * The tools this task uses. Isolated: the exact allowlist. Mine: only decides which ICAP tools are
-	 * hidden; the learner's own tools are left alone.
+	 * The tools this task uses. Isolated: the exact allowlist. Full: only decides which ICAP tools are
+	 * hidden; the shell, the connectors and the learner's own tools are left alone.
 	 */
 	tools: string[];
 	/** ICAP's own skills to offer, by name (agent/skills.ts, agent/visual-skill.ts); where there are no skill files, their text is in the system prompt instead. */
@@ -137,7 +140,7 @@ export interface AgentEvents {
 	 * the task shows it, because a broken extension can leave the run waiting with no other sign.
 	 */
 	onExtensionError?: (message: string) => void;
-	/** A dialog from one of the learner's extensions; absent = dismiss it. Aborted on timeout. */
+	/** A dialog from the agent (see `DialogRequest`); absent = dismiss it. Aborted on timeout. */
 	onDialog?: (req: DialogRequest, signal: AbortSignal) => Promise<DialogAnswer>;
 }
 
@@ -180,8 +183,8 @@ export interface AgentCommand {
 export interface SessionCache {
 	/** The cache can be used now (its folder exists or was made). */
 	ready(): boolean;
-	/** What a session is made under; a session made under another setup is not resumed. */
-	setup(config: AgentConfig): string;
+	/** What a session is made under; a session made under another scope is not resumed. */
+	setup(scope: ToolScope): string;
 	/** The id of a block's n-th session. */
 	id(blockId: string, n: number): string;
 	exists(id: string): boolean;
@@ -240,8 +243,8 @@ export interface AgentBackend {
 	/** Name and version, e.g. "Pi 1.5.0" (loads the backend). `fresh` looks for the agent again (the settings' ↻). */
 	describe(fresh?: boolean): Promise<string>;
 	/** `modelProbe`: models with credentials; `fresh` re-reads credentials first. Nothing is sent to a model. */
-	probeModels?(config: AgentConfig, fresh?: boolean): Promise<ModelList>;
-	/** `commandProbe`: the learner's own slash commands ("mine" only). */
+	probeModels?(scope: ToolScope, fresh?: boolean): Promise<ModelList>;
+	/** `commandProbe`: the learner's own slash commands (full scope only). */
 	probeCommands?(): Promise<AgentCommand[]>;
 	/** `sessionCache`. */
 	readonly sessions?: SessionCache;
@@ -251,6 +254,8 @@ export interface AgentBackend {
 	readonly accounts?: BackendAccounts;
 	/** Present while the agent in use is the learner's own install. */
 	readonly ownInstall?: OwnInstall;
+	/** Is the learner's own install on this computer and able to run (whichever agent is in use now)? */
+	hasOwnInstall?(): Promise<boolean>;
 	/** The plugin unloads: stop what runs and give back what was taken (processes, sockets, temporary files). */
 	dispose?(): void;
 }

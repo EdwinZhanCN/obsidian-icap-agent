@@ -74,7 +74,7 @@ describe.skipIf(!existsSync(MAIN))("main.js on a phone (no Node)", () => {
 		const phone = await boot(main);
 		expect(phone.required.filter((r) => !r.startsWith("@codemirror/") && !r.startsWith("@lezer/") && r !== "obsidian")).toEqual([]);
 		expect(phone.plugin.backend.platform).toBe("mobile");
-		expect(phone.plugin.backend.capabilities.ownSetup).toBe(false);
+		expect(phone.plugin.backend.capabilities.fullScope).toBe(false);
 		// Mobile has no status bar: the activity opens from the ribbon.
 		expect(phone.plugin.statusBar).toBe(0);
 		expect(phone.plugin.ribbon.map((r: any) => r.icon)).toContain("activity");

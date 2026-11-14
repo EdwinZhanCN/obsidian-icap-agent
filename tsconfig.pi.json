@@ -1,0 +1,14 @@
+{
+	"extends": "./pi/tsconfig.base.json",
+	"compilerOptions": {
+		"noEmit": true,
+		"declaration": false,
+		"declarationMap": false,
+		"sourceMap": false,
+		"inlineSources": false,
+		"rootDir": "./pi/packages/coding-agent/src",
+		"typeRoots": ["./node_modules/@types"],
+		"types": ["node"]
+	},
+	"include": ["pi/packages/coding-agent/src/**/*.ts"]
+}
