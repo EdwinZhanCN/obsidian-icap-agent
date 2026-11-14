@@ -1,13 +1,15 @@
-import { MarkdownView, Notice, TFile, TFolder, parseYaml, type App, type Editor, type TAbstractFile } from "obsidian";
+import { MarkdownView, Notice, TFile, TFolder, arrayBufferToBase64, parseYaml, type App, type Editor, type TAbstractFile } from "obsidian";
 import { EditorView } from "@codemirror/view";
 import { mount, unmount } from "svelte";
 import { SvelteMap } from "svelte/reactivity";
 import type IcapPlugin from "../main";
-import { SetupNeeded, type AgentBackend, type AgentPhase, type ConfirmMode, type Control, type DialogAnswer, type DialogRequest, type SessionCache, type ToolScope } from "../agent/backend";
+import { SetupNeeded, type AgentBackend, type AgentImage, type AgentPhase, type ConfirmMode, type Control, type DialogAnswer, type DialogRequest, type SessionCache, type ToolScope } from "../agent/backend";
 import { actionDecision, writeDecision, type WriteTarget } from "../agent/permissions";
 import { Backups } from "./backups";
 import { hunk, locate, type Hunk } from "./file-change";
-import { extractLinks } from "../dsl/links";
+import { extractLinks, imageEmbeds, imageType } from "../dsl/links";
+import { LIVE_RECORD, appendRounds, dropLastRound, findLiveRecord, isSessionName, roundsTranscript, sessionName, sessionNote, sessionTitle } from "../dsl/session";
+import type { RequestRound } from "../dsl/records";
 import { THINKING_LEVELS, isIcapCommand, parseCommand, type CommandProvider, type IcapCommandName, type SlashCommand } from "../dsl/commands";
 import { L } from "../i18n";
 import { GENERATED_BY } from "../settings/settings";
@@ -28,6 +30,7 @@ import {
 	quizPrompt,
 	recallPrompt,
 	requestPrompt,
+	steerPrompt,
 	systemPrompt,
 	type GlossMode,
 	type NoteTaskKind,
@@ -35,7 +38,7 @@ import {
 import { addUsage } from "../agent/usage";
 import { buildContext } from "./context";
 import { TaskNotes, announceMigration, basesEnabled } from "./task-notes";
-import { keptMarkdown } from "./kept";
+import { keptMarkdown, roundsOf } from "./kept";
 import { coveredTranscript, reusable, sessionSig, transcriptOf, withReply } from "./transcript";
 import { editProblem, findAskBlock, findRequestRecord, isoDate, parseAskSource, parseAuthored, type AskSource, glossCallout, newId, serializeAsk, splitSources, tidyOptionLabel, tidyQuestion, dialogTitle, clipText, connectorLabel, type Depth } from "../dsl/blocks";
 import { askReplacement, blockInsertion, editorFor, spliceFile, uniqueNotePath, type Splice } from "../dsl/doc-ops";
@@ -92,7 +95,17 @@ interface RunExtras {
 	session?: string;
 	/** A runtime control (compact) instead of a prompt. */
 	control?: Control;
+	/** Images that go with the prompt. */
+	images?: AgentImage[];
+	/** The model does not read images: they were left out. */
+	onImagesDropped?: () => void;
+	/** A message handed over while the agent worked (Task.steer) reached it. */
+	onSteered?: (sent: string) => void;
 }
+
+/** Images sent with one request: at most this many, each at most this large. */
+const MAX_IMAGES = 8;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 /** The command catalog is asked of the agent at most this often (new skills show up without a restart). */
 const CATALOG_TTL_MS = 5 * 60 * 1000;
@@ -288,9 +301,16 @@ export class LearningRuntime {
 					thinking: opts.thinking || this.settings.thinking,
 					session: opts.session,
 					control: opts.control,
+					...(opts.images?.length ? { images: opts.images } : {}),
 				},
 				{
 					onText: opts.onText,
+					onContext: (used, window) => {
+						task.context = { used, window };
+						this.persist();
+					},
+					onImagesDropped: opts.onImagesDropped,
+					onSteered: opts.onSteered,
 					onStep: (tool, detail) => {
 						task.addStep(tool, detail);
 						this.persist();
@@ -330,11 +350,13 @@ export class LearningRuntime {
 				},
 			);
 			task.cancel = () => run.cancel();
+			task.steer = run.steer && this.backend.capabilities.steer ? (text, images) => run.steer!(text, images) : null;
 			const result = await run.result;
 			if (result.aborted) throw new Cancelled();
 			if (result.interrupted) throw new Interrupted(result.interrupted);
 			return result.text;
 		} finally {
+			task.steer = null;
 			release();
 		}
 	}
@@ -875,9 +897,250 @@ export class LearningRuntime {
 	visualFollowUp(blockId: string, text: string): boolean {
 		const block = this.blocks.get(blockId);
 		if (!block || block.kind !== "request") return false;
-		if (this.ledger.get(block.taskId ?? "")?.active) new Notice(L("The agent is still working on this request.", "Agent 还在处理这个请求。"));
-		else void this.followUp(block, text);
+		// While the agent works it waits in the block, like anything the learner writes then.
+		this.enqueue(block, text);
 		return true;
+	}
+
+	/* ───────────── While the agent works: what the learner writes waits, or is handed over ───────────── */
+
+	/**
+	 * The learner wrote in a request block. When its agent is working, the words wait in the block and are
+	 * sent as the next request when this round ends; else they are the next request now.
+	 */
+	enqueue(block: AskBlock, text: string) {
+		const said = text.trim();
+		if (block.kind !== "request" || !said) return;
+		if (!this.ledger.get(block.taskId ?? "")?.active) return void this.followUp(block, said);
+		block.queue = [...block.queue, { id: newId("m"), text: said, state: "queued" }];
+	}
+
+	/** Take back what was waiting. What is already on its way to the agent cannot be taken back. */
+	withdraw(block: AskBlock, id: string) {
+		block.queue = block.queue.filter((q) => q.id !== id || q.state === "delivering");
+	}
+
+	/** Can what waits in this block be handed to the working agent now? */
+	canSteer(block: AskBlock): boolean {
+		const task = this.ledger.get(block.taskId ?? "");
+		return !!task?.active && !!task.steer;
+	}
+
+	/**
+	 * Hand a waiting message to the agent now: it reads it after the tool calls of its current turn.
+	 * It becomes a request in the block when it arrives (`steered`); if the round ends first, it waits on.
+	 */
+	async deliverNow(block: AskBlock, id: string) {
+		const q = block.queue.find((x) => x.id === id);
+		const task = this.ledger.get(block.taskId ?? "");
+		if (!q || q.state !== "queued" || !task?.active || !task.steer) return;
+		// A command is run by the plugin or by Pi at the start of a round, not by the model in the middle of one.
+		if (parseCommand(q.text)) return void new Notice(L("A command runs when the agent has finished this round.", "命令会在 Agent 完成这一轮后执行。"));
+		const pointed = extractLinks(q.text).map((link) => ({ link, path: this.app.metadataCache.getFirstLinkpathDest(link, block.notePath)?.path ?? null }));
+		const sent = steerPrompt(q.text, pointed);
+		const { images } = await this.imagesOf(q.text, block.notePath);
+		if (!task.active || !task.steer || !block.queue.some((x) => x.id === id && x.state === "queued")) return;
+		block.queue = block.queue.map((x) => (x.id === id ? { ...x, state: "delivering" as const, sent } : x));
+		if (task.steer(sent, images)) return;
+		block.queue = block.queue.map((x) => (x.id === id ? { id: x.id, text: x.text, state: "queued" as const } : x));
+	}
+
+	/** The agent read a message handed over mid-round: it is a request in the conversation from here on. */
+	private steered(block: AskBlock, sent: string) {
+		const q = block.queue.find((x) => x.sent === sent);
+		if (!q) return;
+		block.queue = block.queue.filter((x) => x !== q);
+		// What the agent said so far answered what came before.
+		block.turns = withReply(block.turns, block.summary);
+		block.summary = "";
+		block.turns.push({ id: newId("u"), kind: "text", question: "", local: true, request: true, answer: { text: q.text } });
+		this.persist();
+	}
+
+	/**
+	 * The images embedded in a request (`![[shot.png]]`), read from the vault to go with the prompt.
+	 * `skipped`: some were left out (too many, too large, or not found).
+	 */
+	private async imagesOf(text: string, notePath: string): Promise<{ images: AgentImage[]; skipped: boolean }> {
+		const images: AgentImage[] = [];
+		let skipped = false;
+		for (const link of imageEmbeds(text)) {
+			const file = this.app.metadataCache.getFirstLinkpathDest(link, notePath);
+			const type = file ? imageType(file.name) : undefined;
+			if (!file || !type || file.stat.size > MAX_IMAGE_BYTES || images.length >= MAX_IMAGES) {
+				skipped = true;
+				continue;
+			}
+			try {
+				images.push({ data: arrayBufferToBase64(await this.app.vault.readBinary(file)), mimeType: type });
+			} catch {
+				skipped = true;
+			}
+		}
+		return { images, skipped };
+	}
+
+	/**
+	 * An image the learner pasted, dropped or chose in a request: saved where their attachments go
+	 * (Obsidian's own setting), and written into the request as an embed. Null when it could not be saved.
+	 */
+	async saveImage(file: File, notePath: string): Promise<string | null> {
+		try {
+			const ext = imageType(file.name) ? file.name.split(".").pop()!.toLowerCase() : (file.type.split("/")[1] ?? "png").replace("jpeg", "jpg");
+			// A pasted image has no name of its own ("image.png"): named the way Obsidian names one.
+			const d = new Date();
+			const two = (n: number) => String(n).padStart(2, "0");
+			const stamp = `${d.getFullYear()}${two(d.getMonth() + 1)}${two(d.getDate())}${two(d.getHours())}${two(d.getMinutes())}${two(d.getSeconds())}`;
+			const name = imageType(file.name) && !/^image\.[a-z]+$/i.test(file.name) ? file.name : `Pasted image ${stamp}.${ext}`;
+			const path = await this.app.fileManager.getAvailablePathForAttachment(name, notePath);
+			const saved = await this.app.vault.createBinary(path, await file.arrayBuffer());
+			return `![[${this.app.metadataCache.fileToLinktext(saved, notePath, true)}]]`;
+		} catch (e) {
+			new Notice(L("Could not save the image: ", "无法保存图片：") + humanError(e));
+			return null;
+		}
+	}
+
+	/* ───────────── The last request again, or asked differently ───────────── */
+
+	/**
+	 * Can the block's last request be asked again? Only when its round changed no file: what the agent
+	 * wrote stays written, and asking again as if it had not would mislead.
+	 */
+	canRedo(block: AskBlock): boolean {
+		if (block.kind !== "request" || block.settled !== "open") return false;
+		const task = this.ledger.get(block.taskId ?? "");
+		// Without the task of that round, whether it changed a file is not known.
+		if (!task || task.active || task.round.length) return false;
+		if (!["completed", "failed", "cancelled", "interrupted"].includes(block.phase)) return false;
+		// A session's finished rounds are in the note's record; its block holds only an unfinished one.
+		if (block.live && !block.turns.some((t) => t.request)) return block.recorded > 0;
+		const last = block.turns.findLast((t) => t.request);
+		return !!last?.answer && !last.control;
+	}
+
+	/** The block's last request, in the learner's words (to change it and send it again). */
+	async lastRequest(block: AskBlock): Promise<string> {
+		const inBlock = block.turns.findLast((t) => t.request)?.answer?.text;
+		if (inBlock !== undefined || !block.live) return inBlock ?? "";
+		return findLiveRecord(await this.textOf(block.notePath), block.id)?.record?.rounds.at(-1)?.request ?? "";
+	}
+
+	/**
+	 * Ask the last request again: as it was (regenerate), or as `text` (the learner changed it). The reply
+	 * it had, and the questions of that round, are replaced. The earlier rounds are told to a new session
+	 * from the block (the cached one covered the replaced reply and no longer matches).
+	 */
+	async redo(block: AskBlock, text?: string) {
+		if (!this.canRedo(block)) return;
+		const again = text?.trim();
+		if (block.live && !block.turns.some((t) => t.request)) {
+			let round: RequestRound | null = null;
+			const ok = await spliceFile(this.app, block.notePath, (note) => {
+				const dropped = dropLastRound(note, block.id);
+				round = dropped?.round ?? null;
+				return dropped?.splice ?? null;
+			});
+			const taken = round as RequestRound | null;
+			if (!ok || !taken) return void new Notice(L("Could not find the last round in this note's record.", "在这篇笔记的记录里找不到上一轮。"));
+			block.recorded = Math.max(0, block.recorded - 1);
+			block.turns = [{ id: newId("u"), kind: "text", question: "", local: true, request: true, answer: { text: again || taken.request } }];
+		} else {
+			const i = block.turns.map((t) => !!t.request).lastIndexOf(true);
+			const turn = block.turns[i];
+			block.turns = [...block.turns.slice(0, i), { id: turn.id, kind: turn.kind, question: "", local: true, request: true, answer: { text: again || turn.answer?.text || "" } }];
+		}
+		block.summary = "";
+		block.error = null;
+		this.persist();
+		await this.startRequest(block);
+	}
+
+	/* ───────────── Session notes: a conversation as a note of its own ───────────── */
+
+	/**
+	 * A new session note: a note whose body is one request block that writes its record as it goes
+	 * (FORMAT.md 7). It is the learner's note, not the plugin's: it goes where their new notes go (or into
+	 * `folder`), and the plugin sets only its two properties.
+	 */
+	async newSession(folder?: TFolder) {
+		const from = this.app.workspace.getActiveFile();
+		const parent = folder ?? this.app.fileManager.getNewFileParent(from?.path ?? "");
+		const id = newId("q");
+		const path = await uniqueNotePath(this.app, parent.isRoot() ? "" : parent.path, sessionName(new Date()));
+		const block = new AskBlock(id, "request", "", path);
+		block.live = true;
+		// The note they came from is most likely what they mean: linked in the first request, theirs to delete.
+		const link = from && from.extension === "md" ? `[[${this.app.metadataCache.fileToLinktext(from, path, true)}]] ` : "";
+		block.turns = [{ id: newId("u"), kind: "text", question: "", placeholder: L("Ask your agent anything… ([[ to link a file, / for commands)", "向你的 Agent 提任何请求…（[[ 链接文件，/ 使用命令）"), local: true, request: true, ...(link ? { draft: link } : {}) }];
+		block.phase = "idle";
+		this.blocks.set(id, block);
+		this.focusOnMount.add(id);
+		try {
+			const file = await this.app.vault.create(path, sessionNote(id, L("Session", "会话")));
+			await this.app.workspace.getLeaf("tab").openFile(file);
+		} catch (e) {
+			this.blocks.delete(id);
+			return void new Notice(humanError(e));
+		}
+		this.persist();
+	}
+
+	/**
+	 * A session's block this device has no state for (the note was synced from another device, or the
+	 * plugin's data was lost): the record in the note is the conversation, so it simply goes on from there.
+	 */
+	adoptSession(src: AskSource, notePath: string): AskBlock | null {
+		if (!src.id || src.kind !== "request" || src.header?.record !== LIVE_RECORD) return null;
+		const block = new AskBlock(src.id, "request", "", notePath);
+		block.live = true;
+		block.phase = "completed";
+		this.blocks.set(block.id, block);
+		this.persist();
+		return block;
+	}
+
+	/** The first request names a session note, once, unless the learner already named it themselves. */
+	private async nameSession(file: TFile, request: string) {
+		const title = sessionTitle(request);
+		if (!title || !isSessionName(file.basename)) return;
+		try {
+			await this.app.fileManager.renameFile(file, await uniqueNotePath(this.app, file.parent && !file.parent.isRoot() ? file.parent.path : "", title));
+		} catch {
+			/* it keeps the name it has */
+		}
+	}
+
+	/**
+	 * A session's finished rounds go into the note: added to the record above its block, where the next
+	 * round reads them back. The block then holds nothing of them. False: the note could not be written,
+	 * and the block keeps the round.
+	 */
+	private async recordRounds(block: AskBlock, task: Task): Promise<boolean> {
+		const rounds = roundsOf(block);
+		if (!rounds.length) return false;
+		const files = task.round.filter((a) => FILE_KINDS.has(a.kind) && !a.path.startsWith("/"));
+		const ok = await spliceFile(this.app, block.notePath, (text) => appendRounds(text, block.id, block.topic, rounds, files));
+		if (!ok) {
+			block.error = L("This round could not be written into the note's record; it is still here.", "这一轮没能写进笔记的记录，它还留在这里。");
+			return false;
+		}
+		block.recorded += rounds.length;
+		block.turns = [];
+		block.summary = "";
+		return true;
+	}
+
+	/** A file was renamed or moved: what lives in it (blocks, explanations, tasks) follows. */
+	onRename(file: TAbstractFile, oldPath: string) {
+		if (!(file instanceof TFile)) return;
+		let moved = false;
+		for (const here of [...this.blocks.values(), ...this.glosses.values(), ...this.ledger.tasks]) {
+			if (here.notePath !== oldPath) continue;
+			here.notePath = file.path;
+			moved = true;
+		}
+		if (moved) this.persist();
 	}
 
 	/** A visual's icap.ask in a note: a new request block just below it (after `line`), sent at once. */
@@ -911,6 +1174,18 @@ export class LearningRuntime {
 	 * the system prompt instead of around the message.
 	 */
 	private async startRequest(block: AskBlock) {
+		await this.runRequest(block);
+		// What was on its way to the agent when the round ended never arrived: it waits like the rest.
+		if (block.queue.some((q) => q.state === "delivering")) block.queue = block.queue.map((q) => ({ id: q.id, text: q.text, state: "queued" as const }));
+		// What the learner wrote meanwhile is the next request, one at a time.
+		if (block.phase === "completed" && block.queue.length && this.blocks.get(block.id) === block) {
+			const [next, ...rest] = block.queue;
+			block.queue = rest;
+			await this.followUp(block, next.text);
+		}
+	}
+
+	private async runRequest(block: AskBlock) {
 		const file = this.fileOf(block.notePath);
 		if (!file) return;
 		const i = block.turns.map((t) => !!t.request).lastIndexOf(true);
@@ -919,14 +1194,26 @@ export class LearningRuntime {
 		if (!turn || !request) return;
 		const cmd = parseCommand(request);
 		if (cmd && isIcapCommand(cmd.name)) return this.runControl(block, turn, cmd.name, cmd.args);
+		// A session: the rounds that are finished are in the note's record, and are read from there.
+		const record = block.live ? (findLiveRecord(await this.textOf(block.notePath), block.id)?.record ?? null) : null;
+		if (block.live) {
+			block.recorded = record?.rounds.length ?? 0;
+			if (!block.firstRequest) block.firstRequest = record?.rounds[0]?.request || request;
+			if (!block.topic) block.topic = record?.title || short(request);
+			if (!block.recorded) await this.nameSession(file, request);
+		}
 		if (!block.topic) block.topic = short(request);
 		// An unanswered question from an interrupted run is asked again by the agent.
 		if (block.current && !block.current.answer && !block.current.local) block.turns.pop();
 		const text = await this.textOf(block.notePath);
 		const pos = findAskBlock(text, block.id)?.from ?? 0;
 		const ctx = buildContext(this.app, file, text, pos, pos, this.settings.background);
-		const history = transcriptOf(block, block.turns.slice(0, i));
+		const earlier = record ? roundsTranscript(record.rounds) : "";
+		const history = [earlier, transcriptOf(block, block.turns.slice(0, i))].filter((s) => s.trim()).join("\n");
 		const sofar = transcriptOf(block, block.turns.slice(i + 1));
+		// The images embedded in the request go with it; a model that cannot read them gets their paths only.
+		const { images, skipped } = await this.imagesOf(request, block.notePath);
+		turn.note = skipped ? L(`Some images were not sent: at most ${MAX_IMAGES} per request, each up to 5 MB (PNG, JPEG, GIF, WebP).`, `有些图片没有发送：每个请求最多 ${MAX_IMAGES} 张，每张不超过 5 MB（PNG、JPEG、GIF、WebP）。`) : undefined;
 		// [[links]] in the request: the files the learner pointed to, resolved like Obsidian does.
 		const pointed = extractLinks(request).map((link) => ({ link, path: this.app.metadataCache.getFirstLinkpathDest(link, block.notePath)?.path ?? null }));
 
@@ -964,20 +1251,35 @@ export class LearningRuntime {
 		const task = this.ledger.add(new Task(newId("t"), "request", `“${short(request)}”`, block.notePath));
 		// One request block = one task note, named after its first request.
 		// (Its first: the note may only be written at a later round, once the conversation amounts to a task.)
-		this.taskNotes.adopt(task, block.id, block.turns.find((t) => t.request && !t.control)?.answer?.text?.trim() || request, "request");
+		this.taskNotes.adopt(task, block.id, block.openingRequest || request, "request");
 		task.artifacts = prev ? [...prev.artifacts] : [];
 		task.steps = prev ? [...prev.steps] : [];
 		task.stepsDropped = prev?.stepsDropped ?? 0;
 		// What the conversation has cost so far: the task note's cost is the whole block's.
 		task.usage = prev?.usage ? { ...prev.usage } : null;
 		task.model = prev?.model ?? null;
+		task.context = prev?.context ? { ...prev.context } : null;
 		// The session is resumable only if its own messages hold the whole conversation. A command in a
 		// fresh session got the earlier turns through the system prompt, which Pi does not store.
 		const selfContained = !cmd || !!resumed || (!history.trim() && !sofar.trim());
 		await this.runBlockTask(block, task, prompt, REQUEST_TOOLS, L(`Done — “${short(request)}”`, `完成——“${short(request)}”`), {
-			extras: { session, systemExtra, model: block.model, thinking: block.thinking },
-			onSuccess: () => {
-				if (session && selfContained) block.session = { id: session, sig: sessionSig(setup, coveredTranscript(block)) };
+			extras: {
+				session,
+				systemExtra,
+				model: block.model,
+				thinking: block.thinking,
+				images,
+				onImagesDropped: () => {
+					turn.note = L("This model does not read images: only the paths of the images were sent.", "这个模型不读图片：只发送了图片的路径。");
+					this.persist();
+				},
+				onSteered: (sent) => this.steered(block, sent),
+			},
+			onSuccess: async () => {
+				// A session's round goes into the note; what the session then covers is what the next round reads there.
+				let covered = earlier;
+				if (block.live && (await this.recordRounds(block, task))) covered = roundsTranscript(findLiveRecord(await this.textOf(block.notePath), block.id)?.record?.rounds ?? []);
+				if (session && selfContained) block.session = { id: session, sig: sessionSig(setup, [covered, coveredTranscript(block)].filter((s) => s.trim()).join("\n")) };
 			},
 		});
 	}
@@ -1052,6 +1354,8 @@ export class LearningRuntime {
 					});
 					block.session = s;
 					block.agentPhase = null;
+					// How full the context is now is known only after the next reply.
+					task.context = null;
 					task.end("completed", L(`Compacted “${block.topic}”`, `已压缩“${block.topic}”`));
 					return done(L("Compacted: the agent now carries a summary of the earlier rounds. The note is unchanged.", "已压缩：Agent 现在带着前面各轮的摘要继续。笔记没有改动。"));
 				} catch (e) {
@@ -1301,7 +1605,7 @@ export class LearningRuntime {
 		prompt: string,
 		tools: string[],
 		outcome: string,
-		run: { extras?: RunExtras; onSuccess?: () => void } = {},
+		run: { extras?: RunExtras; onSuccess?: () => void | Promise<void> } = {},
 	) {
 		task.blockId = block.id;
 		block.taskId = task.id;
@@ -1322,7 +1626,7 @@ export class LearningRuntime {
 			// An extension command may do its work without a word; the round still needs a result.
 			block.summary = out.trim() || (block.kind === "request" ? L("Done.", "完成。") : "");
 			block.phase = "completed";
-			run.onSuccess?.();
+			await run.onSuccess?.();
 			block.agentPhase = null;
 			this.cueBlock(block, block.kind === "quiz" ? L("results ready", "结果出来了") : block.kind === "request" ? L("done", "完成") : L("feedback ready", "反馈好了"), 20000);
 			// A request's files (created, changed, deleted) are its result; keep them.
@@ -1355,7 +1659,7 @@ export class LearningRuntime {
 			// fully known — apply or drop it here instead of re-running the whole task.
 			const ok = answer.confirmed ? await this.applyReview(turn.review) : false;
 			const task = block.taskId ? this.ledger.get(block.taskId) : undefined;
-			if (ok && task) task.artifacts = [...task.artifacts, { kind: "edited", path: turn.review.path, label: basename(turn.review.path) }];
+			if (ok && task) addArtifact(task, { kind: "edited", path: turn.review.path, label: basename(turn.review.path) });
 			block.summary = answer.confirmed ? (ok ? L("Change applied.", "已应用修改。") : L("The note changed since; the edit could not be applied.", "笔记在此期间有改动，无法应用这处修改。")) : L("Left the note as it was.", "笔记保持原样。");
 			block.phase = "completed";
 			this.persist();
@@ -1474,6 +1778,7 @@ export class LearningRuntime {
 	async clearBlock(block: AskBlock) {
 		withdrawCue(block.id);
 		if (block.authored) return this.resetAuthored(block);
+		if (block.live) return this.endSession(block);
 		this.stopBlock(block);
 		block.settled = "cleared";
 		await spliceFile(this.app, block.notePath, (text) => askReplacement(text, block.id, ""));
@@ -1516,7 +1821,22 @@ export class LearningRuntime {
 		this.persist();
 	}
 
+	/**
+	 * End a session: its block leaves the note. The record above it is already there and stays, the
+	 * learner's to keep or delete; a round that had not finished is not in it.
+	 */
+	async endSession(block: AskBlock) {
+		withdrawCue(block.id);
+		this.stopBlock(block);
+		block.settled = "kept";
+		await spliceFile(this.app, block.notePath, (text) => askReplacement(text, block.id, ""));
+		this.blocks.delete(block.id);
+		this.dropSessions(block.id);
+		this.persist();
+	}
+
 	async keepBlock(block: AskBlock) {
+		if (block.live) return this.endSession(block);
 		const md = keptMarkdown(block, this.ledger.get(block.taskId ?? "")?.artifacts ?? []);
 		const ok = await this.writeAndShow(block.notePath, "follow", (text) => askReplacement(text, block.id, md));
 		if (!ok) return void new Notice(L("Could not find this interaction in the note.", "在笔记中找不到这段交互。"));
@@ -1803,6 +2123,8 @@ export class LearningRuntime {
 	 */
 	private noteChange(task: Task, review: NonNullable<Turn["review"]>, kind: "created" | "edited", landedByItself: boolean) {
 		if (!review.outside) addArtifact(task, { kind, path: review.path, label: basename(review.path) });
+		// A file outside the vault has no link in the note, but its round still changed a file.
+		else task.round = [...task.round, { kind, path: review.path, label: basename(review.path) }];
 		const block = task.blockId ? this.blocks.get(task.blockId) : undefined;
 		if (landedByItself && block) {
 			block.turns.push({ id: newId("u"), kind: "review", question: review.summary, review, answer: { confirmed: true }, confirmLabel: L("applied", "已应用"), control: true });
@@ -2216,13 +2538,16 @@ function setResult(task: Task, a: Artifact) {
 
 /** Add a file to a task's result once; a file created and then deleted again leaves no trace. */
 function addArtifact(task: Task, a: Artifact) {
-	const has = (kind: Artifact["kind"]) => task.artifacts.some((x) => x.kind === kind && x.path === a.path);
-	if (a.kind === "deleted" && has("created")) {
-		task.artifacts = task.artifacts.filter((x) => x.path !== a.path);
-		return;
-	}
-	if (has(a.kind) || (a.kind === "edited" && has("created"))) return;
-	task.artifacts = [...task.artifacts.filter((x) => !(a.kind === "deleted" && x.kind === "edited" && x.path === a.path)), a];
+	task.artifacts = withArtifact(task.artifacts, a);
+	// The same file, as this run's own doing (a request block: its latest round).
+	task.round = withArtifact(task.round, a);
+}
+
+function withArtifact(list: Artifact[], a: Artifact): Artifact[] {
+	const has = (kind: Artifact["kind"]) => list.some((x) => x.kind === kind && x.path === a.path);
+	if (a.kind === "deleted" && has("created")) return list.filter((x) => x.path !== a.path);
+	if (has(a.kind) || (a.kind === "edited" && has("created"))) return list;
+	return [...list.filter((x) => !(a.kind === "deleted" && x.kind === "edited" && x.path === a.path)), a];
 }
 
 /** What a note-making task is called as a task note: its subject, without the progressive verb of the ledger line. */

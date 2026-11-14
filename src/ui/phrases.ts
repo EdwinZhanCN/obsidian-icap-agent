@@ -120,11 +120,22 @@ export function glossLabelUI(mode: GlossMode, compareWith?: string): string {
  * What a task has used, as one quiet line: "12k tokens · cache 83% · ≈$0.042". The price is an estimate
  * from list prices (≈) unless the provider reported what it billed; when it cannot be told, it says so.
  */
-export function usageLine(u: RunUsage | null | undefined): string {
+export function usageLine(u: RunUsage | null | undefined, context?: { used: number; window: number } | null): string {
 	if (!u) return "";
 	const parts = [`${formatTokens(totalTokens(u))} tokens`];
 	const hit = cacheHit(u);
 	if (hit !== null) parts.push(L(`cache ${hit}%`, `缓存 ${hit}%`));
 	parts.push(formatCost(u) ?? L("cost unknown", "花费未知"));
+	const share = contextShare(context);
+	if (share !== null) parts.push(L(`context ${share}%`, `上下文 ${share}%`));
 	return parts.join(" · ");
 }
+
+/** How full the model's context is, 0–100; null when the model's window is not known. */
+export function contextShare(context: { used: number; window: number } | null | undefined): number | null {
+	if (!context || !(context.window > 0) || !(context.used >= 0)) return null;
+	return Math.min(100, Math.round((context.used / context.window) * 100));
+}
+
+/** From this share on, the block says what can be done about a context that is filling up. */
+export const CONTEXT_NEARLY_FULL = 80;

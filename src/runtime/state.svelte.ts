@@ -1,4 +1,4 @@
-import type { AgentPhase, BlockSession } from "../agent/backend";
+import type { AgentImage, AgentPhase, BlockSession } from "../agent/backend";
 import type { RunUsage } from "../agent/usage";
 import type { GlossMode } from "../agent/prompts";
 
@@ -46,6 +46,16 @@ export interface TaskRecord {
 	usage?: RunUsage;
 	/** The model of the latest run, `provider/id`. */
 	model?: string;
+	/** The files this run of the task touched (a request block: its latest round). */
+	round?: Artifact[];
+	/** How full the model's context was after the latest reply. */
+	context?: ContextUse;
+}
+
+/** How much of a model's context a conversation fills: tokens, and the model's window. */
+export interface ContextUse {
+	used: number;
+	window: number;
 }
 
 export class Task {
@@ -66,6 +76,13 @@ export class Task {
 	usage = $state<RunUsage | null>(null);
 	/** The model that answered last, `provider/id`; null until one has. */
 	model = $state<string | null>(null);
+	/**
+	 * The files this run touched. A request block starts a task for each round and carries the earlier
+	 * rounds' files over in `artifacts`; these are the latest round's only.
+	 */
+	round = $state<Artifact[]>([]);
+	/** How full the model's context was after the latest reply; null when the model's window is not known. */
+	context = $state<ContextUse | null>(null);
 	error = $state<string | null>(null);
 	/** What the learner's extensions threw during this run (`extension: message`), shown while it runs. Not kept. */
 	extensionErrors = $state<string[]>([]);
@@ -74,6 +91,8 @@ export class Task {
 	interrupted = false;
 	cancel: (() => void) | null = null;
 	retry: (() => void) | null = null;
+	/** Hands the running agent a message between its tool calls (AgentRun.steer); null when no run can take one. */
+	steer = $state.raw<((text: string, images?: AgentImage[]) => boolean) | null>(null);
 	/** Tool calls of this task's agent now running, and when the last one ended (file-change attribution). */
 	toolsRunning = 0;
 	toolEndedAt = 0;
@@ -112,6 +131,7 @@ export class Task {
 		if (error !== undefined) this.error = error;
 		this.endedAt = Date.now();
 		this.cancel = null;
+		this.steer = null;
 	}
 
 	toJSON(): TaskRecord {
@@ -133,6 +153,8 @@ export class Task {
 			...(this.stepsDropped ? { stepsDropped: this.stepsDropped } : {}),
 			...(this.usage ? { usage: $state.snapshot(this.usage) } : {}),
 			...(this.model ? { model: this.model } : {}),
+			...(this.round.length ? { round: $state.snapshot(this.round) } : {}),
+			...(this.context ? { context: { ...this.context } } : {}),
 		};
 	}
 
@@ -148,6 +170,8 @@ export class Task {
 		t.stepsDropped = r.stepsDropped ?? 0;
 		t.usage = r.usage ?? null;
 		t.model = r.model ?? null;
+		t.round = r.round ?? [];
+		t.context = r.context ?? null;
 		t.error = r.error;
 		t.endedAt = r.endedAt ?? r.createdAt;
 		t.blockId = r.blockId;
@@ -295,6 +319,8 @@ export interface Turn {
 	 * block's agent runs; it is not part of the conversation and is not kept in the note.
 	 */
 	control?: boolean;
+	/** Request block: the plugin's remark on this request (its images were not sent). Shown under it; not part of the conversation. */
+	note?: string;
 	answer?: Answer;
 	feedback?: string;
 	verdict?: "holds" | "partly" | "reconsider";
@@ -330,6 +356,21 @@ export interface BlockRecord {
 	sessionSeq?: number;
 	/** Folded to its header line by the learner. */
 	collapsed?: boolean;
+	/** Request block: its record is written into the note as it goes (a session note; `record: live` in the fence). */
+	live?: boolean;
+	/** A live record: how many rounds are in the note already, and the conversation's first request. */
+	recorded?: number;
+	firstRequest?: string;
+}
+
+/** What the learner wrote while the agent was working: sent when the round ends, or handed to the agent at once. */
+export interface Queued {
+	id: string;
+	text: string;
+	/** "delivering": on its way to the working agent (steer); it becomes a request in the block when the agent reads it. */
+	state: "queued" | "delivering";
+	/** The message as it was handed to the agent. */
+	sent?: string;
 }
 
 export class AskBlock {
@@ -369,6 +410,20 @@ export class AskBlock {
 	 * "shell", or `connector:<tool>`. It lasts as long as the block is open; not persisted, never a setting.
 	 */
 	allowed = new Set<string>();
+	/**
+	 * Request block: what the learner wrote while the agent was working. Runtime state: an entry becomes
+	 * a request (a turn, part of the conversation and of the record) only when it is sent. Not persisted.
+	 */
+	queue = $state<Queued[]>([]);
+	/**
+	 * Request block: the record is written into the note as it goes (FORMAT.md 7, a session note). The
+	 * `[!request]` callout above the fence then holds the finished rounds, and `turns` only the one in progress.
+	 */
+	live = false;
+	/** A live record: how many rounds are in the note already. */
+	recorded = $state(0);
+	/** A live record: the conversation's first request (the task note's name). */
+	firstRequest = "";
 
 	constructor(id: string, kind: BlockKind, topic: string, notePath: string, createdAt = Date.now()) {
 		this.id = id;
@@ -380,6 +435,16 @@ export class AskBlock {
 
 	get current(): Turn | undefined {
 		return this.turns[this.turns.length - 1];
+	}
+
+	/** Request block: how many requests the conversation has had (the rounds in the note's record included). */
+	get roundCount(): number {
+		return this.recorded + this.turns.filter((t) => t.request && !t.control && t.answer).length;
+	}
+
+	/** Request block: the conversation's first request, in the learner's words. */
+	get openingRequest(): string {
+		return this.firstRequest || (this.turns.find((t) => t.request && !t.control)?.answer?.text?.trim() ?? "");
 	}
 
 	get awaiting(): Turn | undefined {
@@ -408,6 +473,9 @@ export class AskBlock {
 			...(this.session ? { session: { ...this.session } } : {}),
 			...(this.sessionSeq ? { sessionSeq: this.sessionSeq } : {}),
 			...(this.collapsed ? { collapsed: true } : {}),
+			...(this.live ? { live: true } : {}),
+			...(this.recorded ? { recorded: this.recorded } : {}),
+			...(this.firstRequest ? { firstRequest: this.firstRequest } : {}),
 		};
 	}
 
@@ -422,6 +490,9 @@ export class AskBlock {
 		b.session = r.session ?? null;
 		b.sessionSeq = r.sessionSeq ?? 0;
 		b.collapsed = !!r.collapsed;
+		b.live = !!r.live;
+		b.recorded = r.recorded ?? 0;
+		b.firstRequest = r.firstRequest ?? "";
 		// A dialog from an extension belongs to the Pi process that asked; it is gone after a restart.
 		b.turns = (r.turns ?? []).filter((t) => !(t.dialog && !t.answer));
 		const live = r.phase === "preparing" || r.phase === "thinking" || r.phase === "waiting";

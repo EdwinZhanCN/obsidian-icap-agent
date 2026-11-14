@@ -327,6 +327,16 @@ export function followUpPrompt(request: string, pointed: { link: string; path: s
 }
 
 /**
+ * What the learner adds while the agent is working on their request (AgentRun.steer): it reaches the
+ * agent between its tool calls, in the same conversation.
+ */
+export function steerPrompt(request: string, pointed: { link: string; path: string | null }[] = []): string {
+	const parts = ["The learner adds this while you are working on their request. Take it into account from here on.", fence("request", request)];
+	if (pointed.length) parts.push(pointedLines(pointed));
+	return parts.join("\n\n");
+}
+
+/**
  * Where a slash command was typed. Pi expands a command only when the message *starts* with it,
  * so the message is the learner's command, verbatim, and this goes into the system prompt instead.
  * `history` is empty when the block's Pi session was resumed (it already holds the earlier rounds).

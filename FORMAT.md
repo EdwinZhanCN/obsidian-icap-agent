@@ -1,6 +1,6 @@
 # What ICAP writes into notes
 
-Format version **6** (2026-11-11). This is the contract between ICAP and any tool that reads a vault ICAP has worked in. Kept output is plain Obsidian Markdown: it must read well without the plugin, and nothing here depends on plugin data (`data.json`), whose shape is private and may change without notice.
+Format version **7** (2026-11-14). This is the contract between ICAP and any tool that reads a vault ICAP has worked in. Kept output is plain Obsidian Markdown: it must read well without the plugin, and nothing here depends on plugin data (`data.json`), whose shape is private and may change without notice.
 
 Readers must ignore what they do not know: unknown callout types, unknown keys in a comment, unknown `kind:` values. A new key or kind is an additive change; removing or renaming one, or changing a meaning, bumps the version.
 
@@ -10,7 +10,7 @@ Readers must ignore what they do not know: unknown callout types, unknown keys i
 |---|---|
 | note property `generated-by: icap-agent` (legacy `icpa-agent`) | the note was created by the agent (`create_note`). Its text is not evidence of what the learner knows. The learner can turn this marker off in settings |
 | `> [!gloss] term` | an explanation the agent gave and the learner kept. Agent text, not evidence of understanding. A `**Plainly.**` section means the learner asked for a plainer version, `**Deeper.**` for more; implicit feedback on depth. Since format 2 a comment above it records when (see [Glosses](#glosses)) |
-| `> [!request] topic` | a kept record of requests to the agent: the learner's `**Request:**` lines are theirs, the replies are the agent's |
+| `> [!request] topic` | a kept record of requests to the agent: the learner's `**Request:**` lines are theirs, the replies are the agent's. Above a block with `record: live` it is still growing (see [Session notes](#session-notes)) |
 | everything else | the learner's own writing, unless it is inside one of the callouts above |
 
 ## Live blocks
@@ -26,7 +26,7 @@ Explain RAII in your own words.
 ```
 ````
 
-The header is `key: value` lines; `id` and `kind` are required. `kind` is one of `recall`, `check`, `quiz`, `agent`, `request`. `authored: yes` marks a block a person wrote by hand (for example in the guide); its body is the first question, with `- [ ] option` lines for a quiz and `choose: many` for multi-select. Live state (answers, feedback) is not in the file. A tool should treat a live block as "in progress" and read nothing from it.
+The header is `key: value` lines; `id` and `kind` are required. `kind` is one of `recall`, `check`, `quiz`, `agent`, `request`. `record: live` (since format 7, request blocks only) marks a block whose record is written into the note as it goes: the `[!request]` callout directly above the fence holds its finished rounds (see [Session notes](#session-notes)). `authored: yes` marks a block a person wrote by hand (for example in the guide); its body is the first question, with `- [ ] option` lines for a quiz and `choose: many` for multi-select. Live state (answers, feedback) is not in the file. A tool should treat a live block as "in progress" and read nothing from it.
 
 Rewriting a legacy block upgrades its fence to `icap-ask`.
 
@@ -120,6 +120,42 @@ Records kept before format 1 have the callout without the comment and without th
 
 `src/dsl/records.ts` (`readRecords`) is the reference reader. `test/fixtures/format/` holds notes in every format, each with the JSON the reader must produce from it; other readers can test against the same pairs.
 
+## Request records
+
+A `[!request]` callout is read in rounds. A paragraph that starts with `**Request:**` (`**请求:**` in a Chinese interface) opens a round and is the learner's; what follows, up to the next such paragraph, is the agent's reply. A paragraph that starts with `**Files:**` (`**文件:**`) lists the files the agent created, changed or deleted: `**Files:** created [[A]] · changed [[B]] · deleted c.md`. Inside a code fence nothing is a marker. In a record kept at once (a request block's *keep a record*) the files line comes last and covers the whole conversation; in a session note's record each round ends with its own.
+
+## Session notes
+
+Since format 7 a conversation can be a note of its own. A session note has the property `icap: session` and `icap-id` (its block's id); the plugin sets only these two. Its body is one request block whose fence says `record: live`, and directly above the fence (only blank lines between) its `[!request]` record:
+
+````markdown
+---
+icap: session
+icap-id: q8k2d1x9a
+---
+
+> [!request] How does RAII release a lock?
+> **Request:** How does [[RAII]] release a lock?
+>
+> The lock is held by an object; when it goes out of scope its destructor releases the lock.
+>
+> **Request:** Write that up as a note.
+>
+> Done: [[Notes/Lock guards|Lock guards]] explains it.
+>
+> **Files:** created [[Notes/Lock guards|Lock guards]]
+
+```icap-ask
+id: q8k2d1x9a
+kind: request
+record: live
+---
+Session
+```
+````
+
+Each round is added to the end of the record when it finishes, never while the agent is still replying; what is already there is never rewritten. The record is the conversation: what the agent is told of the earlier rounds is read back from it, so a change the learner makes in it is what the agent sees next, and another device can go on from it. Tool calls, thinking, runtime commands (`/model`, `/compact`) and messages still waiting to be sent are not in it. Ending the session removes only the fence; the record stays. Readers read the record like any kept `[!request]` record; while the fence is there, it may still grow.
+
 ## Task notes
 
 Since format 4, each note-making task, and each request block that amounts to a task, is also recorded as a note of its own, so that Obsidian's Bases (and any other tool) can list tasks by their properties. A request amounts to a task once its agent used a tool, created or changed a file, asked the learner something, or the conversation went past one round; a single question with a single answer stays in its block only. Explanations, recalls, checks and quizzes never get one. A task note is recognised by `icap: task`, not by where it is: the learner may rename or move it, and the plugin finds it again by `icap-id`.
@@ -203,3 +239,4 @@ Devices that sync the plugin's folder share the index; entries for paths outside
 | 4 | 2026-11-10 | task notes (`icap: task` and the `icap-*` properties) for request blocks and note-making tasks, and the generated `Activity.base`; `icap-cost` (a number or `unknown`), `icap-tokens`, `icap-cache` |
 | 5 | 2026-11-10 | `icap-model` on task notes: the model of the latest run, `provider/id` |
 | 6 | 2026-11-11 | the document cache moves to the plugin's own folder (before: `.icap/docs/` in the vault; moved on first use). Task notes are off until the learner turns them on |
+| 7 | 2026-11-14 | session notes (`icap: session`, a request block with `record: live` whose `[!request]` record grows each round); request records read in rounds, with a `**Files:**` line per round in a session's record |

@@ -88,6 +88,14 @@ A request block (*Ask the agent here*) is the general way to reach the learner's
 - **`[[` or `@` points at files.** They insert ordinary wikilinks. The agent receives the resolved paths, never the contents, and reads what it needs with its own tools. A kept record's links become real outgoing links, so the graph shows which sources a study plan came from.
 - **`/` offers commands**, like an editor's palette: the learner's own Pi skills, prompt templates and extension commands, plus ICAP's runtime commands (`/model` and `/thinking` for this block, `/compact`). A runtime command answers with a quiet line and stays out of the conversation and the record. Commands exist only in request blocks: in a recall, check or quiz the learner's words are an answer, and a leading `/` is just text.
 - **Dialogs from the learner's extensions** (a confirmation, a choice) appear as questions in the block and are answered in the document.
+- **The line stays open while the agent works.** What the learner writes then waits in the block as a pending line, sent as the next request when the round ends. They can take it back, or *deliver now*: the agent reads it after the tool calls of its current turn, and from there its reply answers that too. A waiting line is runtime state; it becomes part of the conversation, and of the record, only once it is sent. A command waits for the round to end, since it starts a round of its own.
+- **The last request can be asked again.** *Regenerate* sends it as it was; *edit request* changes it first. Either replaces that reply, and only that one, and both appear only when that round changed no file: what was written stays written, and asking again as if it had not would mislead. *Copy* puts a reply's Markdown on the clipboard.
+- **Images are attachments, not uploads.** A pasted, dropped or chosen image is saved where the learner's attachments go and written into the request as `![[image]]`, so the record shows it too. It is sent with the request (PNG, JPEG, GIF, WebP; at most 8, each up to 5 MB); a model that does not read images gets the paths only, and the block says so under the request.
+- **The block says when the conversation fills the context.** The usage line adds "context 62%" when the model's window is known; from 80% it suggests keeping a record and starting again, or `/compact`.
+
+### Session notes
+
+A session note (*New session note*, or *New session note here* on a folder) is a conversation as a note of its own: a request block whose record is written into the file as it goes. It goes where the learner's new notes go, is called `Session 2026-11-14 1432` until its first request names it (once, from that request's first 40 characters, and never if the learner already renamed it), and starts with a link to the note they came from, theirs to delete. Each finished round is added to the `[!request]` record above the block, never while the agent is still replying; that record is what the agent is told of the earlier rounds, so the learner's corrections in it are what it sees next, and another device opening the note goes on from it. *End session* takes the block away; the record is already there. Without the plugin, a session note is a readable `[!request]` callout. It is a note, not a panel: it is opened, split, linked, searched and synced the way Obsidian does those things.
 
 ### Notes the agent writes
 
@@ -270,7 +278,7 @@ Which of these is constructive?
 
 These are outside the product by design:
 
-- a persistent chat panel or conversational workspace
+- a persistent chat panel or conversational workspace. A session note is a note, not a workspace: the plugin keeps no list of sessions
 - importing sources into a separate library, scanning the whole vault, vector databases, automatic knowledge graphs
 - a hidden learner model, global knowledge scores, long-term knowledge tracing
 - automatic spaced-repetition scheduling

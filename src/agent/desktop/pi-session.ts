@@ -1,10 +1,10 @@
 import type { AgentSession, ExtensionUIContext } from "./pi-sdk-entry";
 import { dirname, resolve } from "path";
-import { SetupNeeded, type AgentCommand, type AgentEvents, type AgentResult, type Control, type DialogAnswer, type DialogRequest, type ModelList, type ToolScope } from "../backend";
+import { SetupNeeded, type AgentCommand, type AgentEvents, type AgentImage, type AgentResult, type Control, type DialogAnswer, type DialogRequest, type ModelList, type ToolScope } from "../backend";
 import { ISOLATED_FILE_TOOLS } from "../permissions";
 import { ICAP_TOOLS } from "../tools/icap-tools";
 import { icapExtension, inside } from "./icap-extension";
-import { HANDLED_GRACE_MS, PiEvents, type PiEventView } from "./pi-events";
+import { HANDLED_GRACE_MS, PiEvents, imageContent, type PiEventView } from "./pi-events";
 import { findModel, modelRuntime, projectTrusted, type PiSdk } from "./pi-host";
 import { gatedToolOptions, protectedFolders } from "./tool-ops";
 
@@ -36,6 +36,8 @@ export interface RunOptions extends AgentEvents {
 	session?: { id: string; dir: string };
 	/** Run this control instead of the prompt; the run ends when it is done. */
 	control?: Control;
+	/** Images that go with the prompt (a model that does not read images gets none). */
+	images?: AgentImage[];
 }
 
 /** What the session factory is told for each tool scope. Pure. */
@@ -213,6 +215,8 @@ export class PiSession {
 	private events: PiEvents;
 	private cancelled = false;
 	private handled = false;
+	/** The prompt is with the agent: from here on a steering message can reach it. */
+	private prompting = false;
 
 	constructor(private opts: RunOptions) {
 		this.events = new PiEvents(opts);
@@ -230,7 +234,14 @@ export class PiSession {
 			throw new Error(`Pi could not start: ${(e as Error).message}`);
 		}
 		this.session = session;
-		const unsubscribe = session.subscribe((ev) => this.events.handle(ev as unknown as PiEventView));
+		const unsubscribe = session.subscribe((ev) => {
+			this.events.handle(ev as unknown as PiEventView);
+			// A turn ended: how full the model's context is now (the session knows its model's window).
+			if (ev.type === "turn_end") {
+				const used = session.getContextUsage();
+				if (used && typeof used.tokens === "number" && used.contextWindow > 0) o.onContext?.(used.tokens, used.contextWindow);
+			}
+		});
 		try {
 			await session.bindExtensions({
 				uiContext: uiContext({ dialog: (req, timeout) => this.dialog(req, timeout), notify: (m) => this.events.notify(m) }),
@@ -242,8 +253,14 @@ export class PiSession {
 				await session.compact(o.control.customInstructions);
 				return this.result();
 			}
+			let images = imageContent(o.images);
+			if (images && !session.model?.input?.includes("image")) {
+				images = undefined;
+				o.onImagesDropped?.();
+			}
 			let disposition: string | undefined;
-			await session.prompt(o.prompt, { source: "rpc", preflightResult: (d) => (disposition = d) });
+			this.prompting = true;
+			await session.prompt(o.prompt, { source: "rpc", preflightResult: (d) => (disposition = d), ...(images ? { images } : {}) });
 			if (disposition === "handled") {
 				this.handled = true;
 				// An extension command may start a turn of its own (pi.sendUserMessage) a moment later.
@@ -258,6 +275,7 @@ export class PiSession {
 			unsubscribe();
 			session.dispose();
 			this.session = null;
+			this.prompting = false;
 		}
 	}
 
@@ -265,6 +283,16 @@ export class PiSession {
 		if (this.cancelled) return;
 		this.cancelled = true;
 		void this.session?.abort();
+	}
+
+	/** A message for the agent while it works: it reads it after its current tool calls. False when the run cannot take one. */
+	steer(text: string, images?: AgentImage[]): boolean {
+		const session = this.session;
+		if (!session || !this.prompting || this.cancelled) return false;
+		this.events.expectSteer(text);
+		const sees = session.model?.input?.includes("image");
+		session.steer(text, sees ? imageContent(images) : undefined, { source: "rpc" }).catch(() => this.events.forgetSteer(text));
+		return true;
 	}
 
 	private result(): AgentResult {

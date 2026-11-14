@@ -192,7 +192,7 @@ describe("task notes of running tasks", () => {
 	it("writes no note for a question asked in passing, until it becomes a task", async () => {
 		const v = vault();
 		const t = task({ steps: [] as never });
-		const block = { turns: [{ request: true }] } as unknown as AskBlock;
+		const block = { roundCount: 1, openingRequest: "What is RAII?" } as unknown as AskBlock;
 		const tasks = [t];
 		const notes = setup(v, tasks, { blocks: { b1: block } });
 		notes.adopt(t, "b1", "What is RAII?", "request");
@@ -203,7 +203,7 @@ describe("task notes of running tasks", () => {
 		expect(v.files.size).toBe(0);
 
 		// A follow-up: the conversation is now more than one question and one answer.
-		(block as unknown as { turns: unknown[] }).turns.push({ request: true });
+		(block as unknown as { roundCount: number }).roundCount = 2;
 		const next = task({ id: "t2", steps: [] as never });
 		tasks.splice(0, 1, next);
 		notes.adopt(next, "b1", "And the heap?", "request");

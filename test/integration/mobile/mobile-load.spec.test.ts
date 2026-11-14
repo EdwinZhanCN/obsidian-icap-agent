@@ -125,6 +125,66 @@ describe.skipIf(!existsSync(MAIN))("main.js on a phone (no Node)", () => {
 		expect(note).toContain("memory you allocate at run time");
 	});
 
+	it("a session note: each round goes into its record, a message written meanwhile follows, regenerate asks the last again", async () => {
+		const phone = await boot(main, { secrets: { "icap-deepseek": "sk-test" } });
+		const bodies: any[] = [];
+		let n = 0;
+		let release: (() => void) | null = null;
+		phone.setFetch(async (_input: any, init?: RequestInit) => {
+			const body = JSON.parse(String(init?.body));
+			bodies.push(body);
+			const k = ++n;
+			// The first reply waits until the test has written its next message.
+			if (k === 1) await new Promise<void>((r) => (release = r));
+			return new Response(sse([chunk({ role: "assistant", content: `Reply ${k}.` }), chunk({}, "stop", { prompt_tokens: 10, completion_tokens: 3, total_tokens: 13 })]), {
+				status: 200,
+				headers: { "content-type": "text/event-stream" },
+			});
+		});
+		const rt = phone.plugin.runtime;
+		await rt.newSession();
+		const [path] = [...phone.files.keys()].filter((p) => p.startsWith("Session "));
+		expect(path).toMatch(/^Session \d{4}-\d{2}-\d{2} \d{4}\.md$/);
+		expect(phone.files.get(path)).toContain("icap: session\n");
+		const block = [...rt.blocks.values()][0];
+		expect(block.live).toBe(true);
+
+		// The first request; while the agent works, the learner writes another.
+		void rt.answer(block, block.turns[0], { text: "What is RAII?" });
+		await settle(phone, () => release !== null);
+		rt.enqueue(block, "And move semantics?");
+		expect(block.queue.map((q: any) => q.text)).toEqual(["And move semantics?"]);
+		release!();
+		await settle(phone, () => n === 2 && block.phase === "completed" && !block.queue.length);
+
+		// The note was named once, from the first request, and holds both rounds; the block holds neither.
+		const named = "What is RAII.md";
+		expect(phone.files.has(path)).toBe(false);
+		expect(block.notePath).toBe(named);
+		const note = phone.files.get(named)!;
+		expect(note).toContain("> [!request] What is RAII?\n> **Request:** What is RAII?\n>\n> Reply 1.\n>\n> **Request:** And move semantics?\n>\n> Reply 2.\n\n```icap-ask");
+		expect(block.turns).toEqual([]);
+		expect(readRecords(note)).toMatchObject({ session: { id: block.id }, recording: [block.id] });
+		// The second round was told the first from the record.
+		expect(JSON.stringify(bodies[1].messages)).toContain("Reply 1.");
+
+		// Regenerate: the last round leaves the record and comes back with the new reply.
+		expect(rt.canRedo(block)).toBe(true);
+		await rt.redo(block);
+		await settle(phone, () => n === 3 && block.phase === "completed" && !block.turns.length);
+		const again = phone.files.get(named)!;
+		expect(again).not.toContain("Reply 2.");
+		expect(again).toContain("> **Request:** And move semantics?\n>\n> Reply 3.\n\n```icap-ask");
+		expect(readRecords(again).records[0].rounds).toHaveLength(2);
+
+		// Ending the session leaves the record and takes the block away.
+		await rt.endSession(block);
+		const ended = phone.files.get(named)!;
+		expect(ended).not.toContain("```icap-ask");
+		expect(ended).toContain("Reply 3.");
+		expect(rt.blocks.has(block.id)).toBe(false);
+	});
+
 	it("a custom endpoint that only answers through requestUrl arrives whole", async () => {
 		const endpoint = { id: "lan", name: "LAN", baseUrl: "http://192.168.1.20:11434/v1", api: "openai-completions", models: ["qwen3"], transport: "whole", hasKey: false };
 		const phone = await boot(main, { files: { "Heap.md": NOTE }, data: { settings: { mobileEndpoints: [endpoint], mobileModel: "lan/qwen3" } } });

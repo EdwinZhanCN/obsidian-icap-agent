@@ -1812,3 +1812,44 @@ body {
 		animation: none;
 	}
 }
+
+/* ───────────── Request blocks: a reply's own actions, and what waits while the agent works ───────────── */
+
+.icap-reply-actions {
+	@apply tw:flex tw:flex-wrap tw:items-baseline tw:font-ui tw:text-muted;
+	gap: 0.15em 0.85em;
+	font-size: var(--tw-text-caption, 0.76rem);
+	margin: 0.15em 0 0.5em;
+}
+/* What the learner wrote while the agent worked: one quiet line each, with what can be done about it. */
+.icap-queue {
+	@apply tw:font-ui;
+	list-style: none;
+	margin: 0.5em 0 0.2em !important;
+	padding: 0 !important;
+	font-size: 0.78rem;
+}
+.icap-queue li {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.15em 0.6em;
+	align-items: baseline;
+	margin: 0;
+	padding: 0.15em 0;
+}
+.icap-queue-text {
+	flex: 1 1 12em;
+	min-width: 0;
+	color: var(--text-muted);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.icap-context-hint {
+	color: var(--text-muted);
+}
+/* The image button stays at the start of the foot; the keycaps and the send button keep their end. */
+.icap-writing-foot .icap-attach {
+	margin-inline-end: auto;
+	align-self: center;
+}

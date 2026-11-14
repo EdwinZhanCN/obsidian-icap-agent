@@ -1,5 +1,5 @@
-import type { AgentCommand, AgentEvents, AgentResult, Control, DialogAnswer, DialogRequest, Json, ModelList } from "../../backend";
-import { HANDLED_GRACE_MS, PiEvents, type PiEventView } from "../pi-events";
+import type { AgentCommand, AgentEvents, AgentImage, AgentResult, Control, DialogAnswer, DialogRequest, Json, ModelList } from "../../backend";
+import { HANDLED_GRACE_MS, PiEvents, imageContent, type PiEventView } from "../pi-events";
 import type { PiCommand } from "./pi-command";
 import { PiProcess } from "./rpc-process";
 
@@ -29,6 +29,8 @@ export interface RpcRunOptions extends AgentEvents {
 	session?: { id: string; dir: string };
 	/** Run this control instead of the prompt; the run ends when it is done. */
 	control?: Control;
+	/** Images that go with the prompt (a model that does not read images gets none). */
+	images?: AgentImage[];
 }
 
 /**
@@ -67,6 +69,10 @@ export class RpcSession {
 	private active = false;
 	private settledSeen = false;
 	private onSettle: (() => void) | null = null;
+	/** Pi accepted the prompt: from here on a steering message can reach it. */
+	private prompting = false;
+	/** Whether Pi's model reads images; asked once, when images are first sent. */
+	private seesImages: boolean | undefined;
 	/** Ends the run now: the learner stopped it. */
 	private stop!: () => void;
 	private stopped = new Promise<void>((r) => (this.stop = r));
@@ -102,7 +108,16 @@ export class RpcSession {
 			await proc.request({ type: "compact", ...(o.control.customInstructions ? { customInstructions: o.control.customInstructions } : {}) });
 			return;
 		}
-		const data = await proc.request({ type: "prompt", message: o.prompt });
+		let images = imageContent(o.images);
+		if (images) {
+			this.seesImages = await this.modelSeesImages(proc);
+			if (!this.seesImages) {
+				images = undefined;
+				o.onImagesDropped?.();
+			}
+		}
+		const data = await proc.request({ type: "prompt", message: o.prompt, ...(images ? { images } : {}) });
+		this.prompting = true;
 		if (data.disposition === "handled") {
 			this.handled = true;
 			// An extension command may start a turn of its own (pi.sendUserMessage) a moment later.
@@ -111,6 +126,47 @@ export class RpcSession {
 			return;
 		}
 		await this.settled(proc);
+		// The last word on how full the context is, before the process is let go.
+		await this.reportContext(proc);
+	}
+
+	/** Does Pi's current model read images? Unknown (an older Pi, no model yet) counts as no. */
+	private async modelSeesImages(proc: PiProcess): Promise<boolean> {
+		try {
+			const state = await proc.request({ type: "get_state" });
+			const input = (state.model as { input?: unknown } | null | undefined)?.input;
+			return Array.isArray(input) && input.includes("image");
+		} catch {
+			return false;
+		}
+	}
+
+	/** How full the model's context is, as Pi counts it (`get_session_stats`). */
+	private async reportContext(proc: PiProcess): Promise<void> {
+		try {
+			const stats = await proc.request({ type: "get_session_stats" });
+			const used = stats.contextUsage as { tokens?: unknown; contextWindow?: unknown } | null | undefined;
+			if (used && typeof used.tokens === "number" && typeof used.contextWindow === "number" && used.contextWindow > 0) this.opts.onContext?.(used.tokens, used.contextWindow);
+		} catch {
+			/* a Pi that is leaving, or one without this command: the share is simply not shown */
+		}
+	}
+
+	/** A message for the agent while it works (Pi's `steer`). False when the run cannot take one. */
+	steer(text: string, images?: AgentImage[]): boolean {
+		const proc = this.proc;
+		if (!proc || !this.prompting || this.cancelled || this.settledSeen) return false;
+		this.events.expectSteer(text);
+		void (async () => {
+			try {
+				if (images?.length && this.seesImages === undefined) this.seesImages = await this.modelSeesImages(proc);
+				const sent = this.seesImages ? imageContent(images) : undefined;
+				await proc.request({ type: "steer", message: text, ...(sent ? { images: sent } : {}) });
+			} catch {
+				this.events.forgetSteer(text);
+			}
+		})();
+		return true;
 	}
 
 	/** Wait until Pi will not continue by itself (`agent_settled`). A Pi that left before saying so is an error. */
@@ -139,6 +195,11 @@ export class RpcSession {
 				this.active = false;
 				this.settledSeen = true;
 				this.onSettle?.();
+				return;
+			case "turn_end":
+				// Between turns: how full the context is now. Not awaited; the run does not wait for a number.
+				if (this.proc) void this.reportContext(this.proc);
+				this.events.handle(rec as PiEventView);
 				return;
 			case "extension_error":
 				this.events.extensionError(typeof rec.extensionPath === "string" ? rec.extensionPath : "extension", rec.error);

@@ -69,7 +69,10 @@ let faux: FauxProviderHandle;
 
 beforeAll(async () => {
 	pi = await import("../../../../src/agent/desktop/pi-sdk-entry");
-	faux = fauxProvider({ provider: "faux", models: [{ id: "m" }] });
+	faux = fauxProvider({
+		provider: "faux",
+		models: [{ id: "m" }, { id: "eye", input: ["text", "image"], contextWindow: 100_000 }, { id: "blind", input: ["text"] }],
+	});
 	const runtime = await modelRuntime(pi);
 	runtime.registerNativeProvider(faux.provider);
 	await runtime.setRuntimeApiKey("faux", "test");
@@ -432,6 +435,90 @@ describe("logins", () => {
 		expect(models.available.some((m) => m.startsWith("anthropic/"))).toBe(true);
 		// Reading it changed nothing.
 		expect(JSON.parse(readFileSync(join(agentDir, "auth.json"), "utf8")).anthropic.type).toBe("oauth");
+	});
+});
+
+/** A 1×1 PNG. */
+const PIXEL = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+describe("a message while the agent works, images, and how full the context is", () => {
+	/** The user messages the model was sent, as their text. */
+	const said = (messages: unknown[]) =>
+		(messages as { role: string; content: unknown }[])
+			.filter((m) => m.role === "user")
+			.map((m) => (typeof m.content === "string" ? m.content : (m.content as { type: string; text?: string }[]).map((c) => c.text ?? "").join("")));
+
+	it("a message handed over during a tool call reaches the model before its next reply", async () => {
+		let heard: string[] = [];
+		let handed = false;
+		const steered: string[] = [];
+		const texts: string[] = [];
+		faux.setResponses([
+			fauxAssistantMessage([fauxText("Looking it up."), fauxToolCall("obsidian", { command: "search", query: "x" })], { stopReason: "toolUse" }),
+			(ctx) => {
+				heard = said(ctx.messages);
+				return fauxAssistantMessage("With that in mind: done.");
+			},
+		]);
+		const session = run("first request", {
+			onText: (t) => texts.push(t),
+			onSteered: (t) => steered.push(t),
+			// The learner writes while the tool runs.
+			onBridge: async () => {
+				handed = session.steer("and keep it short");
+				return { status: "ok", output: "found" };
+			},
+		});
+		// Before the prompt is with the agent, there is nothing to hand a message to.
+		expect(session.steer("too early")).toBe(false);
+		const result = await session.run();
+		expect(handed).toBe(true);
+		expect(heard).toEqual(["first request", "and keep it short"]);
+		expect(steered).toEqual(["and keep it short"]);
+		// What it says after the message is the reply; the narration before it is not carried along.
+		expect(result.text).toBe("With that in mind: done.");
+		expect(session.steer("too late")).toBe(false);
+	});
+
+	it("images go with the prompt to a model that reads them", async () => {
+		let parts: { type: string; mimeType?: string }[] = [];
+		const dropped = vi.fn();
+		faux.setResponses([
+			(ctx) => {
+				parts = (ctx.messages.findLast((m) => m.role === "user")?.content ?? []) as typeof parts;
+				return fauxAssistantMessage("a red square");
+			},
+		]);
+		await run("what is this?", { model: "faux/eye", images: [{ data: PIXEL, mimeType: "image/png" }], onImagesDropped: dropped }).run();
+		expect(parts.map((p) => p.type)).toEqual(["text", "image"]);
+		expect(parts[1].mimeType).toBe("image/png");
+		expect(dropped).not.toHaveBeenCalled();
+	});
+
+	it("a model that does not read images gets none, and the run says so", async () => {
+		let parts: { type: string }[] = [];
+		const dropped = vi.fn();
+		faux.setResponses([
+			(ctx) => {
+				const content = ctx.messages.findLast((m) => m.role === "user")?.content;
+				parts = typeof content === "string" ? [{ type: "text" }] : ((content ?? []) as typeof parts);
+				return fauxAssistantMessage("I cannot see it");
+			},
+		]);
+		await run("what is this?", { model: "faux/blind", images: [{ data: PIXEL, mimeType: "image/png" }], onImagesDropped: dropped }).run();
+		expect(parts.map((p) => p.type)).toEqual(["text"]);
+		expect(dropped).toHaveBeenCalledOnce();
+	});
+
+	it("says how full the model's context is after a reply", async () => {
+		const seen: [number, number][] = [];
+		faux.setResponses([fauxAssistantMessage("hello")]);
+		await run("hi", { model: "faux/eye", onContext: (used, window) => seen.push([used, window]) }).run();
+		expect(seen.length).toBeGreaterThan(0);
+		const [used, window] = seen.at(-1)!;
+		expect(window).toBe(100_000);
+		expect(used).toBeGreaterThan(0);
+		expect(used).toBeLessThan(window);
 	});
 });
 

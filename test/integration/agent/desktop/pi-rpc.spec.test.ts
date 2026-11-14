@@ -48,7 +48,7 @@ writeFileSync(
 	`import { fauxProvider, fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai";
 import { appendFileSync, readFileSync } from "node:fs";
 export default function (pi) {
-	const faux = fauxProvider({ provider: "faux", models: [{ id: "m" }] });
+	const faux = fauxProvider({ provider: "faux", models: [{ id: "m" }, { id: "eye", input: ["text", "image"], contextWindow: 100000 }, { id: "blind", input: ["text"] }] });
 	pi.registerProvider(faux.provider);
 	const script = JSON.parse(readFileSync(${JSON.stringify(scriptFile)}, "utf8"));
 	faux.setResponses(script.map((step) => async (ctx) => {
@@ -56,7 +56,9 @@ export default function (pi) {
 		const last = ctx.messages.at(-1);
 		const lastText = Array.isArray(last?.content) ? last.content.map((c) => c.text ?? "").join("") : String(last?.content ?? "");
 		const users = ctx.messages.filter((m) => m.role === "user").map((m) => Array.isArray(m.content) ? m.content.map((c) => c.text ?? "").join("") : String(m.content ?? ""));
-		appendFileSync(${JSON.stringify(logFile)}, JSON.stringify({ system, lastRole: last?.role, lastText, users, pid: process.pid }) + "\\n");
+		const lastUser = ctx.messages.findLast((m) => m.role === "user");
+		const lastUserParts = Array.isArray(lastUser?.content) ? lastUser.content.map((c) => c.type + (c.mimeType ? ":" + c.mimeType : "")) : ["text"];
+		appendFileSync(${JSON.stringify(logFile)}, JSON.stringify({ system, lastRole: last?.role, lastText, users, lastUserParts, pid: process.pid }) + "\\n");
 		if (step.delayMs) await new Promise((r) => setTimeout(r, step.delayMs));
 		const content = [];
 		if (step.text) content.push(fauxText(step.text));
@@ -109,6 +111,8 @@ interface Seen {
 	lastRole: string;
 	lastText: string;
 	users: string[];
+	/** The parts of the latest user message: `text`, `image:image/png`. */
+	lastUserParts: string[];
 	/** Pi's process. */
 	pid: number;
 }
@@ -280,6 +284,60 @@ describe.skipIf(!posix)("the learner's own Pi over RPC", { timeout: 30000 }, () 
 		script([{ text: "first reply" }]);
 		await run("first question", {}, { session }).result;
 		await expect(run("", {}, { session, control: { type: "compact" } }).result).rejects.toThrow(/Nothing to compact/);
+	});
+
+	describe("a message while the agent works, images, and how full the context is", () => {
+		/** A 1×1 PNG. */
+		const PIXEL = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+		it("a message handed over during a tool call reaches the model before its next reply", async () => {
+			script([{ text: "Looking it up.", calls: [{ name: "obsidian", args: { command: "search", query: "x" } }] }, { text: "With that in mind: done." }]);
+			let handed = false;
+			const steered: string[] = [];
+			const r = run("first request", {
+				onSteered: (t) => steered.push(t),
+				// The learner writes while the tool runs; the tool's result follows a moment later.
+				onBridge: async () => {
+					handed = r.steer!("and keep it short");
+					await new Promise((res) => setTimeout(res, 300));
+					return { status: "ok", output: "found" };
+				},
+			});
+			const result = await r.result;
+			expect(handed).toBe(true);
+			expect(seen()[1].users).toEqual(["first request", "and keep it short"]);
+			expect(steered).toEqual(["and keep it short"]);
+			// What it says after the message is the reply; the narration before it is not carried along.
+			expect(result.text).toBe("With that in mind: done.");
+			expect(r.steer!("too late")).toBe(false);
+		});
+
+		it("images go with the prompt to a model that reads them", async () => {
+			script([{ text: "a red square" }]);
+			let dropped = 0;
+			await run("what is this?", { onImagesDropped: () => dropped++ }, { model: "faux/eye", images: [{ data: PIXEL, mimeType: "image/png" }] }).result;
+			expect(seen()[0].lastUserParts).toEqual(["text", "image:image/png"]);
+			expect(dropped).toBe(0);
+		});
+
+		it("a model that does not read images gets none, and the run says so", async () => {
+			script([{ text: "I cannot see it" }]);
+			let dropped = 0;
+			await run("what is this?", { onImagesDropped: () => dropped++ }, { model: "faux/blind", images: [{ data: PIXEL, mimeType: "image/png" }] }).result;
+			expect(seen()[0].lastUserParts).toEqual(["text"]);
+			expect(dropped).toBe(1);
+		});
+
+		it("says how full the model's context is after a reply", async () => {
+			script([{ text: "hello" }]);
+			const context: [number, number][] = [];
+			await run("hi", { onContext: (used, window) => context.push([used, window]) }, { model: "faux/eye" }).result;
+			expect(context.length).toBeGreaterThan(0);
+			const [used, window] = context.at(-1)!;
+			expect(window).toBe(100000);
+			expect(used).toBeGreaterThan(0);
+			expect(used).toBeLessThan(window);
+		});
 	});
 
 	describe("the learner's own extensions", () => {

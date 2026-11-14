@@ -1,4 +1,4 @@
-import type { AgentEvents, AgentResult } from "../backend";
+import type { AgentEvents, AgentImage, AgentResult } from "../backend";
 import { messageUsage } from "../usage";
 
 /**
@@ -29,6 +29,17 @@ export interface PiEventView {
 interface PiContent {
 	type?: string;
 	text?: string;
+}
+
+/** Images as Pi's message content. */
+export function imageContent(images: AgentImage[] | undefined): { type: "image"; data: string; mimeType: string }[] | undefined {
+	return images?.length ? images.map((i) => ({ type: "image" as const, data: i.data, mimeType: i.mimeType })) : undefined;
+}
+
+/** The words of a message, whether its content is a string or parts. */
+export function messageText(content: unknown): string {
+	if (typeof content === "string") return content;
+	return Array.isArray(content) ? (content as PiContent[]).filter((c) => c?.type === "text").map((c) => c.text ?? "").join("") : "";
 }
 
 /** A one-line gist of a tool call's arguments: the path, command or query it is about. */
@@ -71,8 +82,21 @@ export class PiEvents {
 	private lastError: string | null = null;
 	/** ctx.ui.notify from an extension: the only output of many extension commands. */
 	private notices: string[] = [];
+	/** Messages given to the agent while it works (AgentRun.steer) that it has not read yet. */
+	private steering: string[] = [];
 
 	constructor(private o: AgentEvents) {}
+
+	/** A message is on its way to the working agent; `onSteered` follows when the agent reads it. */
+	expectSteer(text: string) {
+		this.steering.push(text);
+	}
+
+	/** The message could not be queued after all. */
+	forgetSteer(text: string) {
+		const i = this.steering.indexOf(text);
+		if (i >= 0) this.steering.splice(i, 1);
+	}
 
 	/** An extension's notice (ctx.ui.notify). */
 	notify(message: unknown) {
@@ -103,11 +127,22 @@ export class PiEvents {
 			case "turn_start":
 				o.onPhase?.("sending");
 				return;
-			case "message_start":
+			case "message_start": {
+				if (rec.message?.role === "user") {
+					// A steering message reached the agent: what it says from here on answers that message too.
+					const i = this.steering.indexOf(messageText(rec.message.content));
+					if (i < 0) return;
+					const [text] = this.steering.splice(i, 1);
+					this.finalText = "";
+					this.currentText = "";
+					o.onSteered?.(text);
+					return;
+				}
 				if (rec.message?.role !== "assistant") return;
 				this.currentText = "";
 				o.onPhase?.("replying");
 				return;
+			}
 			case "message_update": {
 				const e = rec.assistantMessageEvent;
 				if (!e) return;
@@ -126,7 +161,7 @@ export class PiEvents {
 				const used = messageUsage(m.usage);
 				const model = m.provider && m.model ? `${m.provider}/${m.model}` : null;
 				if (used || model) o.onUsage?.(used, model);
-				const text = Array.isArray(m.content) ? (m.content as PiContent[]).filter((c) => c.type === "text").map((c) => c.text ?? "").join("") : "";
+				const text = messageText(m.content);
 				if (m.stopReason === "error" || m.stopReason === "aborted") {
 					this.lastError = m.errorMessage || (m.stopReason === "aborted" ? "Stopped." : "The model returned an error.");
 				}

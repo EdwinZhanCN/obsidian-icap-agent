@@ -7,8 +7,8 @@ import { calloutBlock, evidenceCallout, isoDate, requestRecord, verdictGlyph } f
 import { answerText } from "./transcript";
 import type { Artifact, AskBlock } from "./state.svelte";
 
-/** A request block as it stays in the note: each request with its reply, and the files touched. */
-function requestMarkdown(block: AskBlock, artifacts: Artifact[]): string {
+/** A request block's conversation as rounds: each request with the reply it got. Commands are not part of it. */
+export function roundsOf(block: { turns: AskBlock["turns"]; summary: string }): { request: string; reply: string }[] {
 	const rounds: { request: string; reply: string }[] = [];
 	for (const t of block.turns) {
 		if (t.control) continue;
@@ -16,7 +16,12 @@ function requestMarkdown(block: AskBlock, artifacts: Artifact[]): string {
 		if (t.reply && rounds.length) rounds[rounds.length - 1].reply = t.reply;
 	}
 	if (rounds.length && block.summary.trim()) rounds[rounds.length - 1].reply = block.summary.trim();
-	return requestRecord(block.topic, rounds, artifacts);
+	return rounds;
+}
+
+/** A request block as it stays in the note: each request with its reply, and the files touched. */
+function requestMarkdown(block: AskBlock, artifacts: Artifact[]): string {
+	return requestRecord(block.topic, roundsOf(block), artifacts);
 }
 
 /**

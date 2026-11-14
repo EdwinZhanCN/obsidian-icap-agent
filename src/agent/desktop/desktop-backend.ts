@@ -35,6 +35,7 @@ const CAPABILITIES: BackendCapabilities = {
 	externalFiles: true,
 	fileTools: true,
 	skillFiles: true,
+	steer: true,
 };
 
 /**
@@ -156,6 +157,7 @@ export class DesktopBackend implements AgentBackend {
 				thinking: req.thinking,
 				session: req.session && dir ? { id: req.session, dir } : undefined,
 				control: req.control,
+				images: req.images,
 			});
 			return session.run();
 		})();
@@ -165,6 +167,7 @@ export class DesktopBackend implements AgentBackend {
 				cancelled = true;
 				session?.cancel();
 			},
+			steer: (text, images) => session?.steer(text, images) ?? false,
 		};
 	}
 
@@ -183,6 +186,7 @@ export class DesktopBackend implements AgentBackend {
 					thinking: req.thinking,
 					session: req.session && dir ? { id: req.session, dir } : undefined,
 					control: req.control,
+					images: req.images,
 				},
 				events,
 			);

@@ -90,6 +90,14 @@ export interface BackendCapabilities {
 	fileTools: boolean;
 	/** ICAP's skills are files the agent reads on demand; without, their text is part of the system prompt. */
 	skillFiles: boolean;
+	/** A message can reach the agent while it works, between its tool calls (`AgentRun.steer`). */
+	steer: boolean;
+}
+
+/** An image sent with a prompt: base64, and its type (`image/png`, `image/jpeg`, `image/gif`, `image/webp`). */
+export interface AgentImage {
+	data: string;
+	mimeType: string;
 }
 
 /**
@@ -117,6 +125,8 @@ export interface AgentRequest {
 	session?: string;
 	/** Run this control instead of the prompt; the run ends when it is done. Only with `compact`. */
 	control?: Control;
+	/** Images that go with the prompt. A model that does not read images gets none (`onImagesDropped`). */
+	images?: AgentImage[];
 }
 
 /** What a run tells the runtime while it goes. */
@@ -133,6 +143,15 @@ export interface AgentEvents {
 	 * the model that wrote it as `provider/id` (what the task records in `icap-model`).
 	 */
 	onUsage?: (usage: RunUsage | null, model: string | null) => void;
+	/**
+	 * How much of the model's context the conversation fills after the latest reply: tokens, and the
+	 * model's window. Not called when the window is unknown (a custom endpoint without one).
+	 */
+	onContext?: (used: number, window: number) => void;
+	/** The prompt's images were left out: the model does not read images. */
+	onImagesDropped?: () => void;
+	/** A message given with `AgentRun.steer` reached the agent: from here on its words answer that message too. */
+	onSteered?: (text: string) => void;
 	/** ICAP's tools. */
 	onBridge: BridgeHandler;
 	/**
@@ -161,6 +180,12 @@ export interface AgentRun {
 	result: Promise<AgentResult>;
 	/** Stop the run; `result` then resolves with `aborted`. */
 	cancel(): void;
+	/**
+	 * Give the agent a message while it works (`steer`): it reads it after the tool calls of its current
+	 * turn, before it asks the model again. False when the run cannot take it (not started, or over);
+	 * `onSteered` says when it arrived. A run that ends first never delivers it.
+	 */
+	steer?(text: string, images?: AgentImage[]): boolean;
 }
 
 export interface ModelList {

@@ -11,7 +11,8 @@ An Obsidian plugin for learning inside your own notes. There is no chat panel: e
 - **Explain.** Select a word or passage; the explanation appears under it. Ask for deeper, an example, plainer, or a comparison, and keep it if it helped.
 - **Recall.** Explain a section from memory. The agent answers what you actually wrote and asks a follow-up.
 - **Check.** A few questions on a section or a whole note, with feedback on your answer.
-- **Ask the agent here.** A request block anywhere in a note. Point at files with `[[` or `@`; use your Pi skills and commands with `/`.
+- **Ask the agent here.** A request block anywhere in a note. Point at files with `[[` or `@`; use your Pi skills and commands with `/`; paste or drop images. Keep writing while the agent works: your words wait, or reach it at once with *deliver now*. Regenerate or edit your last request.
+- **Session notes.** *New session note* makes a conversation a note of its own: each finished round is written into it, so it syncs, links and searches like any note, and goes on from another device.
 - **Documents.** PDFs, EPUBs and Word files in the vault become readable trees: the agent opens a book's table of contents, reads only the chapters it needs, and cites pages you can click.
 - **Interactive visuals.** Sliders and diagrams you can drag, in a sandbox with no network.
 - **Activity.** The status bar shows what the agent is doing and lists recent tasks: their status, what they cost (tokens, cache hits, price), and every file they created or changed. Turn on *Record tasks as notes* and every task that does real work also gets a note with properties, listed in a native Base (`ICAP/Activity.base`) you can filter, group and change; a task's name leads back to where you asked.

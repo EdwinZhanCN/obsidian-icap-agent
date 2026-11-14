@@ -4,7 +4,7 @@ import { homedir, tmpdir } from "os";
 import { join } from "path";
 import { Type } from "typebox";
 import { L } from "../../../i18n";
-import type { AgentEvents, AgentResult, AgentRun, Control } from "../../backend";
+import type { AgentEvents, AgentImage, AgentResult, AgentRun, Control } from "../../backend";
 import { CONTEXT_FILE_NAMES, withProjectContext, type ContextFile } from "../../context-files";
 import { ICAP_TOOLS, icapTools } from "../../tools/icap-tools";
 import { loginEnv } from "../pi-host";
@@ -34,6 +34,7 @@ export interface RpcRequest {
 	thinking?: string;
 	session?: { id: string; dir: string };
 	control?: Control;
+	images?: AgentImage[];
 }
 
 /** Pi's own folder, as Pi finds it: `PI_CODING_AGENT_DIR`, else ~/.pi/agent. */
@@ -154,6 +155,7 @@ export class PiRpc {
 					thinking: req.thinking,
 					session: req.session,
 					control: req.control,
+					images: req.images,
 				});
 				this.running.add(session);
 				if (cancelled) session.cancel();
@@ -170,6 +172,7 @@ export class PiRpc {
 				cancelled = true;
 				session?.cancel();
 			},
+			steer: (text, images) => session?.steer(text, images) ?? false,
 		};
 	}
 

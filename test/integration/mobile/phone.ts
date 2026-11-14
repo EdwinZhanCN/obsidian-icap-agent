@@ -664,7 +664,18 @@ function makeApp(o: { TFile: any; TFolder: any; Events: any }, files: Map<string
 		vault,
 		metadataCache,
 		workspace,
-		fileManager: { processFrontMatter: async () => undefined, renameFile: async () => undefined, trashFile: async (f: any) => void files.delete(f.path) },
+		fileManager: {
+			processFrontMatter: async () => undefined,
+			// New notes go to the vault's root, as with Obsidian's default setting.
+			getNewFileParent: () => root,
+			renameFile: async (f: any, p: string) => {
+				const old = f.path;
+				files.set(p, files.get(old)!);
+				files.delete(old);
+				vaultEvents.trigger("rename", fileObj(p), old);
+			},
+			trashFile: async (f: any) => void files.delete(f.path),
+		},
 		secretStorage: {
 			setSecret: (id: string, v: string) => void secrets.set(id, v),
 			getSecret: (id: string) => secrets.get(id) ?? null,

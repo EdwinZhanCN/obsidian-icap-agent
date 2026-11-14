@@ -1,4 +1,4 @@
-import { MarkdownRenderChild, MarkdownView, Menu, Modal, Notice, Platform, Plugin, Setting, TFile, getLanguage, requestUrl, type Editor, type MarkdownFileInfo } from "obsidian";
+import { MarkdownRenderChild, MarkdownView, Menu, Modal, Notice, Platform, Plugin, Setting, TFile, TFolder, getLanguage, requestUrl, type Editor, type MarkdownFileInfo } from "obsidian";
 import { ACTIVITY_VIEW, ActivityBasesView } from "./activity/view.svelte";
 import { guideNote } from "./guide/guide";
 import { L, setLocale } from "./i18n";
@@ -94,7 +94,7 @@ export default class IcapPlugin extends Plugin {
 					mount(AskView, {
 						target,
 						props: {
-							block: rt.blocks.get(src.id) ?? rt.adoptAuthored(src, ctx.sourcePath),
+							block: rt.blocks.get(src.id) ?? rt.adoptAuthored(src, ctx.sourcePath) ?? rt.adoptSession(src, ctx.sourcePath),
 							id: src.id,
 							title: src.body.split("\n")[0] ?? "",
 							rt,
@@ -161,12 +161,26 @@ export default class IcapPlugin extends Plugin {
 			this.registerEvent(this.app.vault.on("modify", (f) => rt.onVaultChange("edited", f)));
 			this.registerEvent(this.app.vault.on("delete", (f) => rt.onVaultChange("deleted", f)));
 			this.registerEvent(this.app.vault.on("rename", (f, old) => rt.onVaultChange("edited", f, old)));
+			// A renamed note takes its blocks and tasks with it.
+			this.registerEvent(this.app.vault.on("rename", (f, old) => rt.onRename(f, old)));
 			// Documents (PDF, EPUB, DOCX) are prepared ahead of time into the plugin's docs/ folder, when that is on.
 			this.registerEvent(this.app.vault.on("create", (f) => rt.onDocumentChange(f)));
 			this.registerEvent(this.app.vault.on("modify", (f) => rt.onDocumentChange(f)));
 			window.setTimeout(() => rt.prepareDocuments(), 5000);
 		});
 		this.registerEvent(this.app.workspace.on("editor-menu", (menu, editor, info) => this.editorMenu(menu, editor, info)));
+		// A folder's menu: a session note in that folder.
+		this.registerEvent(
+			this.app.workspace.on("file-menu", (menu, file) => {
+				if (!(file instanceof TFolder)) return;
+				menu.addItem((item) =>
+					item
+						.setTitle(L("New session note here", "在这里新建会话笔记"))
+						.setIcon("messages-square")
+						.onClick(() => void this.runtime.newSession(file)),
+				);
+			}),
+		);
 		this.addSettingTab(new IcapSettingTab(this.app, this));
 	}
 
@@ -326,6 +340,12 @@ export default class IcapPlugin extends Plugin {
 			icon: "message-circle-question",
 			name: L("Ask the agent here", "在这里向 Agent 提问"),
 			editorCheckCallback: this.withEditor((e, f) => void rt.request(e, f)),
+		});
+		this.addCommand({
+			id: "new-session",
+			icon: "messages-square",
+			name: L("New session note", "新建会话笔记"),
+			callback: () => void rt.newSession(),
 		});
 		this.addCommand({
 			id: "explain-selection",

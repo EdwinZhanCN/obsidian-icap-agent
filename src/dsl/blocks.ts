@@ -89,7 +89,12 @@ export function fenceFor(body: string): string {
 export function serializeAsk(src: AskSource): string {
 	const body = src.body.trim();
 	const f = fenceFor(body);
-	return `${f}${ASK_LANG}\nid: ${src.id}\nkind: ${src.kind}\n---\n${body}\n${f}`;
+	// Further header lines (`record: live`) follow `id` and `kind`, which readers find first.
+	const more = Object.entries(src.header ?? {})
+		.filter(([k]) => k !== "id" && k !== "kind")
+		.map(([k, v]) => `${k}: ${v}\n`)
+		.join("");
+	return `${f}${ASK_LANG}\nid: ${src.id}\nkind: ${src.kind}\n${more}---\n${body}\n${f}`;
 }
 
 export function parseAskSource(source: string): AskSource {
@@ -300,10 +305,38 @@ export function evidenceCallout(type: "feedback" | "practice", title: string, e:
  */
 export function requestRecord(topic: string, rounds: { request: string; reply: string }[], files: { kind: string; path: string }[]): string {
 	const parts: string[] = [];
-	for (const r of rounds) {
-		if (r.request.trim()) parts.push(`**${L("Request", "请求")}:** ${r.request.trim()}`);
-		if (r.reply.trim()) parts.push(r.reply.trim());
-	}
+	for (const r of rounds) parts.push(...roundParts(r));
+	const listed = filesLine(files);
+	if (listed) parts.push(listed);
+	return calloutBlock("request", requestTitle(topic), parts.join("\n\n") || "—");
+}
+
+/** A request record's title: the topic on one line. */
+export function requestTitle(topic: string): string {
+	return topic.replace(/\s+/g, " ").trim() || L("Request", "请求");
+}
+
+/** One round of a request record as its paragraphs: the request, then the reply. */
+function roundParts(r: { request: string; reply: string }): string[] {
+	const parts: string[] = [];
+	if (r.request.trim()) parts.push(`**${L("Request", "请求")}:** ${r.request.trim()}`);
+	if (r.reply.trim()) parts.push(r.reply.trim());
+	return parts;
+}
+
+/**
+ * One round as the lines added to a request record that is still growing (a session note, FORMAT.md 7):
+ * the request, the reply, and the files of that round. Quoted, without the callout's title line.
+ */
+export function quotedRound(r: { request: string; reply: string }, files: { kind: string; path: string }[]): string {
+	const parts = roundParts(r);
+	const listed = filesLine(files);
+	if (listed) parts.push(listed);
+	return quote(parts.join("\n\n") || "—");
+}
+
+/** `**Files:** created [[A]] · changed [[B]] · deleted c.md`; "" when there are none. */
+export function filesLine(files: { kind: string; path: string }[]): string {
 	const link = (p: string) => {
 		const target = p.replace(/\.md$/, "");
 		const name = target.split("/").pop()!;
@@ -320,8 +353,7 @@ export function requestRecord(topic: string, rounds: { request: string; reply: s
 			return ps.length ? `${word} ${ps.join(", ")}` : "";
 		})
 		.filter(Boolean);
-	if (listed.length) parts.push(`**${L("Files", "文件")}:** ${listed.join(" · ")}`);
-	return calloutBlock("request", topic.replace(/\s+/g, " ").trim() || L("Request", "请求"), parts.join("\n\n") || "—");
+	return listed.length ? `**${L("Files", "文件")}:** ${listed.join(" · ")}` : "";
 }
 
 /** Split a trailing "Sources: [[A]], [[B]]" line produced by the agent. */

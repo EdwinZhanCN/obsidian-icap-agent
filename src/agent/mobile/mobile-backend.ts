@@ -54,6 +54,7 @@ export class MobileBackend implements AgentBackend {
 		externalFiles: false,
 		fileTools: false,
 		skillFiles: false,
+		steer: true,
 	};
 	readonly accounts: BackendAccounts;
 
@@ -158,6 +159,7 @@ export class MobileBackend implements AgentBackend {
 				prompt: req.prompt,
 				tools: req.tools,
 				thinking: req.thinking,
+				images: req.images,
 			});
 			return session.run();
 		})();
@@ -167,6 +169,7 @@ export class MobileBackend implements AgentBackend {
 				cancelled = true;
 				session?.cancel();
 			},
+			steer: (text, images) => session?.steer(text, images) ?? false,
 		};
 	}
 

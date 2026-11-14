@@ -55,7 +55,8 @@
 			"callout": "request",
 			"title": "Learning path for C++",
 			"line": 42,
-			"topic": "Learning path for C++"
+			"topic": "Learning path for C++",
+			"rounds": [{ "request": "build a learning path", "reply": "Created a path." }]
 		}
 	],
 	"live": [
