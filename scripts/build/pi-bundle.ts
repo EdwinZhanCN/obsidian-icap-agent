@@ -18,6 +18,9 @@ export function bundlePatches(): Plugin {
   return {
     name: "icap-bundle-patches",
     async load(id) {
+      // Rolldown hands Windows module ids with backslashes; every pattern below is written with forward
+      // slashes, so normalize once. Node reads either form, so the patched files still load.
+      id = id.replace(/\\/g, "/");
       if (/photon-node\/photon_rs\.js$/.test(id)) {
         // The WASM is read from a file next to the module, which a bundle does not have: embed it.
         const src = await readFile(id, "utf8");
