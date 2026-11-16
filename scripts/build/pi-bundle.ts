@@ -14,6 +14,9 @@ export function piPatches(): Plugin {
   return {
     name: "icap-pi-patches",
     async load(id) {
+      // Rolldown hands Windows module ids with backslashes; every pattern below is written with forward
+      // slashes, so normalize once. Node reads either form, so the patched files still load.
+      id = id.replace(/\\/g, "/");
       if (/pi-coding-agent\/dist\/config\.js$/.test(id)) {
         const src = await readFile(id, "utf8");
         const pkg = JSON.parse(await readFile(resolve("node_modules/@earendil-works/pi-coding-agent/package.json"), "utf8"));
