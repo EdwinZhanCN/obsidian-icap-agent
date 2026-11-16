@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vite-plus/test";
 import { readRecords } from "./records";
 
@@ -7,7 +8,7 @@ import { readRecords } from "./records";
  * FORMAT.md conformance: each fixture note has the JSON a reader must produce from it, in a shape
  * any language can compare against (the Hub runs the same fixtures).
  */
-const dir = new URL("../../test/fixtures/format/", import.meta.url).pathname;
+const dir = fileURLToPath(new URL("../../test/fixtures/format/", import.meta.url));
 
 const notes = readdirSync(dir).filter((f) => f.endsWith(".md"));
 
