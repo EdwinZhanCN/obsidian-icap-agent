@@ -24,7 +24,7 @@ export interface Step {
 	id?: string;
 	/** It failed. */
 	error?: true;
-	/** The start of what it returned. */
+	/** The start of what it returned, on one line; when it failed, its message whole, with its lines. */
 	out?: string;
 }
 

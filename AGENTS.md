@@ -61,7 +61,8 @@ src/agent/permissions.ts  pure: what the built-in agent may do without asking. T
                           actionDecision, mentionsPath (a command that names a protected folder)
 src/agent/prompts.ts      the ICAP protocol (systemPrompt, shaped by PromptEnv: file tools? skill files?) and each
                           task's prompt (explain, recall, quiz, note, request, follow-up, continuation)
-src/agent/steps.ts        pure: a tool call's result as the steps keep it (error, the start of its text)
+src/agent/steps.ts        pure: a tool call's result as the steps keep it (the start of its text on one line; a
+                          failure's message whole, up to 2,000 characters)
 src/agent/connectors.ts   pure: connector names and command lines; desktop/connectors.ts reads and writes Pi's global
                           mcp.json with the harness's own functions (the settings' Connectors group)
 src/agent/usage.ts        pure: RunUsage (tokens, cache, price) from each assistant message's usage, summed per task;
@@ -129,9 +130,10 @@ src/agent/mobile/         the mobile backend, no Node (also what desktop's app.e
   settings-ui.ts          keys (SecretComponent → app.secretStorage) and the endpoint dialog, in the settings tab
 
 src/activity/             the `icap-activity` Bases view over task notes: rows.ts (pure: a note as a row, steps and
-                          phases as spans), ActivityView.svelte, view.svelte.ts (the BasesView; strips and traces only
-                          for this device's tasks), Strip.svelte (a task's time: phases under, tool calls over) and
-                          StepList.svelte (its tool calls with result previews), shared with the ledger. Display only.
+                          phases as spans, taskText: a task as text for the clipboard), ActivityView.svelte,
+                          view.svelte.ts (the BasesView; strips, traces and errors only for this device's tasks),
+                          Strip.svelte (a task's time: phases under, tool calls over) and StepList.svelte (its tool
+                          calls with result previews, selectable), shared with the ledger. Display only.
                           Its table views in Activity.base work without the plugin
 src/ui/provider-marks.ts  model marks (Lobe Icons, MIT, mono) and markFor(`provider/id`)
 src/dsl/blocks.ts         the Markdown DSL: ```icap-ask fences (and legacy ```icpa-ask), callouts
@@ -153,7 +155,7 @@ src/guide/guide.ts        the first-run guide note (zh / en)
 src/guide/vault-rules.ts  pure: presets and renderRules for the AGENTS.md wizard (src/settings/rules-modal.ts)
 src/ui/                   Svelte views (GlossView, AskView, WritingLine, Choices, Ledger, LedgerMark, Markdown),
                           motion.ts (the motion language), keys.ts (the writing Scope), focus.ts, hold-height.ts,
-                          phrases.ts (task phases as sentences)
+                          phrases.ts (task phases as sentences), copy.ts (copyText: the clipboard, with a notice)
 src/styles/main.css       the design system: Tailwind v4 utilities with the `tw:` prefix, on Obsidian's variables
 src/**/*.test.ts          unit tests, next to their module
 test/integration/         tests against the real Pi SDK (*.spec.test.ts); test/fixtures/dev-vault/ is the dev vault's seed.

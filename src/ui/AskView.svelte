@@ -12,7 +12,8 @@
 	import WritingLine from "./WritingLine.svelte";
 	import Choices from "./Choices.svelte";
 	import { CONTEXT_NEARLY_FULL, SUBMIT_KEYS, blockCaption, contextShare, liveCue, phaseLine, stopLabel, touchCaption, usageLine } from "./phrases";
-	import { Notice, Platform } from "obsidian";
+	import { Platform } from "obsidian";
+	import { copyText } from "./copy";
 	import Keys from "./Keys.svelte";
 	import { holdHeight } from "./hold-height";
 	import { inertToEditor } from "./keys";
@@ -103,14 +104,7 @@
 	const redoable = $derived(!!block && rt.canRedo(block));
 	/** The last request, being changed by the learner; null = not editing. */
 	let editing = $state<string | null>(null);
-	async function copy(md: string) {
-		try {
-			await navigator.clipboard.writeText(md);
-			new Notice(L("Copied as Markdown.", "已复制为 Markdown。"), 1500);
-		} catch {
-			new Notice(L("Could not copy.", "无法复制。"));
-		}
-	}
+	const copy = (md: string) => copyText(md, L("Copied as Markdown.", "已复制为 Markdown。"));
 	async function startEdit() {
 		if (block) editing = await rt.lastRequest(block);
 	}

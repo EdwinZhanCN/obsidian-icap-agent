@@ -4,13 +4,15 @@
 	import { SvelteSet } from "svelte/reactivity";
 	import X from "@lucide/svelte/icons/x";
 	import ListIcon from "@lucide/svelte/icons/list";
+	import Copy from "@lucide/svelte/icons/copy";
 	import FilePlus from "@lucide/svelte/icons/file-plus";
 	import FilePen from "@lucide/svelte/icons/file-pen";
 	import FileX from "@lucide/svelte/icons/file-x";
 	import Strip from "../activity/Strip.svelte";
 	import StepList from "../activity/StepList.svelte";
-	import { duration } from "../activity/rows";
+	import { duration, taskText } from "../activity/rows";
 	import { formatCost } from "../agent/usage";
+	import { copyText } from "./copy";
 	import type { LearningRuntime } from "../runtime/runtime";
 	import type { Task } from "../runtime/state.svelte";
 	import { ago, kindWord, liveCue, statusWord, stopLabel, subjectOf } from "./phrases";
@@ -143,6 +145,7 @@
 						{#if cost && !t.active}<span class="icap-row-num">{cost}</span>{/if}
 						{#if t.steps.length}
 							<button type="button" class="icap-row-steps-toggle" aria-expanded={openSteps.has(t.id)} aria-label={L("Steps", "步骤")} onclick={() => toggleSteps(t.id)}><ListIcon size={11} aria-hidden="true" /><span class="icap-row-num">{t.steps.length + t.stepsDropped}</span></button>
+							<button type="button" class="icap-row-copy" aria-label={L("Copy the task's details", "复制任务的详情")} onclick={() => copyText(taskText(t))}><Copy size={11} aria-hidden="true" /></button>
 						{/if}
 					</p>
 					{#if t.phases.length}<Strip task={t} start={t.createdAt} key={`ledger:${t.id}`} />{/if}

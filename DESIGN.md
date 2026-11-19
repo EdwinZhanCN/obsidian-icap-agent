@@ -115,6 +115,8 @@ A task's name in the activity leads back to where it was asked: the request bloc
 
 Without the Bases core plugin, the mark unfolds into the plugin's own ledger instead: one line per task in past tense ("Explained 'RAII' in *C++ Memory*", "Created 3 notes"), its state, and links to every file the agent created, changed, deleted or renamed, with each task's tool calls folded ("n steps"). Model reasoning and internal messages are never shown.
 
+**What went wrong can be taken out.** A task that failed on this device says why, in the activity view as in the ledger. Its tool calls and its error are text the learner can select, and a failed call shows its message whole instead of one clipped line. Beside the tool-call toggle, *copy the task's details* puts all of it on the clipboard as plain text: what the task was, its model, when it ran and where its time went, its error, and each tool call with what it returned. That text is for a bug report or a question to someone else, so its labels are English in both interface languages, and it goes nowhere but the clipboard: never into a note.
+
 ## 5. The agent
 
 ### It is Pi, and the configuration is the learner's

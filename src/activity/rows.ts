@@ -1,11 +1,12 @@
 /**
  * The activity view's model, pure: a task note's properties as a row, a task's steps as spans on its
- * strip, and the few words the view prints. Everything a row shows comes from the note (FORMAT.md v5),
- * so a task from another device or an earlier version still shows; only the strip needs the live task.
+ * strip, the few words the view prints, and a task as text for the clipboard. Everything a row shows
+ * comes from the note (FORMAT.md v5), so a task from another device or an earlier version still shows;
+ * only the strip, the tool calls and the error need the live task.
  */
-import { linkPath, isTaskStatus, TASK_MARK, type TaskNoteStatus } from "../dsl/task-notes";
+import { linkPath, isTaskStatus, localDateTime, TASK_MARK, type TaskNoteStatus } from "../dsl/task-notes";
 import type { AgentPhase } from "../agent/backend";
-import type { PhaseMark, Step } from "../runtime/state.svelte";
+import type { PhaseMark, Step, Task } from "../runtime/state.svelte";
 
 export interface ActivityRow {
 	path: string;
@@ -201,4 +202,61 @@ export function costText(cost: ActivityRow["cost"]): string | null {
 	if (typeof cost !== "number") return null;
 	const t = cost >= 1 ? cost.toFixed(2) : cost >= 0.01 ? cost.toFixed(3).replace(/0$/, "") : cost.toFixed(4);
 	return `≈$${t}`;
+}
+
+/* ───────────── a task as text ───────────── */
+
+/** What `taskText` reads of a task; the live `Task` has all of it. */
+export type TaskFacts = Pick<Task, "kind" | "title" | "notePath" | "status" | "createdAt" | "endedAt" | "model" | "error" | "interrupted" | "steps" | "stepsDropped" | "phases">;
+
+const PHASE_TEXT: Record<PhaseKind, string> = { prep: "starting", wait: "waiting for the model", think: "thinking", reply: "replying", you: "waiting for the learner" };
+
+const oneLine = (s: string) => s.replace(/\s+/g, " ").trim();
+/** Later lines of a value line up under its first. */
+const hang = (s: string, by: number) => s.trim().replace(/\n/g, "\n" + " ".repeat(by));
+
+/**
+ * A task as plain text, for the clipboard: what it was and how it ended, its error, where its time went,
+ * and each tool call the activity kept with what the call returned. It goes into a bug report, so its
+ * labels are English in every interface language, and nothing the task holds is shortened again.
+ */
+export function taskText(t: TaskFacts, now = Date.now()): string {
+	const live = t.status === "processing" || t.status === "waiting";
+	const end = live ? now : (t.endedAt ?? t.createdAt);
+	const started = localDateTime(t.createdAt).replace("T", " ");
+	/** The time of day; with the date when it is not the day the task started. */
+	const clock = (ms: number) => {
+		const at = localDateTime(ms).replace("T", " ");
+		return at.startsWith(started.slice(0, 10)) ? at.slice(11) : at;
+	};
+	// A request block is one task for all its rounds: it starts again with each round (its start, its error
+	// and its phases are the latest round's) and keeps the tool calls of the rounds before.
+	const rounds = t.steps.some((s) => s.at !== undefined && s.at < t.createdAt);
+
+	const lines = [`ICAP task · ${t.kind} · ${t.status}${t.interrupted ? " (interrupted)" : ""}`, `title: ${oneLine(t.title)}`, `note: ${t.notePath}`];
+	if (t.model) lines.push(`model: ${t.model}`);
+	lines.push(`${rounds ? "latest round" : "started"}: ${started} · ${live ? "running for" : "took"} ${duration(end - t.createdAt)}`);
+
+	const spent = new Map<PhaseKind, number>();
+	for (const p of phaseSpans(t.phases, t.createdAt, end)) spent.set(p.kind, (spent.get(p.kind) ?? 0) + p.ms);
+	if (spent.size) lines.push(`time: ${[...spent].map(([kind, ms]) => `${PHASE_TEXT[kind]} ${duration(ms)}`).join(" · ")}`);
+
+	if (t.error) lines.push(`error: ${hang(t.error, 2)}`);
+
+	if (t.steps.length) {
+		const all = t.steps.length + t.stepsDropped;
+		lines.push("", `tool calls: ${all}${t.stepsDropped ? ` (the first ${t.stepsDropped} were not kept)` : ""}`);
+		let earlier = rounds;
+		for (const s of t.steps) {
+			if (earlier && s.at !== undefined && s.at >= t.createdAt) {
+				lines.push("-- latest round --");
+				earlier = false;
+			}
+			// Like the list: a call too quick to matter (under 0.1 s) has no time.
+			const took = s.at === undefined ? "" : s.end === undefined ? (live ? "running" : "did not end") : s.end - s.at < 100 ? "" : duration(s.end - s.at);
+			lines.push([s.at === undefined ? "" : clock(s.at), s.tool, s.detail, took, s.error ? "failed" : ""].filter(Boolean).join(" · "));
+			if (s.out) lines.push(`    ${hang(s.out, 4)}`);
+		}
+	}
+	return lines.join("\n");
 }

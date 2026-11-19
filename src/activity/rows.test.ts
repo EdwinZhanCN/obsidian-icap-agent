@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vite-plus/test";
-import { costText, duration, modelName, parseLocal, phaseSpans, rowOf, spans, stepKind, tone } from "./rows";
+import { costText, duration, modelName, parseLocal, phaseSpans, rowOf, spans, stepKind, taskText, tone, type TaskFacts } from "./rows";
 
 describe("activity rows", () => {
 	it("reads a task note's properties", () => {
@@ -82,5 +82,84 @@ describe("words", () => {
 		expect([duration(800), duration(7240), duration(48_000), duration(278_000), duration(7_500_000)]).toEqual(["0.8s", "7.2s", "48s", "4m 38s", "2h 05m"]);
 		expect(modelName("openrouter/anthropic/claude-sonnet-4.5")).toBe("claude-sonnet-4.5");
 		expect([costText(0.0421), costText(0.004), costText(1.5), costText("unknown"), costText(null)]).toEqual(["≈$0.042", "≈$0.0040", "≈$1.50", null, null]);
+	});
+});
+
+describe("a task as text", () => {
+	const at = (s: number) => new Date(2026, 10, 16, 13, 2, 10).getTime() + s * 1000;
+	const task: TaskFacts = {
+		kind: "request",
+		title: "Compare RAII\n with garbage collection",
+		notePath: "C++ Memory Management.md",
+		status: "failed",
+		createdAt: at(0),
+		endedAt: at(48),
+		model: "anthropic/claude-sonnet-4-5",
+		error: "Provider returned 529\noverloaded_error",
+		interrupted: false,
+		steps: [
+			{ tool: "read", detail: "Missing Note.md", at: at(1), end: at(1.2), error: true, out: "ENOENT: no such file or directory\n    at access (node:fs)" },
+			{ tool: "obsidian", detail: "search RAII", at: at(3), end: at(3.4), out: "3 results" },
+			{ tool: "old", detail: "" },
+			{ tool: "bash", detail: "pnpm test", at: at(40) },
+		],
+		stepsDropped: 2,
+		phases: [
+			{ phase: "sending", at: at(0) },
+			{ phase: "thinking", at: at(30) },
+			{ phase: "awaiting", at: at(32) },
+			{ phase: "replying", at: at(42) },
+		],
+	};
+
+	it("says what the task was, how it ended, where its time went and what each tool call returned", () => {
+		expect(taskText(task).split("\n")).toEqual([
+			"ICAP task · request · failed",
+			"title: Compare RAII with garbage collection",
+			"note: C++ Memory Management.md",
+			"model: anthropic/claude-sonnet-4-5",
+			"started: 2026-11-16 13:02:10 · took 48s",
+			"time: waiting for the model 40s · thinking 2.0s · replying 6.0s",
+			"error: Provider returned 529",
+			"  overloaded_error",
+			"",
+			"tool calls: 6 (the first 2 were not kept)",
+			"13:02:11 · read · Missing Note.md · 0.2s · failed",
+			"    ENOENT: no such file or directory",
+			"        at access (node:fs)",
+			"13:02:13 · obsidian · search RAII · 0.4s",
+			"    3 results",
+			"old",
+			"13:02:50 · bash · pnpm test · did not end",
+		]);
+	});
+	it("counts a running task up to now, and leaves out what it does not have", () => {
+		const text = taskText({ ...task, status: "processing", endedAt: null, model: null, error: null, steps: [task.steps[3]], stepsDropped: 0, phases: [] }, at(45));
+		expect(text.split("\n")).toEqual([
+			"ICAP task · request · processing",
+			"title: Compare RAII with garbage collection",
+			"note: C++ Memory Management.md",
+			"started: 2026-11-16 13:02:10 · running for 45s",
+			"",
+			"tool calls: 1",
+			"13:02:50 · bash · pnpm test · running",
+		]);
+		expect(taskText({ ...task, status: "cancelled", interrupted: true, error: null, steps: [], phases: [] }).split("\n")[0]).toBe("ICAP task · request · cancelled (interrupted)");
+	});
+	it("tells a request block's earlier rounds from its latest", () => {
+		const steps = [
+			{ tool: "read", detail: "a.md", at: at(-86_400), end: at(-86_400) + 30 },
+			{ tool: "grep", detail: "RAII", at: at(-600), end: at(-599) },
+			{ tool: "read", detail: "b.md", at: at(2), end: at(2.5) },
+		];
+		expect(taskText({ ...task, status: "completed", error: null, steps, stepsDropped: 0, phases: [] }).split("\n").slice(4)).toEqual([
+			"latest round: 2026-11-16 13:02:10 · took 48s",
+			"",
+			"tool calls: 3",
+			"2026-11-15 13:02:10 · read · a.md",
+			"12:52:10 · grep · RAII · 1.0s",
+			"-- latest round --",
+			"13:02:12 · read · b.md · 0.5s",
+		]);
 	});
 });

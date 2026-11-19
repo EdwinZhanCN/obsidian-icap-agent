@@ -129,7 +129,10 @@ export interface AgentRequest {
 	images?: AgentImage[];
 }
 
-/** What a tool call returned, for the activity's steps: its call id, whether it failed, and the start of its text. */
+/**
+ * What a tool call returned, for the activity's steps: its call id, whether it failed, and the start of its
+ * text on one line (a failure's message whole, with its lines: `stepResult`).
+ */
 export interface StepResult {
 	id?: string;
 	error: boolean;

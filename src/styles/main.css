@@ -1286,6 +1286,12 @@ button.icap-row-title.icap-row-title:hover {
 	font-size: 0.72rem;
 	color: var(--text-faint);
 }
+/* What a bug report is made of can be selected: Obsidian's interface text cannot, unless a rule says so. */
+.icap-row-steps,
+.icap-row-error,
+.icap-activity-error {
+	user-select: text;
+}
 .icap-row-steps li {
 	display: grid;
 	grid-template-columns: auto minmax(0, 1fr) auto;
@@ -1315,9 +1321,12 @@ button.icap-row-title.icap-row-title:hover {
 	line-height: 1.5;
 	color: var(--text-faint);
 }
+/* A failure is read whole, with its lines. */
 .icap-row-steps li.is-error .icap-step-out {
 	color: var(--text-error);
 	border-color: color-mix(in oklab, var(--text-error) 40%, transparent);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
 }
 .icap-step-detail {
 	overflow: hidden;
@@ -1881,7 +1890,8 @@ body {
 .icap-activity-trace-strip .icap-activity-strip {
 	margin: 0;
 }
-.icap-activity .icap-activity-trace-toggle {
+.icap-activity .icap-activity-trace-toggle,
+.icap-activity .icap-activity-trace-copy {
 	all: unset;
 	flex: none;
 	display: inline-flex;
@@ -1895,13 +1905,27 @@ body {
 	font-size: var(--font-ui-smaller);
 }
 .icap-activity .icap-activity-trace-toggle:hover,
-.icap-activity .icap-activity-trace-toggle[aria-expanded="true"] {
+.icap-activity .icap-activity-trace-toggle[aria-expanded="true"],
+.icap-activity .icap-activity-trace-copy:hover {
 	color: var(--text-normal);
 	background: var(--background-modifier-hover);
 }
-.icap-activity .icap-activity-trace-toggle:focus-visible {
+.icap-activity .icap-activity-trace-toggle:focus-visible,
+.icap-activity .icap-activity-trace-copy:focus-visible {
 	outline: 1.5px solid var(--icap-ink-soft);
 	outline-offset: 1px;
+}
+/* The copy button belongs to the toggle: the line's gap is between the pair and the strip. */
+.icap-activity .icap-activity-trace-copy {
+	margin-inline-start: calc(-1 * var(--size-4-2));
+}
+/* Why a task of this device failed, under its trace. */
+.icap-activity-error {
+	margin: var(--size-2-3) 0 0;
+	font-size: var(--font-ui-smaller);
+	color: var(--text-error);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
 }
 .icap-activity .icap-row-steps {
 	margin: var(--size-2-3) 0 0 !important;

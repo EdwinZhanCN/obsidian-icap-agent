@@ -3,10 +3,12 @@
 	import type { Task } from "../runtime/state.svelte";
 	import { phaseLine } from "../ui/phrases";
 	import { markFor } from "../ui/provider-marks";
-	import { costText, duration, modelName, tone, type ActivityData, type ActivityRow } from "./rows";
+	import { copyText } from "../ui/copy";
+	import { costText, duration, modelName, taskText, tone, type ActivityData, type ActivityRow } from "./rows";
 	import Strip from "./Strip.svelte";
 	import StepList from "./StepList.svelte";
 	import { SvelteSet } from "svelte/reactivity";
+	import Copy from "@lucide/svelte/icons/copy";
 	import ListTree from "@lucide/svelte/icons/list-tree";
 
 	let {
@@ -141,11 +143,13 @@
 							<div class="icap-activity-trace">
 								{#if t.steps.length}
 									<button type="button" class="icap-activity-trace-toggle" aria-expanded={traced.has(r.path)} aria-label={L("Tool calls", "工具调用")} onclick={() => toggleTrace(r.path)}><ListTree size={14} aria-hidden="true" /><span class="icap-activity-num">{t.steps.length + t.stepsDropped}</span></button>
+									<button type="button" class="icap-activity-trace-copy" aria-label={L("Copy the task's details", "复制任务的详情")} onclick={() => copyText(taskText(t))}><Copy size={13} aria-hidden="true" /></button>
 								{/if}
 								<div class="icap-activity-trace-strip"><Strip task={t} start={start} end={end} key={r.path} /></div>
 							</div>
 							{#if traced.has(r.path) && t.steps.length}<StepList steps={t.steps} active={t.active} />{/if}
 						{/if}
+						{#if t?.error && !t.interrupted}<p class="icap-activity-error">{t.error}</p>{/if}
 					</div>
 				</li>
 			{/each}
