@@ -12,6 +12,7 @@ Thanks for helping. This file covers setting up, the checks a change must pass, 
 ## Set up
 
 ```bash
+git submodule update --init   # pi/: the fork of Pi's coding agent the built-in agent is built from
 pnpm install
 pnpm build           # Vite+: main.js and styles.css (Pi's SDK is bundled in through vp pack)
 pnpm vault           # create dev-vault/ from test/fixtures/dev-vault/
@@ -63,7 +64,8 @@ All three must pass. In addition:
 
 - **Try UI changes in Obsidian**, in light and dark themes and in Paperline, and with reduced motion if you touched animation. Test results don't show what an interaction feels like.
 - **Every user-facing string is bilingual**, written at its call site as `L("English", "中文")`. Markers stored in notes stay English: callout types, `kind:`, `generated-by`, and the *Plainly.* / *Deeper.* headings.
-- **Never use your real Pi credentials in a test.** Tests run the real SDK against pi-ai's faux provider in a temporary agent directory. Never complete a login against `~/.pi/agent/auth.json`; use `ModelRuntime.create({ authPath: <scratch file> })`.
+- **Never use your real Pi credentials in a test.** Tests run the real SDK against pi-ai's faux provider in a temporary agent directory. Never complete a login against `~/.pi/agent/auth.json`; use `ModelRuntime.create({ authPath: <scratch file> })`. The tests of the learner's own Pi (`pi-rpc.spec.test.ts`) start the pinned Pi CLI as a child process with `PI_CODING_AGENT_DIR` set to a temporary folder; they are skipped on Windows.
+- **The built-in agent's code is in `pi/`**, a submodule with its own repository and history (`pi/FORK.md`). Change it there, commit there, then commit the new pointer here. `pnpm check` type-checks it; it is never linted with the plugin.
 - **Keep the docs in their lanes.** Update [README.md](README.md) and [README.zh-CN.md](README.zh-CN.md) when what users see or do changes, [DESIGN.md](DESIGN.md) when how or why the product behaves changes, and [AGENTS.md](AGENTS.md) when the code map or one of its rules changes.
 
 ## Release

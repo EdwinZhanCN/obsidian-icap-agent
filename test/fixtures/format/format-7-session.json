@@ -1,0 +1,26 @@
+{
+	"agentWritten": false,
+	"records": [
+		{
+			"kind": "request",
+			"callout": "request",
+			"title": "How does RAII release a lock?",
+			"line": 8,
+			"topic": "How does RAII release a lock?",
+			"rounds": [
+				{
+					"request": "How does [[RAII]] release a lock?",
+					"reply": "The lock is held by an object; when the object goes out of scope its destructor releases the lock."
+				},
+				{
+					"request": "Write that up as a note.",
+					"reply": "Done: [[Notes/Lock guards|Lock guards]] explains it with an example.\n\n```cpp\nstd::lock_guard<std::mutex> guard(m);\n```",
+					"files": "created [[Notes/Lock guards|Lock guards]]"
+				}
+			]
+		}
+	],
+	"live": ["q8k2d1x9a"],
+	"session": { "id": "q8k2d1x9a" },
+	"recording": ["q8k2d1x9a"]
+}

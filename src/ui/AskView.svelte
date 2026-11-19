@@ -11,8 +11,9 @@
 	import ExtensionErrors from "./ExtensionErrors.svelte";
 	import WritingLine from "./WritingLine.svelte";
 	import Choices from "./Choices.svelte";
-	import { SUBMIT_KEYS, blockCaption, phaseLine, stopLabel, touchCaption, usageLine } from "./phrases";
+	import { CONTEXT_NEARLY_FULL, SUBMIT_KEYS, blockCaption, contextShare, liveCue, phaseLine, stopLabel, touchCaption, usageLine } from "./phrases";
 	import { Platform } from "obsidian";
+	import { copyText } from "./copy";
 	import Keys from "./Keys.svelte";
 	import { holdHeight } from "./hold-height";
 	import { inertToEditor } from "./keys";
@@ -63,6 +64,8 @@
 		agent: L("question", "提问"),
 		request: L("request", "请求"),
 	};
+	/** A session's block is the same thing with another name: its record is written as it goes. */
+	const labelOf = (b: AskBlock) => (b.live ? L("session", "会话") : b.kind === "agent" && b.turns.some((t) => t.kind === "review") ? L("review", "修改审查") : kindLabel[b.kind]);
 
 	/* ── request blocks: the files the agent touched, and the follow-up line ── */
 	const files = $derived(
@@ -70,7 +73,9 @@
 			? (rt.ledger.get(block.taskId ?? "")?.artifacts ?? []).filter((a) => a.kind === "created" || a.kind === "edited" || a.kind === "deleted")
 			: [],
 	);
-	const usage = $derived(block?.kind === "request" ? usageLine(rt.ledger.get(block.taskId ?? "")?.usage) : "");
+	const task = $derived(block ? rt.ledger.get(block.taskId ?? "") : undefined);
+	const usage = $derived(block?.kind === "request" ? usageLine(task?.usage, task?.context) : "");
+	const share = $derived(block?.kind === "request" ? contextShare(task?.context) : null);
 	const fileWord: Record<string, string> = { created: L("new", "新建"), edited: L("changed", "修改"), deleted: L("deleted", "删除") };
 	/*
 	 * Slash commands belong to request blocks only. In a recall, check or quiz the learner's words
@@ -83,6 +88,30 @@
 		if (!block || !text.trim()) return;
 		followUpKey++;
 		void rt.followUp(block, text);
+	}
+
+	/* ── while the agent works: what the learner writes waits in the block, or is handed over ── */
+	let queueKey = $state(0);
+	function queueUp(text: string) {
+		if (!block || !text.trim()) return;
+		queueKey++;
+		rt.enqueue(block, text);
+	}
+	const steerable = $derived(!!block && rt.canSteer(block));
+	const saveImage = (file: File) => rt.saveImage(file, sourcePath);
+
+	/* ── a reply: copy it; the last request: ask it again, or change it ── */
+	const redoable = $derived(!!block && rt.canRedo(block));
+	/** The last request, being changed by the learner; null = not editing. */
+	let editing = $state<string | null>(null);
+	const copy = (md: string) => copyText(md, L("Copied as Markdown.", "已复制为 Markdown。"));
+	async function startEdit() {
+		if (block) editing = await rt.lastRequest(block);
+	}
+	function sendEdited(text: string) {
+		if (!block || !text.trim()) return;
+		editing = null;
+		void rt.redo(block, text);
 	}
 	const verdictWord: Record<string, string> = { holds: L("holds", "成立"), partly: L("partly", "部分成立"), reconsider: L("look again", "再想想") };
 
@@ -262,6 +291,20 @@
 	});
 	const foldedStatus = $derived(!block ? "" : working ? L("working…", "进行中…") : blockCaption(block.phase, block.kind, false, !!block.error).split(SUBMIT_KEYS)[0].replace(/[—–-]\s*$/, "").trim());
 
+	/* While the agent works: what it is doing now and for how long, by the stop button. */
+	let clock = $state(Date.now());
+	$effect(() => {
+		if (!working) return;
+		clock = Date.now();
+		const t = window.setInterval(() => (clock = Date.now()), 500);
+		return () => window.clearInterval(t);
+	});
+	const cue = $derived.by(() => {
+		if (!block || !working) return "";
+		const task = rt.ledger.get(block.taskId ?? "");
+		return task?.active ? liveCue(task, clock) : "";
+	});
+
 	const caption = $derived(
 		!block || working
 			? ""
@@ -385,10 +428,10 @@
 	>
 		<header class="icap-label" class:icap-voice={working && !block.turns.length} class:is-drawing={working && !block.turns.length} use:settleIn={`bh:${id}`}>
 			<button type="button" class="icap-label-btn" aria-expanded={!block.collapsed} title={block.collapsed ? L("Expand", "展开") : L("Fold", "折叠")} onclick={toggleBlock}>
-				<span class="icap-label-kind">{block.kind === "agent" && block.turns.some((t) => t.kind === "review") ? L("review", "修改审查") : kindLabel[block.kind]}</span>
+				<span class="icap-label-kind">{labelOf(block)}</span>
 				<!-- a request's own words follow right below; the header repeats them only when folded -->
 				{#if block.kind !== "request"}<span class="icap-label-term">{block.topic}</span>
-				{:else if block.collapsed}<span class="icap-label-term">{snippet(block.turns.find((t) => t.request)?.answer?.text ?? block.topic)}</span>{/if}
+				{:else if block.collapsed}<span class="icap-label-term">{snippet(block.openingRequest || block.topic)}</span>{/if}
 			</button>
 			{#if block.collapsed && foldedStatus}<span class="icap-label-meta" use:settleIn>{foldedStatus}</span>{/if}
 			{#if ownSetup && !block.collapsed}<span class="icap-label-meta" title={L("This block's own model and thinking (/model, /thinking)", "这个块自己的模型与思考强度（/model、/thinking）")}>{ownSetup}</span>{/if}
@@ -468,6 +511,7 @@
 						<p class="icap-learner icap-decision" use:settleIn={`a:${turn.id}`}>{decisionWord(turn)}</p>
 					{:else}
 						<div class="icap-learner" use:settleIn={`a:${turn.id}`}><Markdown app={rt.app} markdown={turn.answer.text ?? ""} {sourcePath} /></div>
+						{#if turn.note}<p class="icap-control-note" use:settleIn>{turn.note}</p>{/if}
 					{/if}
 				{:else if awaiting === turn}
 					{#if turn.kind === "text"}
@@ -483,6 +527,7 @@
 							onescape={escape}
 							linksFrom={turn.request ? sourcePath : undefined}
 							commands={turn.request ? commands : undefined}
+							onimage={turn.request ? saveImage : undefined}
 						/>
 					{:else}
 						<div class="icap-confirm" role="group" aria-label={L("Decision", "决定")}>
@@ -513,6 +558,9 @@
 					<div class="icap-voice icap-summary is-final">
 						<Markdown app={rt.app} markdown={turn.reply} {sourcePath} />
 					</div>
+					{#if block.kind === "request"}
+						<div class="icap-reply-actions"><button type="button" class="icap-link is-quiet" onclick={() => copy(turn.reply ?? "")}>{L("copy", "复制")}</button></div>
+					{/if}
 				{/if}
 			</div>
 		{/snippet}
@@ -553,6 +601,52 @@
 			</div>
 		{/if}
 
+		{#if block.kind === "request" && done && editing === null && ((block.phase === "completed" && block.summary.trim()) || redoable)}
+			<!-- The reply just given: copy it, ask again, or change what was asked. The last two only while that round changed no file. -->
+			<div class="icap-reply-actions" role="group" aria-label={L("This reply", "这条回复")}>
+				{#if block.phase === "completed" && block.summary.trim()}<button type="button" class="icap-link is-quiet" onclick={() => copy(block.summary)}>{L("copy", "复制")}</button>{/if}
+				{#if redoable}
+					{#if block.phase === "completed"}<button type="button" class="icap-link is-quiet" title={L("Ask the same request again; this reply is replaced", "把同一个请求再问一遍；这条回复会被替换")} onclick={() => rt.redo(block)}>{L("regenerate", "重新生成")}</button>{/if}
+					<button type="button" class="icap-link is-quiet" title={L("Change your last request and send it again; its reply is replaced", "修改上一条请求并重新发送；它的回复会被替换")} onclick={startEdit}>{L("edit request", "修改请求")}</button>
+				{/if}
+			</div>
+		{/if}
+
+		{#if block.kind === "request" && block.queue.length}
+			<ul class="icap-queue" aria-label={L("Waiting to be sent", "等待发送")}>
+				{#each block.queue as q (q.id)}
+					<li use:settleIn={`m:${q.id}`}>
+						<span class="icap-artifact-kind">{q.state === "delivering" ? L("on its way", "送达中") : L("waiting", "待发")}</span>
+						<span class="icap-queue-text">{snippet(q.text, 140)}</span>
+						{#if q.state === "queued"}
+							{#if steerable && !q.text.startsWith("/")}
+								<button type="button" class="icap-link" title={L("Hand it to the agent now: it reads it after its current step", "现在交给 Agent：它完成当前这一步后就会读到")} onclick={() => rt.deliverNow(block, q.id)}>{L("deliver now", "立即送达")}</button>
+							{/if}
+							<button type="button" class="icap-link is-quiet" onclick={() => rt.withdraw(block, q.id)}>{L("withdraw", "撤回")}</button>
+						{/if}
+					</li>
+				{/each}
+			</ul>
+		{/if}
+		{#if block.kind === "request" && working}
+			{#key queueKey}
+				<WritingLine
+					app={rt.app}
+					value=""
+					placeholder={L("Add something… it is sent when the agent finishes this round", "补充点什么…Agent 完成这一轮后发出")}
+					label={L("Add to this request", "补充这个请求")}
+					submitLabel={L("queue", "排队")}
+					autofocus={false}
+					onchange={() => undefined}
+					onsubmit={queueUp}
+					onescape={escape}
+					linksFrom={sourcePath}
+					{commands}
+					onimage={saveImage}
+				/>
+			{/key}
+		{/if}
+
 		{#if files.length > 3}
 			<button type="button" class="icap-fold-row icap-files-sum" aria-expanded={filesOpen} onclick={() => (filesOpen = !filesOpen)}><ChevronRight class="icap-fold-chevron" aria-hidden="true" />
 				<span class="icap-fold-kind">{L("files", "文件")}</span>
@@ -575,10 +669,31 @@
 		{/if}
 
 		{#if usage && block.phase !== "thinking" && block.phase !== "preparing"}
-			<p class="icap-usage" title={L("Tokens, share of the prompt read from the cache, and price for this conversation so far. ≈ marks an estimate from list prices.", "这段对话到目前为止的 token、提示词的缓存命中比例和价格。≈ 表示按公开价目估算。")}>{usage}</p>
+			<p class="icap-usage" title={L("Tokens, share of the prompt read from the cache, and price for this conversation so far. ≈ marks an estimate from list prices. Context: how much of the model's context the conversation fills.", "这段对话到目前为止的 token、提示词的缓存命中比例和价格。≈ 表示按公开价目估算。上下文：对话占了模型上下文的多少。")}>{usage}</p>
+			{#if share !== null && share >= CONTEXT_NEARLY_FULL}
+				<p class="icap-usage icap-context-hint" role="status">
+					{#if block.live}{L("The conversation nearly fills the model's context. End this session and start a new one", "对话快占满模型的上下文了。可以结束这个会话，另开一个")}{:else}{L("The conversation nearly fills the model's context. Keep a record and start a new request", "对话快占满模型的上下文了。可以保留记录，另开一个请求")}{/if}{#if rt.backend.capabilities.compact && block.session}{L(", or type /compact.", "，或输入 /compact。")}{:else}{L(".", "。")}{/if}
+				</p>
+			{/if}
 		{/if}
 
-		{#if block.kind === "request" && block.phase === "completed"}
+		{#if block.kind === "request" && editing !== null}
+			<WritingLine
+				app={rt.app}
+				value={editing}
+				placeholder={L("Your request…", "你的请求…")}
+				label={L("Change your request", "修改你的请求")}
+				submitLabel={L("send again", "重新发送")}
+				autofocus={true}
+				onchange={() => undefined}
+				onsubmit={sendEdited}
+				onescape={() => (editing = null)}
+				linksFrom={sourcePath}
+				{commands}
+				onimage={saveImage}
+			/>
+			<div class="icap-reply-actions"><button type="button" class="icap-link is-quiet" onclick={() => (editing = null)}>{L("cancel", "取消")}</button></div>
+		{:else if block.kind === "request" && block.phase === "completed"}
 			{#key followUpKey}
 				<WritingLine
 					app={rt.app}
@@ -592,18 +707,21 @@
 					onescape={escape}
 					linksFrom={sourcePath}
 					{commands}
+					onimage={saveImage}
 				/>
 			{/key}
 		{/if}
 
 		{#each block.turns.filter((t) => t.final) as turn (turn.id)}{@render turnView(turn, 1)}{/each}
 
+		{#if block.live && block.remark && !working}<p class="icap-usage icap-context-hint" role="status" use:settleIn>{block.remark}</p>{/if}
 		{#if block.error}
 			<p class="icap-error" role="alert" use:settleIn>{block.error}</p>
 		{/if}
 
 		<div class="icap-actions" role="toolbar" aria-label={L("Interaction actions", "交互操作")} bind:this={actionsEl}>
 			<span class="icap-caption" aria-live="polite">
+				{#if cue}<span class="icap-live-cue">{cue}</span>{/if}
 				{#key caption}<span class="icap-roll" use:settleIn>{#each (Platform.isMobile ? touchCaption(caption) : caption).split(SUBMIT_KEYS) as part, i}{#if i}<Keys />{/if}{#if part}<span>{part}</span>{/if}{/each}</span>{/key}
 			</span>
 			{#if live}
@@ -616,12 +734,14 @@
 						<button type="button" class="icap-link icap-primary" onclick={() => rt.beginFinal(block)} title={L("Rewrite your paragraph in the note yourself; the feedback is kept below it", "自己在笔记中改写这段话；反馈保留在下方")}>{L("revise my words", "修改我的说法")}</button>
 						<span class="icap-dot" aria-hidden="true">·</span>
 						<button type="button" class="icap-link" onclick={keep} title={L("Leave your paragraph as is and keep the feedback below it", "保持原段落不变，把反馈保留在下方")}>{L("keep feedback", "保留反馈")}</button>
+					{:else if block.live}
+						<!-- a session's record is in the note already: ending it only takes the block away (below) -->
 					{:else if block.kind === "request"}
 						<button type="button" class="icap-link" onclick={keep} title={L("Replace this block with a plain Markdown record: your requests, the replies and the files", "把这个块替换为普通 Markdown 记录：你的请求、回复和涉及的文件")}>{L("keep a record", "保留记录")}</button>
 					{:else}
 						<button type="button" class="icap-link icap-primary" onclick={keep} title={L("Replace this interaction with plain Markdown: the result and the feedback", "把这段交互替换为普通 Markdown：结果和反馈")}>{L("keep in note", "留在笔记里")}</button>
 					{/if}
-					<span class="icap-dot" aria-hidden="true">·</span>
+					{#if !block.live}<span class="icap-dot" aria-hidden="true">·</span>{/if}
 					{#if block.kind !== "agent" && block.kind !== "request"}
 						<button type="button" class="icap-link" onclick={() => rt.blockToNote(block)} title={L("Create a learning note from this interaction", "用这段交互新建一篇学习笔记")}>{L("make a note", "写成笔记")}</button>
 					{/if}
@@ -629,7 +749,7 @@
 					<button type="button" class="icap-link icap-primary" onclick={() => rt.resume(block)}>{block.phase === "failed" ? L("try again", "重试") : L("continue", "继续")}</button>
 					<span class="icap-dot" aria-hidden="true">·</span>
 				{/if}
-				<button type="button" class="icap-link is-quiet" onclick={clear} title={block.authored ? L("Start this exercise over", "重新开始这个练习") : L("Remove the interaction from the note", "从笔记中移除这段交互")}>{block.authored ? L("start over", "重新开始") : L("clear", "清除")}</button>
+				<button type="button" class="icap-link is-quiet" onclick={clear} title={block.authored ? L("Start this exercise over", "重新开始这个练习") : block.live ? L("Remove this block from the note. The record above it stays.", "从笔记中移除这个块。上方的记录会留下。") : L("Remove the interaction from the note", "从笔记中移除这段交互")}>{block.authored ? L("start over", "重新开始") : block.live ? L("end session", "结束会话") : L("clear", "清除")}</button>
 			{:else if block.phase === "finalizing"}
 				<button type="button" class="icap-link" onclick={keep} title={L("Keep your words unchanged, with the feedback", "保持你的原话不变，附上反馈")}>{block.kind === "check" ? L("leave it as is", "保持原样") : L("keep my first answer", "保留我的第一次回答")}</button>
 				<button type="button" class="icap-link is-quiet" onclick={() => rt.cancelFinal(block)}>{L("back", "返回")}</button>

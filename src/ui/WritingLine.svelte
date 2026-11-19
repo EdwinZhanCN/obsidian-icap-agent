@@ -5,7 +5,10 @@
 	import { Platform, TFile, prepareFuzzySearch, type App } from "obsidian";
 	import { keyGuard } from "./keys";
 	import Keys from "./Keys.svelte";
-	import { insertLink, linkTrigger, type LinkTrigger } from "../dsl/links";
+	import Markdown from "./Markdown.svelte";
+	import { hasMath } from "../dsl/text";
+	import ImagePlus from "@lucide/svelte/icons/image-plus";
+	import { imageType, insertLink, linkTrigger, type LinkTrigger } from "../dsl/links";
 	import { commandTrigger, insertArg, insertCommand, rankArgs, rankCommands, type CommandProvider, type CommandSource, type CommandTrigger } from "../dsl/commands";
 
 	interface Props {
@@ -23,8 +26,16 @@
 		linksFrom?: string;
 		/** Offer slash commands when the text starts with "/" (request blocks only). */
 		commands?: CommandProvider;
+		/**
+		 * Take an image the learner pasted, dropped or chose: save it and return what to write in its place
+		 * (`![[shot.png]]`); null when it could not be saved. With it, the line accepts images.
+		 */
+		onimage?: (file: File) => Promise<string | null>;
 	}
-	let { app, value, placeholder = L("Write here…", "在这里写…"), autofocus = false, label, submitLabel = L("submit", "提交"), onchange, onsubmit, onescape, linksFrom, commands }: Props = $props();
+	let { app, value, placeholder = L("Write here…", "在这里写…"), autofocus = false, label, submitLabel = L("submit", "提交"), onchange, onsubmit, onescape, linksFrom, commands, onimage }: Props = $props();
+
+	/** A textarea's placeholder is plain text: a hint with math is rendered under the empty line instead. */
+	const mathHint = $derived(hasMath(placeholder));
 
 	let ta: HTMLTextAreaElement;
 	// svelte-ignore state_referenced_locally
@@ -163,6 +174,37 @@
 		apply(insertLink(text, ta.selectionStart, t, linktext));
 	}
 
+	/* ── images: pasted, dropped or chosen; each becomes an embed where the caret is ── */
+	let picker = $state<HTMLInputElement | null>(null);
+	const sendable = (f: File) => !!imageType(f.name) || /^image\/(png|jpeg|gif|webp)$/.test(f.type);
+
+	async function addImages(files: File[]) {
+		if (!onimage) return;
+		for (const f of files) {
+			const embed = await onimage(f);
+			if (!embed) continue;
+			const at = ta.selectionStart ?? text.length;
+			const before = text.slice(0, at);
+			const lead = before && !/\s$/.test(before) ? " " : "";
+			text = `${before}${lead}${embed} ${text.slice(ta.selectionEnd ?? at)}`;
+			const caret = before.length + lead.length + embed.length + 1;
+			onchange(text);
+			requestAnimationFrame(() => {
+				ta.focus();
+				ta.setSelectionRange(caret, caret);
+				grow();
+			});
+		}
+	}
+
+	function taken(e: Event, list: FileList | null | undefined) {
+		const images = Array.from(list ?? []).filter(sendable);
+		if (!onimage || !images.length) return;
+		e.preventDefault();
+		e.stopPropagation();
+		void addImages(images);
+	}
+
 	// One answer per writing line: a fast double ⌘↵ (or a click during the hand-off) is ignored.
 	let sent = false;
 	function submit() {
@@ -206,12 +248,17 @@
 </script>
 
 <div class="icap-writing" use:keyGuard={{ app, submit, escape: () => (items.length ? close() : onescape ? onescape() : ta.blur()) }}>
+	<div class="icap-writing-field">
+	{#if mathHint && !text}
+		<div class="icap-writing-hint" id={`${listId}-hint`}><Markdown {app} markdown={placeholder} sourcePath={linksFrom ?? ""} /></div>
+	{/if}
 	<textarea
 		bind:this={ta}
 		bind:value={text}
 		rows="2"
 		aria-label={label}
-		{placeholder}
+		placeholder={mathHint ? undefined : placeholder}
+		aria-describedby={mathHint && !text ? `${listId}-hint` : undefined}
 		spellcheck="true"
 		role={offers ? "combobox" : undefined}
 		aria-expanded={offers ? items.length > 0 : undefined}
@@ -225,8 +272,11 @@
 		}}
 		onclick={suggest}
 		onblur={() => window.setTimeout(close, 150)}
+		onpaste={(e) => taken(e, e.clipboardData?.files)}
+		ondrop={(e) => taken(e, e.dataTransfer?.files)}
 		{onkeydown}
 	></textarea>
+	</div>
 	{#if items.length || note}
 		<div class="icap-suggest">
 			{#if items.length}
@@ -255,6 +305,11 @@
 		</div>
 	{/if}
 	<div class="icap-writing-foot">
+		{#if onimage}
+			<!-- Pasting and dropping work too; the button is the way that needs neither a clipboard nor a mouse. -->
+			<input bind:this={picker} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden onchange={(e) => { void addImages(Array.from(e.currentTarget.files ?? []).filter(sendable)); e.currentTarget.value = ""; }} />
+			<button type="button" class="icap-link is-quiet icap-attach" title={L("Add an image (or paste or drop one)", "添加图片（也可以粘贴或拖入）")} aria-label={L("Add an image", "添加图片")} onclick={() => picker?.click()}><ImagePlus size={14} aria-hidden="true" /></button>
+		{/if}
 		<!-- A touch screen submits with the button; the keycaps are for a keyboard. -->
 		{#if !Platform.isMobile}<span class="icap-hint" aria-hidden="true"><Keys /></span>{/if}
 		<button type="button" class="icap-link icap-primary" disabled={!text.trim()} onclick={submit}>{submitLabel}</button>

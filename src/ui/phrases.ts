@@ -3,6 +3,7 @@ import type { AgentPhase } from "../agent/backend";
 import type { BlockPhase, TaskStatus } from "../runtime/state.svelte";
 import type { GlossMode } from "../agent/prompts";
 import { L } from "../i18n";
+import { duration, phaseKind } from "../activity/rows";
 
 /** Where a caption shows the submit shortcut; the caption's view renders it as keycaps (Keys.svelte). */
 export const SUBMIT_KEYS = "{submit}";
@@ -120,11 +121,62 @@ export function glossLabelUI(mode: GlossMode, compareWith?: string): string {
  * What a task has used, as one quiet line: "12k tokens · cache 83% · ≈$0.042". The price is an estimate
  * from list prices (≈) unless the provider reported what it billed; when it cannot be told, it says so.
  */
-export function usageLine(u: RunUsage | null | undefined): string {
+export function usageLine(u: RunUsage | null | undefined, context?: { used: number; window: number } | null): string {
 	if (!u) return "";
 	const parts = [`${formatTokens(totalTokens(u))} tokens`];
 	const hit = cacheHit(u);
 	if (hit !== null) parts.push(L(`cache ${hit}%`, `缓存 ${hit}%`));
 	parts.push(formatCost(u) ?? L("cost unknown", "花费未知"));
+	const share = contextShare(context);
+	if (share !== null) parts.push(L(`context ${share}%`, `上下文 ${share}%`));
 	return parts.join(" · ");
+}
+
+/** How full the model's context is, 0–100; null when the model's window is not known. */
+export function contextShare(context: { used: number; window: number } | null | undefined): number | null {
+	if (!context || !(context.window > 0) || !(context.used >= 0)) return null;
+	return Math.min(100, Math.round((context.used / context.window) * 100));
+}
+
+/** From this share on, the block says what can be done about a context that is filling up. */
+export const CONTEXT_NEARLY_FULL = 80;
+
+/** A stretch of a run's time, in one word (the activity strip's card, a block's live clock). */
+export function phaseWord(kind: "prep" | "wait" | "think" | "reply" | "you"): string {
+	return {
+		prep: L("starting", "启动"),
+		wait: L("waiting for the model", "等待模型"),
+		think: L("thinking", "思考"),
+		reply: L("replying", "回复"),
+		you: L("your turn", "等你"),
+	}[kind];
+}
+
+/** What a running task is doing now and for how long: "bash · 14s", "thinking · 8.2s". Empty when it has not started. */
+export function liveCue(t: { steps: readonly { tool: string; at?: number; end?: number }[]; phases: readonly { phase: AgentPhase; at: number }[] }, now: number): string {
+	const step = t.steps.findLast((s) => s.at !== undefined && s.end === undefined);
+	if (step) return `${step.tool} · ${duration(now - step.at!)}`;
+	const mark = t.phases.at(-1);
+	return mark ? `${phaseWord(phaseKind(mark.phase))} · ${duration(now - mark.at)}` : "";
+}
+
+/** A task's kind, in one word. */
+export function kindWord(kind: string): string {
+	return (
+		{
+			explain: L("explain", "解释"),
+			recall: L("recall", "复述"),
+			check: L("check", "检查"),
+			quiz: L("quiz", "测验"),
+			note: L("note", "笔记"),
+			request: L("request", "请求"),
+			read: L("document", "资料"),
+		} as Record<string, string>
+	)[kind] ?? kind;
+}
+
+/** A task's title without its verb: what is between its quotation marks, when it has them. */
+export function subjectOf(title: string): string {
+	const m = /“(.+)”/.exec(title);
+	return (m ? m[1] : title).trim();
 }

@@ -1,7 +1,7 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { beforeAll, beforeEach, describe, expect, it } from "vite-plus/test";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 import { createFauxCore, fauxAssistantMessage, fauxProvider, fauxText, fauxToolCall, type AssistantMessage, type FauxProviderHandle } from "@earendil-works/pi-ai";
 import type { AgentPhase, Json } from "../../../../src/agent/backend";
 import { ICAP_TOOLS } from "../../../../src/agent/tools/icap-tools";
@@ -9,6 +9,9 @@ import { MobileSession, connectionLost, retryable, type MobileRunOptions, type S
 import type { PiSdk } from "../../../../src/agent/desktop/pi-host";
 import { modelRuntime } from "../../../../src/agent/desktop/pi-host";
 import { PiSession } from "../../../../src/agent/desktop/pi-session";
+
+// A session runs in Obsidian's renderer and takes its timers from the window; Node has none.
+vi.stubGlobal("window", { setTimeout, clearTimeout });
 
 /**
  * MobileSession (pi-agent-core + pi-ai) answered by pi-ai's faux provider, on the scenarios PiSession
@@ -220,7 +223,7 @@ describe("the same script, both backends", () => {
 
 	it("gives the runtime the same reply, bridge calls and steps", async () => {
 		faux.setResponses(script());
-		const desktop = await trace((ev) => new PiSession({ pi, cwd: vault, config: "isolated", systemPrompt: "PROTOCOL", prompt: "go", tools: [...ICAP_TOOLS], allowedRoots: [vault], model: "faux2/m", ...ev }).run());
+		const desktop = await trace((ev) => new PiSession({ pi, cwd: vault, scope: "isolated", systemPrompt: "PROTOCOL", prompt: "go", tools: [...ICAP_TOOLS], allowedRoots: [vault], model: "faux2/m", ...ev }).run());
 		core.setResponses(script());
 		const mobile = await trace((ev) => session("go", ev).run());
 		expect(mobile).toEqual(desktop);

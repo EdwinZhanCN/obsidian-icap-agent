@@ -1,11 +1,15 @@
 <script lang="ts">
 	import { L } from "../i18n";
-	import { tick } from "svelte";
 	import type { Task } from "../runtime/state.svelte";
 	import { phaseLine } from "../ui/phrases";
-	import { introduce, play, reducedMotion, spring } from "../ui/motion";
 	import { markFor } from "../ui/provider-marks";
-	import { costText, duration, modelName, spans, tone, type ActivityData, type ActivityRow, type Span } from "./rows";
+	import { copyText } from "../ui/copy";
+	import { costText, duration, modelName, taskText, tone, type ActivityData, type ActivityRow } from "./rows";
+	import Strip from "./Strip.svelte";
+	import StepList from "./StepList.svelte";
+	import { SvelteSet } from "svelte/reactivity";
+	import Copy from "@lucide/svelte/icons/copy";
+	import ListTree from "@lucide/svelte/icons/list-tree";
 
 	let {
 		data,
@@ -71,9 +75,11 @@
 		return r.ended;
 	}
 
-	function stripOf(r: ActivityRow, t: Task | undefined): Span[] {
-		if (!t || !t.steps.length) return [];
-		return spans(t.steps, startOf(r, t), endOf(r, t) ?? now);
+	/** Rows whose tool calls are open. */
+	const traced = new SvelteSet<string>();
+	function toggleTrace(path: string) {
+		if (traced.has(path)) traced.delete(path);
+		else traced.add(path);
 	}
 
 	const statusText: Record<string, string> = {
@@ -85,57 +91,6 @@
 		idle: L("Not started", "未开始"),
 	};
 
-	/* The step card: one per view, gliding to the step under the pointer or focus. */
-	let card = $state<{ row: string; span: Span; step: { tool: string; detail: string } } | null>(null);
-	let cardEl = $state<HTMLElement | null>(null);
-	let cardX = 0;
-	function show(r: ActivityRow, span: Span, ev: Event) {
-		const t = tasks.get(r.path);
-		const step = t?.steps[span.index];
-		if (!step) return;
-		const target = ev.currentTarget as HTMLElement;
-		const strip = target.parentElement!;
-		const moving = card?.row === r.path;
-		card = { row: r.path, span, step };
-		void tick().then(() => {
-			if (!cardEl) return;
-			const x = cardOffset(target, strip, cardEl);
-			if (moving) play(cardEl, { x: [cardX, x] }, spring.quick);
-			else {
-				cardEl.style.transform = `translateX(${x}px)`;
-				play(cardEl, { opacity: [0, 1], y: [3, 0] }, spring.quick);
-			}
-			cardX = x;
-		});
-	}
-	/**
-	 * Where the card sits, as an offset from the strip's centre: centred under the step, but kept inside
-	 * the visible view (8px from each edge), so a step near either end does not push it off the side.
-	 */
-	function cardOffset(target: HTMLElement, strip: HTMLElement, el: HTMLElement): number {
-		const view = (strip.closest(".icap-activity-host") ?? document.documentElement).getBoundingClientRect();
-		const gap = 8;
-		el.style.maxWidth = `min(22rem, ${Math.max(0, view.width - 2 * gap)}px)`;
-		const s = strip.getBoundingClientRect();
-		const w = el.offsetWidth;
-		let x = target.offsetLeft + target.offsetWidth / 2 - strip.clientWidth / 2;
-		const left = s.left + s.width / 2 + x - w / 2;
-		if (left < view.left + gap) x += view.left + gap - left;
-		else if (left + w > view.right - gap) x -= left + w - (view.right - gap);
-		return x;
-	}
-
-	function hide(r: ActivityRow) {
-		if (card?.row === r.path) card = null;
-	}
-
-	const kindText = { read: L("read", "读取"), write: L("changed", "改动"), ask: L("asked you", "问你") };
-
-	/** A row's strip grows in from its start once; reloads and re-renders never replay it. */
-	function growIn(node: HTMLElement, key: string) {
-		if (!introduce(`activity:${key}`) || reducedMotion()) return;
-		play(node, { scaleX: [0, 1], opacity: [0, 1] }, spring.settle);
-	}
 </script>
 
 <div class="icap-activity">
@@ -154,7 +109,6 @@
 				{@const tn = tone(r.status)}
 				{@const start = startOf(r, t)}
 				{@const end = endOf(r, t)}
-				{@const strip = stripOf(r, t)}
 				{@const mark = r.model ? markFor(r.model) : null}
 				<li class="icap-activity-row" data-tone={tn}>
 					<span class="icap-activity-dot" aria-label={statusText[tn]}></span>
@@ -185,34 +139,17 @@
 							{/if}
 							{#if costText(r.cost)}<span class="icap-activity-num">{costText(r.cost)}</span>{/if}
 						</div>
-						{#if strip.length}
-							<!-- Names for screen readers are hidden text, not aria-label: Obsidian gives every aria-label its own
-								     hover tooltip, which would cover the strip and repeat the card. -->
-							<div class="icap-activity-strip" role="group" aria-labelledby="icap-steps-{r.id || r.path}" use:growIn={r.path} onpointerleave={() => hide(r)}>
-								<span id="icap-steps-{r.id || r.path}" class="icap-sr-only">{L("Steps", "步骤")}</span>
-								{#each strip as s (s.index)}
-									<button
-										type="button"
-										class="icap-activity-span"
-										data-kind={s.kind}
-										class:is-running={s.running && t?.active}
-										style:left="{s.left * 100}%"
-										style:width="{s.width * 100}%"
-										onpointerenter={(e) => show(r, s, e)}
-										onfocus={(e) => show(r, s, e)}
-										onblur={() => hide(r)}
-									><span class="icap-sr-only">{t?.steps[s.index]?.tool} · {duration(s.ms)}</span></button>
-								{/each}
-								{#if card?.row === r.path}
-									<div class="icap-activity-card" bind:this={cardEl} role="tooltip">
-										<div class="icap-activity-card-what">{card.step.detail || card.step.tool}</div>
-										<div class="icap-activity-card-how">
-											<span data-kind={card.span.kind}>{kindText[card.span.kind]}</span> · <code>{card.step.tool}</code> · <span class="icap-activity-num">{duration(card.span.ms)}</span>
-										</div>
-									</div>
+						{#if t && (t.steps.length || t.phases.length)}
+							<div class="icap-activity-trace">
+								{#if t.steps.length}
+									<button type="button" class="icap-activity-trace-toggle" aria-expanded={traced.has(r.path)} aria-label={L("Tool calls", "工具调用")} onclick={() => toggleTrace(r.path)}><ListTree size={14} aria-hidden="true" /><span class="icap-activity-num">{t.steps.length + t.stepsDropped}</span></button>
+									<button type="button" class="icap-activity-trace-copy" aria-label={L("Copy the task's details", "复制任务的详情")} onclick={() => copyText(taskText(t))}><Copy size={13} aria-hidden="true" /></button>
 								{/if}
+								<div class="icap-activity-trace-strip"><Strip task={t} start={start} end={end} key={r.path} /></div>
 							</div>
+							{#if traced.has(r.path) && t.steps.length}<StepList steps={t.steps} active={t.active} />{/if}
 						{/if}
+						{#if t?.error && !t.interrupted}<p class="icap-activity-error">{t.error}</p>{/if}
 					</div>
 				</li>
 			{/each}

@@ -1,25 +1,29 @@
-import type { AgentSession, AgentSessionEvent, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
+import type { AgentSession, ExtensionUIContext } from "./pi-sdk-entry";
 import { dirname, resolve } from "path";
-import type { AgentCommand, AgentConfig, AgentEvents, AgentResult, Control, DialogAnswer, DialogRequest, ModelList } from "../backend";
+import { SetupNeeded, type AgentCommand, type AgentEvents, type AgentImage, type AgentResult, type Control, type DialogAnswer, type DialogRequest, type ModelList, type ToolScope } from "../backend";
+import { ISOLATED_FILE_TOOLS } from "../permissions";
 import { ICAP_TOOLS } from "../tools/icap-tools";
-import { messageUsage } from "../usage";
 import { icapExtension, inside } from "./icap-extension";
+import { HANDLED_GRACE_MS, PiEvents, imageContent, type PiEventView } from "./pi-events";
 import { findModel, modelRuntime, projectTrusted, type PiSdk } from "./pi-host";
+import { gatedToolOptions, protectedFolders } from "./tool-ops";
 
 /** A run as PiSession needs it: the backend's request resolved to paths on disk, and its events. */
 export interface RunOptions extends AgentEvents {
 	pi: PiSdk;
 	cwd: string;
-	config: AgentConfig;
+	scope: ToolScope;
 	systemPrompt: string;
 	prompt: string;
 	/**
-	 * The tools this task uses. Isolated: the exact allowlist. Mine: only decides which ICAP tools
-	 * are hidden; the learner's own tools are left alone.
+	 * The tools this task uses. Isolated: the exact allowlist. Full: only decides which ICAP tools
+	 * are hidden; the shell, the connectors and the file tools are left alone.
 	 */
 	tools: string[];
-	/** Isolated mode: file tools may only reach these folders (the vault + what the learner allowed). */
+	/** Isolated scope: `read` may only reach these folders (the vault + what the learner allowed). */
 	allowedRoots?: string[];
+	/** Obsidian's own folder inside the vault, by name; `.obsidian` unless the learner renamed it. */
+	configDir?: string;
 	/** ICAP's own skills (folders with a SKILL.md, agent/desktop/icap-skills.ts), offered in both setups. */
 	skillPaths?: string[];
 	/** provider/id; empty = Pi's default. */
@@ -32,26 +36,43 @@ export interface RunOptions extends AgentEvents {
 	session?: { id: string; dir: string };
 	/** Run this control instead of the prompt; the run ends when it is done. */
 	control?: Control;
+	/** Images that go with the prompt (a model that does not read images gets none). */
+	images?: AgentImage[];
 }
 
-/** What the session factory is told for each agent setup. Pure. */
+/** What the session factory is told for each tool scope. Pure. */
 export interface SessionPlan {
-	/** Skip what is discovered on disk: the learner's extensions, skills, prompt templates, themes. */
+	/** Skip what is discovered on disk: the learner's skills and prompt templates. */
 	bare: boolean;
 	/** Which AGENTS.md / CLAUDE.md apply: the vault's only, or also Pi's global one (see vaultContextFiles). */
 	contextFiles: "vault" | "vault+pi";
-	/** Load Pi's built-in MCP and tool-search extensions (the CLI always does). */
-	builtins: boolean;
+	/** The learner's connectors (MCP servers, ~/.pi/agent/mcp.json): full scope only. */
+	connectors: boolean;
 	systemPrompt?: string;
 	appendSystemPrompt?: string[];
 	tools?: string[];
 	excludeTools?: string[];
 }
 
-export function sessionPlan(o: Pick<RunOptions, "config" | "systemPrompt" | "tools">): SessionPlan {
-	if (o.config === "isolated") return { bare: true, contextFiles: "vault", builtins: false, systemPrompt: o.systemPrompt, tools: [...o.tools] };
+/**
+ * `shell`: which shell tool the full scope has. "bash" everywhere a bash exists; "powershell" on Windows
+ * without one (no Git Bash), so nothing has to be installed.
+ */
+export function sessionPlan(o: Pick<RunOptions, "scope" | "systemPrompt" | "tools">, shell: "bash" | "powershell" = "bash"): SessionPlan {
+	if (o.scope === "isolated") {
+		// The exact allowlist, and of the harness's own tools never more than the file tools.
+		const tools = o.tools.filter((t) => ICAP_TOOLS.includes(t) || (ISOLATED_FILE_TOOLS as readonly string[]).includes(t));
+		return { bare: true, contextFiles: "vault", connectors: false, systemPrompt: o.systemPrompt, tools };
+	}
 	const hidden = ICAP_TOOLS.filter((t) => !o.tools.includes(t));
-	return { bare: false, contextFiles: "vault+pi", builtins: true, appendSystemPrompt: [o.systemPrompt], ...(hidden.length ? { excludeTools: hidden } : {}) };
+	return {
+		bare: false,
+		contextFiles: "vault+pi",
+		connectors: true,
+		appendSystemPrompt: [o.systemPrompt],
+		...(shell === "powershell" ? { tools: ["+powershell", "-bash"] } : {}),
+		...(hidden.length ? { excludeTools: hidden } : {}),
+	};
 }
 
 /**
@@ -69,48 +90,30 @@ export function vaultContextFiles<T extends { path: string }>(files: T[], vault:
 	});
 }
 
-/** A one-line gist of a tool call's arguments: the path, command or query it is about. */
-export function stepDetail(args: unknown): string {
-	if (!args || typeof args !== "object") return "";
-	const a = args as Record<string, unknown>;
-	for (const k of ["path", "file_path", "command", "pattern", "query", "title", "op", "url", "question"]) {
-		const v = a[k];
-		if (typeof v === "string" && v.trim()) return clip(v);
-	}
-	const first = Object.values(a).find((v) => typeof v === "string" && v.trim());
-	return typeof first === "string" ? clip(first) : "";
-}
+export { extensionName, stepDetail } from "./pi-events";
 
-function clip(s: string) {
-	const t = s.replace(/\s+/g, " ").trim();
-	return t.length > 90 ? t.slice(0, 88) + "…" : t;
-}
-
-/** After an extension command was handled, how long to wait for a turn it may have started. */
-const HANDLED_GRACE_MS = 350;
-
-/** Build a Pi session for a task (or a probe): the learner's Pi configuration, shaped by the plan. */
+/** Build a session for a task (or a probe): the learner's Pi configuration, shaped by the plan. */
 async function openSession(
-	o: Pick<RunOptions, "pi" | "cwd" | "config" | "systemPrompt" | "tools" | "allowedRoots" | "skillPaths" | "model" | "thinking" | "session" | "onBridge">,
+	o: Pick<RunOptions, "pi" | "cwd" | "scope" | "systemPrompt" | "tools" | "allowedRoots" | "configDir" | "skillPaths" | "model" | "thinking" | "session" | "onBridge">,
 ): Promise<AgentSession> {
 	const { pi, cwd } = o;
-	const plan = sessionPlan(o);
+	const plan = sessionPlan(o, pi.shellTool());
 	const agentDir = pi.getAgentDir();
-	const settingsManager = pi.SettingsManager.create(cwd, agentDir, { projectTrusted: projectTrusted(pi, cwd, o.config) });
+	const places = { vault: cwd, configDir: o.configDir ?? ".obsidian", agentDir };
+	const settingsManager = pi.SettingsManager.create(cwd, agentDir, { projectTrusted: projectTrusted(pi, cwd, o.scope) });
 	const factories = [
-		icapExtension(pi, o.onBridge, o.config === "isolated" ? o.allowedRoots : undefined),
-		...(plan.builtins ? [pi.createToolSearchExtension(), pi.createMcpExtension()] : []),
+		icapExtension(pi, o.onBridge, { scope: o.scope, cwd, roots: o.allowedRoots, protectedFolders: protectedFolders(places), protectedNames: [places.configDir, ".pi"] }),
+		// A built-in of the harness: named, so `/mcp` and its tools are attributed to it.
+		...(plan.connectors ? [{ name: "mcp", factory: pi.createMcpExtension(), builtin: true }] : []),
 	];
 	const resourceLoader = new pi.DefaultResourceLoader({
 		cwd,
 		agentDir,
 		settingsManager,
 		extensionFactories: factories,
-		noExtensions: plan.bare,
 		noSkills: plan.bare,
 		noPromptTemplates: plan.bare,
-		noThemes: plan.bare,
-		// Pi loads ICAP's own skills even with noSkills.
+		// ICAP's own skills are offered even with noSkills.
 		additionalSkillPaths: o.skillPaths ?? [],
 		systemPrompt: plan.systemPrompt,
 		appendSystemPrompt: plan.appendSystemPrompt,
@@ -133,6 +136,8 @@ async function openSession(
 		settingsManager,
 		resourceLoader,
 		sessionManager,
+		// edit and write hand their writes to the plugin: reviewed, or landed and recorded, by the confirmation mode.
+		toolOptions: gatedToolOptions(o.onBridge, places),
 		...(model ? { model } : {}),
 		...(o.thinking?.trim() ? { thinkingLevel: o.thinking.trim() as never } : {}),
 		...(plan.tools ? { tools: plan.tools } : {}),
@@ -202,20 +207,20 @@ function uiContext(h: { dialog: (req: DialogRequest, timeout?: number) => Promis
 }
 
 /**
- * One Pi session per task, in-process. Tasks are independent learning acts; a request block's
- * follow-ups may resume the same Pi *session* (a file).
+ * One session of the harness per task, in-process. Tasks are independent learning acts; a request
+ * block's follow-ups may resume the same *session* (a file, in Pi's format).
  */
 export class PiSession {
 	private session: AgentSession | null = null;
-	private finalText = "";
-	private currentText = "";
-	private lastError: string | null = null;
+	private events: PiEvents;
 	private cancelled = false;
 	private handled = false;
-	/** ctx.ui.notify from an extension: the only output of many extension commands. */
-	private notices: string[] = [];
+	/** The prompt is with the agent: from here on a steering message can reach it. */
+	private prompting = false;
 
-	constructor(private opts: RunOptions) {}
+	constructor(private opts: RunOptions) {
+		this.events = new PiEvents(opts);
+	}
 
 	async run(): Promise<AgentResult> {
 		const o = this.opts;
@@ -224,31 +229,42 @@ export class PiSession {
 		try {
 			session = await openSession(o);
 		} catch (e) {
+			// What the learner has to set up says so itself, with the way into the settings.
+			if (e instanceof SetupNeeded) throw e;
 			throw new Error(`Pi could not start: ${(e as Error).message}`);
 		}
 		this.session = session;
-		const unsubscribe = session.subscribe((ev) => this.handle(ev));
+		const unsubscribe = session.subscribe((ev) => {
+			this.events.handle(ev as unknown as PiEventView);
+			// A turn ended: how full the model's context is now (the session knows its model's window).
+			if (ev.type === "turn_end") {
+				const used = session.getContextUsage();
+				if (used && typeof used.tokens === "number" && used.contextWindow > 0) o.onContext?.(used.tokens, used.contextWindow);
+			}
+		});
 		try {
 			await session.bindExtensions({
-				uiContext: uiContext({ dialog: (req, timeout) => this.dialog(req, timeout), notify: (m) => this.notices.push(m) }),
+				uiContext: uiContext({ dialog: (req, timeout) => this.dialog(req, timeout), notify: (m) => this.events.notify(m) }),
 				mode: "rpc",
-				onError: (err) => {
-					const message = `${extensionName(err.extensionPath)}: ${err.error || "failed"}`;
-					this.lastError = message;
-					o.onExtensionError?.(message);
-				},
+				onError: (err) => this.events.extensionError(err.extensionPath, err.error),
 			});
 			if (this.cancelled) return this.result();
 			if (o.control) {
 				await session.compact(o.control.customInstructions);
 				return this.result();
 			}
+			let images = imageContent(o.images);
+			if (images && !session.model?.input?.includes("image")) {
+				images = undefined;
+				o.onImagesDropped?.();
+			}
 			let disposition: string | undefined;
-			await session.prompt(o.prompt, { source: "rpc", preflightResult: (d) => (disposition = d) });
+			this.prompting = true;
+			await session.prompt(o.prompt, { source: "rpc", preflightResult: (d) => (disposition = d), ...(images ? { images } : {}) });
 			if (disposition === "handled") {
 				this.handled = true;
 				// An extension command may start a turn of its own (pi.sendUserMessage) a moment later.
-				await new Promise((r) => setTimeout(r, HANDLED_GRACE_MS));
+				await new Promise((r) => window.setTimeout(r, HANDLED_GRACE_MS));
 			}
 			await session.waitForIdle();
 			return this.result();
@@ -259,6 +275,7 @@ export class PiSession {
 			unsubscribe();
 			session.dispose();
 			this.session = null;
+			this.prompting = false;
 		}
 	}
 
@@ -268,75 +285,18 @@ export class PiSession {
 		void this.session?.abort();
 	}
 
-	private result(): AgentResult {
-		// What an extension command said through notify is its result when no model text came.
-		const text = this.finalText.trim() ? this.finalText : this.notices.join("\n\n");
-		// A session the learner stopped always ends as "aborted", whatever Pi reported on the way out.
-		if (this.cancelled) return { text, aborted: true, handled: this.handled };
-		if (this.lastError && !text.trim()) throw new Error(this.lastError);
-		return { text, aborted: false, handled: this.handled };
+	/** A message for the agent while it works: it reads it after its current tool calls. False when the run cannot take one. */
+	steer(text: string, images?: AgentImage[]): boolean {
+		const session = this.session;
+		if (!session || !this.prompting || this.cancelled) return false;
+		this.events.expectSteer(text);
+		const sees = session.model?.input?.includes("image");
+		session.steer(text, sees ? imageContent(images) : undefined, { source: "rpc" }).catch(() => this.events.forgetSteer(text));
+		return true;
 	}
 
-	private handle(ev: AgentSessionEvent) {
-		const o = this.opts;
-		const rec = ev as unknown as PiEventView;
-		switch (rec.type) {
-			case "turn_start":
-				o.onPhase?.("sending");
-				return;
-			case "message_start":
-				if (rec.message?.role !== "assistant") return;
-				this.currentText = "";
-				o.onPhase?.("replying");
-				return;
-			case "message_update": {
-				const e = rec.assistantMessageEvent;
-				if (!e) return;
-				if (e.type === "thinking_start") o.onPhase?.("thinking");
-				else if (e.type === "toolcall_start") o.onPhase?.("reading");
-				else if (e.type === "text_delta") {
-					this.currentText += e.delta;
-					o.onPhase?.("writing");
-					o.onText?.(this.currentText);
-				}
-				return;
-			}
-			case "message_end": {
-				const m = rec.message;
-				if (m?.role !== "assistant") return;
-				const used = messageUsage(m.usage);
-				const model = m.provider && m.model ? `${m.provider}/${m.model}` : null;
-				if (used || model) o.onUsage?.(used, model);
-				const text = Array.isArray(m.content) ? (m.content as PiContent[]).filter((c) => c.type === "text").map((c) => c.text ?? "").join("") : "";
-				if (m.stopReason === "error" || m.stopReason === "aborted") {
-					this.lastError = m.errorMessage || (m.stopReason === "aborted" ? "Stopped." : "The model returned an error.");
-				}
-				if (m.stopReason === "toolUse") {
-					// Narration before a tool call is not part of the result.
-					if (this.currentText) o.onText?.(this.finalText);
-				} else if (text.trim()) {
-					this.finalText = text;
-					o.onText?.(text);
-				}
-				this.currentText = "";
-				return;
-			}
-			case "tool_execution_start":
-				if (typeof rec.toolName === "string") o.onStep?.(rec.toolName, stepDetail(rec.args));
-				o.onTool?.(true);
-				o.onPhase?.(rec.toolName === "ask_learner" || rec.toolName === "propose_edit" ? "waiting" : "reading");
-				return;
-			case "tool_execution_end":
-				o.onTool?.(false);
-				o.onPhase?.("thinking");
-				return;
-			case "auto_retry_start":
-				o.onPhase?.("retrying");
-				return;
-			case "auto_retry_end":
-				if (rec.success === false && rec.finalError) this.lastError = rec.finalError;
-				return;
-		}
+	private result(): AgentResult {
+		return this.events.result(this.cancelled, this.handled);
 	}
 
 	/** A dialog from one of the learner's own extensions (e.g. a permission gate): ask in the note. */
@@ -344,64 +304,28 @@ export class PiSession {
 		if (!this.opts.onDialog || this.cancelled) return undefined;
 		const ctl = new AbortController();
 		// Pi resolves a timed-out dialog itself; withdraw the question when that happens.
-		const timer = typeof timeout === "number" && timeout > 0 ? setTimeout(() => ctl.abort(), timeout) : null;
+		const timer = typeof timeout === "number" && timeout > 0 ? window.setTimeout(() => ctl.abort(), timeout) : null;
 		try {
 			const answer = await this.opts.onDialog(req, ctl.signal);
 			return ctl.signal.aborted ? undefined : answer;
 		} catch {
 			return undefined;
 		} finally {
-			if (timer) clearTimeout(timer);
+			if (timer) window.clearTimeout(timer);
 		}
 	}
-}
-
-/**
- * An extension by its name, from the path Pi loaded it from: the package (`…/node_modules/@scope/name/dist/index.js`),
- * else the file, or its folder when the file is an index.
- */
-export function extensionName(path: string): string {
-	const parts = path.split(/[\\/]/).filter(Boolean);
-	const nm = parts.lastIndexOf("node_modules");
-	if (nm >= 0 && parts[nm + 1]) return parts[nm + 1].startsWith("@") && parts[nm + 2] ? `${parts[nm + 1]}/${parts[nm + 2]}` : parts[nm + 1];
-	const file = parts.at(-1) ?? path;
-	const stem = file.replace(/\.[cm]?[jt]s$/, "");
-	return stem === "index" && parts.length > 1 ? parts[parts.length - 2] : stem || path;
-}
-
-/** The fields of Pi's session events that handle() reads, all optional: Pi's union is read loosely. */
-interface PiContent {
-	type?: string;
-	text?: string;
-}
-interface PiEventView {
-	type?: string;
-	message?: {
-		role?: string;
-		usage?: Parameters<typeof messageUsage>[0];
-		provider?: string;
-		model?: string;
-		content?: unknown;
-		stopReason?: string;
-		errorMessage?: string;
-	};
-	assistantMessageEvent?: { type?: string; delta?: string };
-	toolName?: unknown;
-	args?: unknown;
-	success?: boolean;
-	finalError?: string;
 }
 
 /* ───────────── Probes: nothing is sent to a model ───────────── */
 
 /** Open a session the way tasks do, read from it, and close it. */
-async function probe<T>(pi: PiSdk, cwd: string, config: AgentConfig, read: (s: AgentSession) => T | Promise<T>): Promise<T> {
+async function probe<T>(pi: PiSdk, cwd: string, scope: ToolScope, read: (s: AgentSession) => T | Promise<T>): Promise<T> {
 	const session = await openSession({
 		pi,
 		cwd,
-		config,
+		scope,
 		systemPrompt: "",
-		tools: config === "isolated" ? ["read", ...ICAP_TOOLS] : ICAP_TOOLS,
+		tools: scope === "isolated" ? [...ISOLATED_FILE_TOOLS, ...ICAP_TOOLS] : ICAP_TOOLS,
 		onBridge: async () => ({ status: "error", message: "Not available." }),
 	});
 	try {
@@ -412,22 +336,19 @@ async function probe<T>(pi: PiSdk, cwd: string, config: AgentConfig, read: (s: A
 	}
 }
 
-/**
- * Which model Pi would use and which ones have credentials. Runs the way tasks run (the learner's own
- * extensions may register providers). `fresh` re-reads Pi's credentials first.
- */
-export async function probeModels(pi: PiSdk, cwd: string, config: AgentConfig, fresh = false): Promise<ModelList> {
+/** Which model the built-in agent would use and which ones have credentials. `fresh` re-reads Pi's credentials first. */
+export async function probeModels(pi: PiSdk, cwd: string, scope: ToolScope, fresh = false): Promise<ModelList> {
 	if (fresh) await modelRuntime(pi, true);
-	return probe(pi, cwd, config, async (s) => {
+	return probe(pi, cwd, scope, async (s) => {
 		const available = (await s.modelRuntime.getAvailable()).map((m) => `${m.provider}/${m.id}`);
 		const m = s.model;
 		return { current: m ? `${m.provider}/${m.id}` : null, available };
 	});
 }
 
-/** The slash commands the learner's own Pi offers: extension commands, prompt templates, skills. */
+/** The slash commands the full scope offers: the harness's own (`/mcp`), prompt templates, skills. */
 export function probeCommands(pi: PiSdk, cwd: string): Promise<AgentCommand[]> {
-	return probe(pi, cwd, "mine", (s) => {
+	return probe(pi, cwd, "full", (s) => {
 		const out: AgentCommand[] = [];
 		for (const c of s.extensionRunner.getRegisteredCommands()) out.push({ name: c.invocationName, description: c.description, source: "extension" });
 		for (const t of s.promptTemplates) out.push({ name: t.name, description: t.description, source: "prompt" });

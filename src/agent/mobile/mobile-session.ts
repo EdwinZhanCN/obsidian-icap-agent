@@ -1,7 +1,8 @@
 import { Agent, type AgentEvent, type AgentTool, type ThinkingLevel } from "@earendil-works/pi-agent-core";
 import type { Api, AssistantMessage, AssistantMessageEventStream, Model, SimpleStreamOptions, TranscriptContext } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
-import type { AgentEvents, AgentResult } from "../backend";
+import type { AgentEvents, AgentImage, AgentResult } from "../backend";
+import { stepResult } from "../steps";
 import { icapTools } from "../tools/icap-tools";
 import { messageUsage } from "../usage";
 import type { Transport } from "./providers";
@@ -28,6 +29,8 @@ export interface MobileRunOptions extends AgentEvents {
 	/** Tool names the task allows; only ICAP's exist here. */
 	tools: string[];
 	thinking?: string;
+	/** Images that go with the prompt (a model that does not read images gets none). */
+	images?: AgentImage[];
 	/** Provider errors retried this many times before the run fails (default 3). */
 	retries?: number;
 	/** Pause before retry n (1-based), in ms. */
@@ -70,8 +73,24 @@ export class MobileSession {
 	private lastError: string | null = null;
 	private cancelled = false;
 	private wake: (() => void) | null = null;
+	/** Messages given to the agent while it works (steer) that it has not read yet. */
+	private steering: string[] = [];
 
 	constructor(private opts: MobileRunOptions) {}
+
+	private images(images: AgentImage[] | undefined) {
+		if (!images?.length || !this.opts.model.input.includes("image")) return undefined;
+		return images.map((i) => ({ type: "image" as const, data: i.data, mimeType: i.mimeType }));
+	}
+
+	/** A message for the agent while it works: it reads it after its current tool calls. False when the run cannot take one. */
+	steer(text: string, images?: AgentImage[]): boolean {
+		const agent = this.agent;
+		if (!agent || this.cancelled) return false;
+		this.steering.push(text);
+		agent.steer({ role: "user", content: [{ type: "text", text }, ...(this.images(images) ?? [])], timestamp: Date.now() });
+		return true;
+	}
 
 	private tools(): AgentTool[] {
 		const o = this.opts;
@@ -115,8 +134,11 @@ export class MobileSession {
 		try {
 			for (let attempt = 0; ; attempt++) {
 				if (this.cancelled) return this.result();
-				if (attempt === 0) await agent.prompt(o.prompt);
-				else await agent.continue();
+				if (attempt === 0) {
+					const images = this.images(o.images);
+					if (o.images?.length && !images) o.onImagesDropped?.();
+					await agent.prompt(o.prompt, images);
+				} else await agent.continue();
 				if (this.cancelled) return this.result();
 				const last = agent.state.messages.at(-1) as AssistantMessage | undefined;
 				const failed = last?.role === "assistant" && last.stopReason === "error" ? (last.errorMessage ?? "") : null;
@@ -148,9 +170,9 @@ export class MobileSession {
 
 	private pause(ms: number): Promise<void> {
 		return new Promise((resolve) => {
-			const t = setTimeout(done, ms);
+			const t = window.setTimeout(done, ms);
 			function done() {
-				clearTimeout(t);
+				window.clearTimeout(t);
 				resolve();
 			}
 			this.wake = done;
@@ -172,11 +194,24 @@ export class MobileSession {
 				// A reply that arrives whole shows nothing until it is complete: say so instead of "thinking".
 				o.onPhase?.(whole ? "awaiting" : "sending");
 				return;
-			case "message_start":
+			case "message_start": {
+				if (ev.message.role === "user") {
+					// A steering message reached the agent: what it says from here on answers that message too.
+					const c = ev.message.content;
+					const said = typeof c === "string" ? c : c.filter((p) => p.type === "text").map((p) => (p as { text: string }).text).join("");
+					const i = this.steering.indexOf(said);
+					if (i < 0) return;
+					const [text] = this.steering.splice(i, 1);
+					this.finalText = "";
+					this.currentText = "";
+					o.onSteered?.(text);
+					return;
+				}
 				if (ev.message.role !== "assistant") return;
 				this.currentText = "";
 				if (!whole) o.onPhase?.("replying");
 				return;
+			}
 			case "message_update": {
 				const e = ev.assistantMessageEvent;
 				if (e.type === "thinking_start") o.onPhase?.("thinking");
@@ -194,6 +229,9 @@ export class MobileSession {
 				const used = messageUsage(m.usage);
 				const model = m.provider && m.model ? `${m.provider}/${m.model}` : null;
 				if (used || model) o.onUsage?.(used, model);
+				// What this reply was read from and wrote is what the next request starts with.
+				const filled = used ? used.input + used.cacheRead + used.cacheWrite + used.output : 0;
+				if (filled > 0 && o.model.contextWindow > 0 && m.stopReason !== "error" && m.stopReason !== "aborted") o.onContext?.(filled, o.model.contextWindow);
 				const text = m.content.filter((c) => c.type === "text").map((c) => (c as { text: string }).text).join("");
 				if (m.stopReason === "error" || m.stopReason === "aborted") {
 					this.lastError = m.errorMessage || (m.stopReason === "aborted" ? "Stopped." : "The model returned an error.");
@@ -209,12 +247,12 @@ export class MobileSession {
 				return;
 			}
 			case "tool_execution_start":
-				o.onStep?.(ev.toolName, stepDetail(ev.args));
+				o.onStep?.(ev.toolName, stepDetail(ev.args), ev.toolCallId);
 				o.onTool?.(true);
 				o.onPhase?.(ev.toolName === "ask_learner" || ev.toolName === "propose_edit" ? "waiting" : "reading");
 				return;
 			case "tool_execution_end":
-				o.onTool?.(false);
+				o.onTool?.(false, stepResult(ev.result, ev.isError, ev.toolCallId));
 				o.onPhase?.(whole ? "awaiting" : "thinking");
 				return;
 		}

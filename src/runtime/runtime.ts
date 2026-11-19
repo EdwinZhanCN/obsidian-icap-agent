@@ -1,10 +1,15 @@
-import { MarkdownView, Notice, TFile, TFolder, parseYaml, type App, type Editor, type TAbstractFile } from "obsidian";
+import { MarkdownView, Notice, TFile, TFolder, arrayBufferToBase64, parseYaml, type App, type Editor, type TAbstractFile } from "obsidian";
 import { EditorView } from "@codemirror/view";
 import { mount, unmount } from "svelte";
 import { SvelteMap } from "svelte/reactivity";
 import type IcapPlugin from "../main";
-import { SetupNeeded, type AgentBackend, type AgentConfig, type AgentPhase, type Control, type DialogAnswer, type DialogRequest, type SessionCache } from "../agent/backend";
-import { extractLinks } from "../dsl/links";
+import { SetupNeeded, type AgentBackend, type AgentImage, type AgentPhase, type ConfirmMode, type Control, type DialogAnswer, type DialogRequest, type SessionCache, type ToolScope } from "../agent/backend";
+import { actionDecision, writeDecision, type WriteTarget } from "../agent/permissions";
+import { Backups } from "./backups";
+import { hunk, locate, type Hunk } from "./file-change";
+import { extractLinks, imageEmbeds, imageType } from "../dsl/links";
+import { LIVE_RECORD, appendRounds, dropLastRound, findLiveRecord, isSessionName, roundsTranscript, sessionName, sessionNote, sessionTitle } from "../dsl/session";
+import type { RequestRound } from "../dsl/records";
 import { THINKING_LEVELS, isIcapCommand, parseCommand, type CommandProvider, type IcapCommandName, type SlashCommand } from "../dsl/commands";
 import { L } from "../i18n";
 import { GENERATED_BY } from "../settings/settings";
@@ -25,6 +30,7 @@ import {
 	quizPrompt,
 	recallPrompt,
 	requestPrompt,
+	steerPrompt,
 	systemPrompt,
 	type GlossMode,
 	type NoteTaskKind,
@@ -32,9 +38,9 @@ import {
 import { addUsage } from "../agent/usage";
 import { buildContext } from "./context";
 import { TaskNotes, announceMigration, basesEnabled } from "./task-notes";
-import { keptMarkdown } from "./kept";
+import { keptMarkdown, roundsOf } from "./kept";
 import { coveredTranscript, reusable, sessionSig, transcriptOf, withReply } from "./transcript";
-import { editProblem, findAskBlock, findRequestRecord, isoDate, parseAskSource, parseAuthored, type AskSource, glossCallout, newId, serializeAsk, splitSources, tidyOptionLabel, tidyQuestion, dialogTitle, type Depth } from "../dsl/blocks";
+import { editProblem, findAskBlock, findRequestRecord, isoDate, parseAskSource, parseAuthored, type AskSource, glossCallout, newId, serializeAsk, splitSources, tidyOptionLabel, tidyQuestion, dialogTitle, clipText, connectorLabel, type Depth } from "../dsl/blocks";
 import { askReplacement, blockInsertion, editorFor, spliceFile, uniqueNotePath, type Splice } from "../dsl/doc-ops";
 import { NOTE_EXT, baseProblem, canvasProblem, noteTypeOf, type NoteType } from "../dsl/structures";
 import { flashRange } from "../editor/fresh";
@@ -56,9 +62,11 @@ import {
 	type Turn,
 } from "./state.svelte";
 
-const READ_TOOLS = ["read", "grep", "find", "ls", "obsidian", "read_document", "documents"];
+// `read` is the harness's own file tool; searching the vault is ICAP's `obsidian` tool.
+const READ_TOOLS = ["read", "obsidian", "read_document", "documents"];
 const ASK_TOOLS = [...READ_TOOLS, "ask_learner"];
-const NOTE_TOOLS = [...READ_TOOLS, "ask_learner", "create_note", "propose_edit"];
+// Tasks that may change notes also get the harness's edit and write: what they write goes through the learner (writeFile below).
+const NOTE_TOOLS = [...READ_TOOLS, "ask_learner", "create_note", "propose_edit", "edit", "write"];
 const REQUEST_TOOLS = NOTE_TOOLS;
 /** A file change this soon after one of a task's tool calls ended is still that call's (watchers lag). */
 const TOOL_GRACE_MS = 3000;
@@ -87,7 +95,17 @@ interface RunExtras {
 	session?: string;
 	/** A runtime control (compact) instead of a prompt. */
 	control?: Control;
+	/** Images that go with the prompt. */
+	images?: AgentImage[];
+	/** The model does not read images: they were left out. */
+	onImagesDropped?: () => void;
+	/** A message handed over while the agent worked (Task.steer) reached it. */
+	onSteered?: (sent: string) => void;
 }
+
+/** Images sent with one request: at most this many, each at most this large. */
+const MAX_IMAGES = 8;
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 
 /** The command catalog is asked of the agent at most this often (new skills show up without a restart). */
 const CATALOG_TTL_MS = 5 * 60 * 1000;
@@ -239,9 +257,18 @@ export class LearningRuntime {
 		};
 	}
 
-	/** The agent setup tasks run with: the learner's choice, when the backend can run their own. */
-	agentConfig(): AgentConfig {
-		return this.backend.capabilities.ownSetup ? this.settings.agentConfig : "isolated";
+	/** The tool scope tasks run with: the learner's choice, when the backend can run both. */
+	toolScope(): ToolScope {
+		const can = this.backend.capabilities;
+		if (!can.fullScope) return "isolated";
+		// The learner's own install (Pi over RPC) is their whole setup: there is nothing to isolate it to.
+		if (!can.isolatedScope) return "full";
+		return this.settings.toolScope;
+	}
+
+	/** When the built-in agent stops to ask (agent/permissions.ts). */
+	confirmMode(): ConfirmMode {
+		return this.settings.confirm;
 	}
 
 	private async runAgent(
@@ -261,11 +288,11 @@ export class LearningRuntime {
 		const release = await this.slot();
 		try {
 			if (cancelledEarly) throw new Cancelled();
-			const config = this.agentConfig();
+			const config = this.toolScope();
 			const visuals = this.settings.visuals;
 			const run = this.backend.run(
 				{
-					config,
+					scope: config,
 					icapSkills: offeredSkills(visuals),
 					systemPrompt: systemPrompt(config, this.settings.preferences, visuals, { fileTools: this.backend.capabilities.fileTools, skills: this.backend.capabilities.skillFiles }) + (opts.systemExtra ? `\n\n${opts.systemExtra}` : ""),
 					prompt: opts.prompt,
@@ -274,11 +301,18 @@ export class LearningRuntime {
 					thinking: opts.thinking || this.settings.thinking,
 					session: opts.session,
 					control: opts.control,
+					...(opts.images?.length ? { images: opts.images } : {}),
 				},
 				{
 					onText: opts.onText,
-					onStep: (tool, detail) => {
-						task.addStep(tool, detail);
+					onContext: (used, window) => {
+						task.context = { used, window };
+						this.persist();
+					},
+					onImagesDropped: opts.onImagesDropped,
+					onSteered: opts.onSteered,
+					onStep: (tool, detail, id) => {
+						task.addStep(tool, detail, Date.now(), id);
 						this.persist();
 					},
 					onUsage: (used, model) => {
@@ -286,18 +320,19 @@ export class LearningRuntime {
 						if (model) task.model = model;
 						this.persist();
 					},
-					onTool: (running) => {
+					onTool: (running, result) => {
 						task.toolsRunning = Math.max(0, task.toolsRunning + (running ? 1 : -1));
 						if (!running) {
 							task.toolEndedAt = Date.now();
-							task.endStep(task.toolEndedAt);
+							task.endStep(task.toolEndedAt, result);
+							this.persist();
 						}
 					},
 					onExtensionError: (message) => {
 						if (!task.extensionErrors.includes(message) && task.extensionErrors.length < 5) task.extensionErrors.push(message);
 					},
 					onPhase: (p) => {
-						task.phase = p;
+						task.setPhase(p);
 						if (p === "waiting") task.status = "waiting";
 						else if (task.status === "waiting") task.status = "processing";
 						opts.onPhase?.(p);
@@ -306,6 +341,9 @@ export class LearningRuntime {
 						// The read-only vault tools work in every task; the rest depends on the task.
 						if (op === "vault") return vaultCommand(this.app, p);
 						if (op === "read_document" || op === "documents") return this.documentTool(op, p, config === "isolated");
+						// What the harness's own tools may do: a file written, a shell command, a connector called.
+						if (op === "write_file") return this.writeFile(task, p);
+						if (op === "permit") return this.permit(task, p);
 						return opts.onBridge ? opts.onBridge(op, p) : { status: "error", message: "Not available for this task." };
 					},
 					// A dialog from one of the learner's own extensions is asked in the task's block.
@@ -313,11 +351,13 @@ export class LearningRuntime {
 				},
 			);
 			task.cancel = () => run.cancel();
+			task.steer = run.steer && this.backend.capabilities.steer ? (text, images) => run.steer!(text, images) : null;
 			const result = await run.result;
 			if (result.aborted) throw new Cancelled();
 			if (result.interrupted) throw new Interrupted(result.interrupted);
 			return result.text;
 		} finally {
+			task.steer = null;
 			release();
 		}
 	}
@@ -380,7 +420,7 @@ export class LearningRuntime {
 	}
 
 	private catalogKey() {
-		return this.agentConfig();
+		return this.toolScope();
 	}
 
 	private icapCommands(): SlashCommand[] {
@@ -396,9 +436,9 @@ export class LearningRuntime {
 	/** Every command a request block offers. The learner's own come from their Pi (cached). */
 	async slashCommands(): Promise<SlashCommand[]> {
 		const own = this.icapCommands();
-		// "ICAP only" runs Pi without extensions, skills and prompt templates: there is nothing to ask.
+		// The isolated scope runs without the learner's skills, prompt templates and connectors: there is nothing to ask.
 		const probe = this.backend.probeCommands?.bind(this.backend);
-		if (this.agentConfig() === "isolated" || !probe || !this.backend.capabilities.commandProbe) return own;
+		if (this.toolScope() === "isolated" || !probe || !this.backend.capabilities.commandProbe) return own;
 		const key = this.catalogKey();
 		const c = this.commandCache;
 		if (!c || c.key !== key || Date.now() - c.at > CATALOG_TTL_MS) {
@@ -426,7 +466,7 @@ export class LearningRuntime {
 		const c = this.modelCache;
 		if (!c || c.key !== key || Date.now() - c.at > CATALOG_TTL_MS) {
 			const list = (async () => {
-				return (await probe(this.agentConfig())).available;
+				return (await probe(this.toolScope())).available;
 			})();
 			const entry = { key, at: Date.now(), list };
 			this.modelCache = entry;
@@ -439,7 +479,7 @@ export class LearningRuntime {
 
 	/** What a request block's writing line offers after "/". Learning blocks get none: see AskView. */
 	commandProvider(): CommandProvider {
-		const config = () => this.agentConfig();
+		const config = () => this.toolScope();
 		return {
 			list: () => this.slashCommands(),
 			args: (name) =>
@@ -447,7 +487,7 @@ export class LearningRuntime {
 			// Read when shown, so a change of agent setup is reflected without re-rendering the block.
 			get note() {
 				return config() === "isolated"
-					? L("Your own Pi skills and commands are off in “ICAP only” mode (settings → Agent setup).", "“仅 ICAP”模式下不加载你自己的 Pi skills 和命令（设置 → Agent 配置）。")
+					? L("Your own Pi skills and commands are off with the isolated tools (settings → Tools).", "隔离的工具范围下不加载你自己的 Pi skills 和命令（设置 → 工具范围）。")
 					: undefined;
 			},
 		};
@@ -463,7 +503,7 @@ export class LearningRuntime {
 
 	/** What a session was made under; a session made under another setup is not resumed. */
 	private sessionSetup(): string {
-		const config = this.agentConfig();
+		const config = this.toolScope();
 		return this.backend.sessions?.setup(config) ?? config;
 	}
 
@@ -858,9 +898,253 @@ export class LearningRuntime {
 	visualFollowUp(blockId: string, text: string): boolean {
 		const block = this.blocks.get(blockId);
 		if (!block || block.kind !== "request") return false;
-		if (this.ledger.get(block.taskId ?? "")?.active) new Notice(L("The agent is still working on this request.", "Agent 还在处理这个请求。"));
-		else void this.followUp(block, text);
+		// While the agent works it waits in the block, like anything the learner writes then.
+		this.enqueue(block, text);
 		return true;
+	}
+
+	/* ───────────── While the agent works: what the learner writes waits, or is handed over ───────────── */
+
+	/**
+	 * The learner wrote in a request block. When its agent is working, the words wait in the block and are
+	 * sent as the next request when this round ends; else they are the next request now.
+	 */
+	enqueue(block: AskBlock, text: string) {
+		const said = text.trim();
+		if (block.kind !== "request" || !said) return;
+		if (!this.ledger.get(block.taskId ?? "")?.active) return void this.followUp(block, said);
+		block.queue = [...block.queue, { id: newId("m"), text: said, state: "queued" }];
+	}
+
+	/** Take back what was waiting. What is already on its way to the agent cannot be taken back. */
+	withdraw(block: AskBlock, id: string) {
+		block.queue = block.queue.filter((q) => q.id !== id || q.state === "delivering");
+	}
+
+	/** Can what waits in this block be handed to the working agent now? */
+	canSteer(block: AskBlock): boolean {
+		const task = this.ledger.get(block.taskId ?? "");
+		return !!task?.active && !!task.steer;
+	}
+
+	/**
+	 * Hand a waiting message to the agent now: it reads it after the tool calls of its current turn.
+	 * It becomes a request in the block when it arrives (`steered`); if the round ends first, it waits on.
+	 */
+	async deliverNow(block: AskBlock, id: string) {
+		const q = block.queue.find((x) => x.id === id);
+		const task = this.ledger.get(block.taskId ?? "");
+		if (!q || q.state !== "queued" || !task?.active || !task.steer) return;
+		// A command is run by the plugin or by Pi at the start of a round, not by the model in the middle of one.
+		if (parseCommand(q.text)) return void new Notice(L("A command runs when the agent has finished this round.", "命令会在 Agent 完成这一轮后执行。"));
+		const pointed = extractLinks(q.text).map((link) => ({ link, path: this.app.metadataCache.getFirstLinkpathDest(link, block.notePath)?.path ?? null }));
+		const sent = steerPrompt(q.text, pointed);
+		const { images } = await this.imagesOf(q.text, block.notePath);
+		if (!task.active || !task.steer || !block.queue.some((x) => x.id === id && x.state === "queued")) return;
+		block.queue = block.queue.map((x) => (x.id === id ? { ...x, state: "delivering" as const, sent } : x));
+		if (task.steer(sent, images)) return;
+		block.queue = block.queue.map((x) => (x.id === id ? { id: x.id, text: x.text, state: "queued" as const } : x));
+	}
+
+	/** The agent read a message handed over mid-round: it is a request in the conversation from here on. */
+	private steered(block: AskBlock, sent: string) {
+		const q = block.queue.find((x) => x.sent === sent);
+		if (!q) return;
+		block.queue = block.queue.filter((x) => x !== q);
+		// What the agent said so far answered what came before.
+		block.turns = withReply(block.turns, block.summary);
+		block.summary = "";
+		block.turns.push({ id: newId("u"), kind: "text", question: "", local: true, request: true, answer: { text: q.text } });
+		this.persist();
+	}
+
+	/**
+	 * The images embedded in a request (`![[shot.png]]`), read from the vault to go with the prompt.
+	 * `skipped`: some were left out (too many, too large, or not found).
+	 */
+	private async imagesOf(text: string, notePath: string): Promise<{ images: AgentImage[]; skipped: boolean }> {
+		const images: AgentImage[] = [];
+		let skipped = false;
+		for (const link of imageEmbeds(text)) {
+			const file = this.app.metadataCache.getFirstLinkpathDest(link, notePath);
+			const type = file ? imageType(file.name) : undefined;
+			if (!file || !type || file.stat.size > MAX_IMAGE_BYTES || images.length >= MAX_IMAGES) {
+				skipped = true;
+				continue;
+			}
+			try {
+				images.push({ data: arrayBufferToBase64(await this.app.vault.readBinary(file)), mimeType: type });
+			} catch {
+				skipped = true;
+			}
+		}
+		return { images, skipped };
+	}
+
+	/**
+	 * An image the learner pasted, dropped or chose in a request: saved where their attachments go
+	 * (Obsidian's own setting), and written into the request as an embed. Null when it could not be saved.
+	 */
+	async saveImage(file: File, notePath: string): Promise<string | null> {
+		try {
+			const ext = imageType(file.name) ? file.name.split(".").pop()!.toLowerCase() : (file.type.split("/")[1] ?? "png").replace("jpeg", "jpg");
+			// A pasted image has no name of its own ("image.png"): named the way Obsidian names one.
+			const d = new Date();
+			const two = (n: number) => String(n).padStart(2, "0");
+			const stamp = `${d.getFullYear()}${two(d.getMonth() + 1)}${two(d.getDate())}${two(d.getHours())}${two(d.getMinutes())}${two(d.getSeconds())}`;
+			const name = imageType(file.name) && !/^image\.[a-z]+$/i.test(file.name) ? file.name : `Pasted image ${stamp}.${ext}`;
+			const path = await this.app.fileManager.getAvailablePathForAttachment(name, notePath);
+			const saved = await this.app.vault.createBinary(path, await file.arrayBuffer());
+			return `![[${this.app.metadataCache.fileToLinktext(saved, notePath, true)}]]`;
+		} catch (e) {
+			new Notice(L("Could not save the image: ", "无法保存图片：") + humanError(e));
+			return null;
+		}
+	}
+
+	/* ───────────── The last request again, or asked differently ───────────── */
+
+	/**
+	 * Can the block's last request be asked again? Only when its round changed no file: what the agent
+	 * wrote stays written, and asking again as if it had not would mislead.
+	 */
+	canRedo(block: AskBlock): boolean {
+		if (block.kind !== "request" || block.settled !== "open") return false;
+		const task = this.ledger.get(block.taskId ?? "");
+		// Without the task of that round, whether it changed a file is not known.
+		if (!task || task.active || task.round.length) return false;
+		if (!["completed", "failed", "cancelled", "interrupted"].includes(block.phase)) return false;
+		// A session's finished rounds are in the note's record; its block holds only an unfinished one.
+		if (block.live && !block.turns.some((t) => t.request)) return block.recorded > 0;
+		const last = block.turns.findLast((t) => t.request);
+		return !!last?.answer && !last.control;
+	}
+
+	/** The block's last request, in the learner's words (to change it and send it again). */
+	async lastRequest(block: AskBlock): Promise<string> {
+		const inBlock = block.turns.findLast((t) => t.request)?.answer?.text;
+		if (inBlock !== undefined || !block.live) return inBlock ?? "";
+		return findLiveRecord(await this.textOf(block.notePath), block.id)?.record?.rounds.at(-1)?.request ?? "";
+	}
+
+	/**
+	 * Ask the last request again: as it was (regenerate), or as `text` (the learner changed it). The reply
+	 * it had, and the questions of that round, are replaced. The earlier rounds are told to a new session
+	 * from the block (the cached one covered the replaced reply and no longer matches).
+	 */
+	async redo(block: AskBlock, text?: string) {
+		if (!this.canRedo(block)) return;
+		const again = text?.trim();
+		if (block.live && !block.turns.some((t) => t.request)) {
+			let round: RequestRound | null = null;
+			const ok = await spliceFile(this.app, block.notePath, (note) => {
+				const dropped = dropLastRound(note, block.id);
+				round = dropped?.round ?? null;
+				return dropped?.splice ?? null;
+			});
+			const taken = round as RequestRound | null;
+			if (!ok || !taken) return void new Notice(L("Could not find the last round in this note's record.", "在这篇笔记的记录里找不到上一轮。"));
+			block.recorded = Math.max(0, block.recorded - 1);
+			block.turns = [{ id: newId("u"), kind: "text", question: "", local: true, request: true, answer: { text: again || taken.request } }];
+		} else {
+			const i = block.turns.map((t) => !!t.request).lastIndexOf(true);
+			const turn = block.turns[i];
+			block.turns = [...block.turns.slice(0, i), { id: turn.id, kind: turn.kind, question: "", local: true, request: true, answer: { text: again || turn.answer?.text || "" } }];
+		}
+		block.summary = "";
+		block.error = null;
+		this.persist();
+		await this.startRequest(block);
+	}
+
+	/* ───────────── Session notes: a conversation as a note of its own ───────────── */
+
+	/**
+	 * A new session note: a note whose body is one request block that writes its record as it goes
+	 * (FORMAT.md 7). It is the learner's note, not the plugin's: it goes where their new notes go (or into
+	 * `folder`), and the plugin sets only its two properties.
+	 */
+	async newSession(folder?: TFolder) {
+		const from = this.app.workspace.getActiveFile();
+		const parent = folder ?? this.app.fileManager.getNewFileParent(from?.path ?? "");
+		const id = newId("q");
+		const path = await uniqueNotePath(this.app, parent.isRoot() ? "" : parent.path, sessionName(new Date()));
+		const block = new AskBlock(id, "request", "", path);
+		block.live = true;
+		// The note they came from is most likely what they mean: linked in the first request, theirs to delete.
+		const link = from && from.extension === "md" ? `[[${this.app.metadataCache.fileToLinktext(from, path, true)}]] ` : "";
+		block.prefill = link;
+		block.turns = [{ id: newId("u"), kind: "text", question: "", placeholder: L("Ask your agent anything… ([[ to link a file, / for commands)", "向你的 Agent 提任何请求…（[[ 链接文件，/ 使用命令）"), local: true, request: true, ...(link ? { draft: link } : {}) }];
+		block.phase = "idle";
+		this.blocks.set(id, block);
+		this.focusOnMount.add(id);
+		try {
+			const file = await this.app.vault.create(path, sessionNote(id, L("Session", "会话")));
+			await this.app.workspace.getLeaf("tab").openFile(file);
+		} catch (e) {
+			this.blocks.delete(id);
+			return void new Notice(humanError(e));
+		}
+		this.persist();
+	}
+
+	/**
+	 * A session's block this device has no state for (the note was synced from another device, or the
+	 * plugin's data was lost): the record in the note is the conversation, so it simply goes on from there.
+	 */
+	adoptSession(src: AskSource, notePath: string): AskBlock | null {
+		if (!src.id || src.kind !== "request" || src.header?.record !== LIVE_RECORD) return null;
+		const block = new AskBlock(src.id, "request", "", notePath);
+		block.live = true;
+		block.phase = "completed";
+		this.blocks.set(block.id, block);
+		this.persist();
+		return block;
+	}
+
+	/** The first request names a session note, once, unless the learner already named it themselves. */
+	private async nameSession(file: TFile, request: string) {
+		const title = sessionTitle(request);
+		if (!title || !isSessionName(file.basename)) return;
+		try {
+			await this.app.fileManager.renameFile(file, await uniqueNotePath(this.app, file.parent && !file.parent.isRoot() ? file.parent.path : "", title));
+		} catch {
+			/* it keeps the name it has */
+		}
+	}
+
+	/**
+	 * A session's finished rounds go into the note: added to the record above its block, where the next
+	 * round reads them back. The block then holds nothing of them. False: the note could not be written,
+	 * and the block keeps the round.
+	 */
+	private async recordRounds(block: AskBlock, task: Task): Promise<boolean> {
+		const rounds = roundsOf(block);
+		if (!rounds.length) return false;
+		const files = task.round.filter((a) => FILE_KINDS.has(a.kind) && !a.path.startsWith("/"));
+		const ok = await spliceFile(this.app, block.notePath, (text) => appendRounds(text, block.id, block.topic, rounds, files));
+		if (!ok) {
+			block.error = L("This round could not be written into the note's record; it is still here.", "这一轮没能写进笔记的记录，它还留在这里。");
+			return false;
+		}
+		block.recorded += rounds.length;
+		// What the plugin said about these rounds stays in sight once their turns have left the block.
+		block.remark = block.turns.map((t) => t.note).filter(Boolean).join(" ");
+		block.turns = [];
+		block.summary = "";
+		return true;
+	}
+
+	/** A file was renamed or moved: what lives in it (blocks, explanations, tasks) follows. */
+	onRename(file: TAbstractFile, oldPath: string) {
+		if (!(file instanceof TFile)) return;
+		let moved = false;
+		for (const here of [...this.blocks.values(), ...this.glosses.values(), ...this.ledger.tasks]) {
+			if (here.notePath !== oldPath) continue;
+			here.notePath = file.path;
+			moved = true;
+		}
+		if (moved) this.persist();
 	}
 
 	/** A visual's icap.ask in a note: a new request block just below it (after `line`), sent at once. */
@@ -894,6 +1178,18 @@ export class LearningRuntime {
 	 * the system prompt instead of around the message.
 	 */
 	private async startRequest(block: AskBlock) {
+		await this.runRequest(block);
+		// What was on its way to the agent when the round ended never arrived: it waits like the rest.
+		if (block.queue.some((q) => q.state === "delivering")) block.queue = block.queue.map((q) => ({ id: q.id, text: q.text, state: "queued" as const }));
+		// What the learner wrote meanwhile is the next request, one at a time.
+		if (block.phase === "completed" && block.queue.length && this.blocks.get(block.id) === block) {
+			const [next, ...rest] = block.queue;
+			block.queue = rest;
+			await this.followUp(block, next.text);
+		}
+	}
+
+	private async runRequest(block: AskBlock) {
 		const file = this.fileOf(block.notePath);
 		if (!file) return;
 		const i = block.turns.map((t) => !!t.request).lastIndexOf(true);
@@ -902,14 +1198,27 @@ export class LearningRuntime {
 		if (!turn || !request) return;
 		const cmd = parseCommand(request);
 		if (cmd && isIcapCommand(cmd.name)) return this.runControl(block, turn, cmd.name, cmd.args);
+		// A session: the rounds that are finished are in the note's record, and are read from there.
+		const record = block.live ? (findLiveRecord(await this.textOf(block.notePath), block.id)?.record ?? null) : null;
+		if (block.live) {
+			block.remark = "";
+			block.recorded = record?.rounds.length ?? 0;
+			if (!block.firstRequest) block.firstRequest = record?.rounds[0]?.request || request;
+			if (!block.topic) block.topic = record?.title || short(request);
+			if (!block.recorded) await this.nameSession(file, block.prefill && request.startsWith(block.prefill.trim()) ? request.slice(block.prefill.trim().length) : request);
+		}
 		if (!block.topic) block.topic = short(request);
 		// An unanswered question from an interrupted run is asked again by the agent.
 		if (block.current && !block.current.answer && !block.current.local) block.turns.pop();
 		const text = await this.textOf(block.notePath);
 		const pos = findAskBlock(text, block.id)?.from ?? 0;
 		const ctx = buildContext(this.app, file, text, pos, pos, this.settings.background);
-		const history = transcriptOf(block, block.turns.slice(0, i));
+		const earlier = record ? roundsTranscript(record.rounds) : "";
+		const history = [earlier, transcriptOf(block, block.turns.slice(0, i))].filter((s) => s.trim()).join("\n");
 		const sofar = transcriptOf(block, block.turns.slice(i + 1));
+		// The images embedded in the request go with it; a model that cannot read them gets their paths only.
+		const { images, skipped } = await this.imagesOf(request, block.notePath);
+		turn.note = skipped ? L(`Some images were not sent: at most ${MAX_IMAGES} per request, each up to 5 MB (PNG, JPEG, GIF, WebP).`, `有些图片没有发送：每个请求最多 ${MAX_IMAGES} 张，每张不超过 5 MB（PNG、JPEG、GIF、WebP）。`) : undefined;
 		// [[links]] in the request: the files the learner pointed to, resolved like Obsidian does.
 		const pointed = extractLinks(request).map((link) => ({ link, path: this.app.metadataCache.getFirstLinkpathDest(link, block.notePath)?.path ?? null }));
 
@@ -947,20 +1256,35 @@ export class LearningRuntime {
 		const task = this.ledger.add(new Task(newId("t"), "request", `“${short(request)}”`, block.notePath));
 		// One request block = one task note, named after its first request.
 		// (Its first: the note may only be written at a later round, once the conversation amounts to a task.)
-		this.taskNotes.adopt(task, block.id, block.turns.find((t) => t.request && !t.control)?.answer?.text?.trim() || request, "request");
+		this.taskNotes.adopt(task, block.id, block.openingRequest || request, "request");
 		task.artifacts = prev ? [...prev.artifacts] : [];
 		task.steps = prev ? [...prev.steps] : [];
 		task.stepsDropped = prev?.stepsDropped ?? 0;
 		// What the conversation has cost so far: the task note's cost is the whole block's.
 		task.usage = prev?.usage ? { ...prev.usage } : null;
 		task.model = prev?.model ?? null;
+		task.context = prev?.context ? { ...prev.context } : null;
 		// The session is resumable only if its own messages hold the whole conversation. A command in a
 		// fresh session got the earlier turns through the system prompt, which Pi does not store.
 		const selfContained = !cmd || !!resumed || (!history.trim() && !sofar.trim());
 		await this.runBlockTask(block, task, prompt, REQUEST_TOOLS, L(`Done — “${short(request)}”`, `完成——“${short(request)}”`), {
-			extras: { session, systemExtra, model: block.model, thinking: block.thinking },
-			onSuccess: () => {
-				if (session && selfContained) block.session = { id: session, sig: sessionSig(setup, coveredTranscript(block)) };
+			extras: {
+				session,
+				systemExtra,
+				model: block.model,
+				thinking: block.thinking,
+				images,
+				onImagesDropped: () => {
+					turn.note = L("This model does not read images: only the paths of the images were sent.", "这个模型不读图片：只发送了图片的路径。");
+					this.persist();
+				},
+				onSteered: (sent) => this.steered(block, sent),
+			},
+			onSuccess: async () => {
+				// A session's round goes into the note; what the session then covers is what the next round reads there.
+				let covered = earlier;
+				if (block.live && (await this.recordRounds(block, task))) covered = roundsTranscript(findLiveRecord(await this.textOf(block.notePath), block.id)?.record?.rounds ?? []);
+				if (session && selfContained) block.session = { id: session, sig: sessionSig(setup, [covered, coveredTranscript(block)].filter((s) => s.trim()).join("\n")) };
 			},
 		});
 	}
@@ -1035,6 +1359,8 @@ export class LearningRuntime {
 					});
 					block.session = s;
 					block.agentPhase = null;
+					// How full the context is now is known only after the next reply.
+					task.context = null;
 					task.end("completed", L(`Compacted “${block.topic}”`, `已压缩“${block.topic}”`));
 					return done(L("Compacted: the agent now carries a summary of the earlier rounds. The note is unchanged.", "已压缩：Agent 现在带着前面各轮的摘要继续。笔记没有改动。"));
 				} catch (e) {
@@ -1055,7 +1381,7 @@ export class LearningRuntime {
 	 * agent is running a tool call — the learner's own shell, write or edit tools, or MCP — or just finished one.
 	 */
 	onVaultChange(kind: "created" | "edited" | "deleted", file: TAbstractFile, oldPath?: string) {
-		if (this.agentConfig() !== "mine" || !(file instanceof TFile)) return;
+		if (this.toolScope() !== "full" || !(file instanceof TFile)) return;
 		// The document cache is the plugin's own, never the agent's. Its folder (in the plugin's own, or
 		// `.icap/docs/` before) raises no vault events; the visible folder of earlier versions does, while
 		// it is being moved.
@@ -1087,7 +1413,7 @@ export class LearningRuntime {
 		return false;
 	}
 
-	/* ───────────── Dialogs from the learner's own Pi extensions ───────────── */
+	/* ───────────── Dialogs: the agent asks in the note (a permission, a connector's sign-in, an extension of the learner's own Pi) ───────────── */
 
 	private async dialog(task: Task, req: DialogRequest, signal: AbortSignal): Promise<DialogAnswer> {
 		const existing = task.blockId ? this.blocks.get(task.blockId) : undefined;
@@ -1099,7 +1425,7 @@ export class LearningRuntime {
 		const turn: Turn = {
 			id: newId("u"),
 			kind,
-			question: question || L("One of your Pi extensions asks for input.", "你的一个 Pi 扩展需要你输入。"),
+			question: question || L("The agent asks for input.", "Agent 需要你输入。"),
 			options,
 			placeholder: req.placeholder,
 			draft: req.method === "editor" ? req.prefill : undefined,
@@ -1284,7 +1610,7 @@ export class LearningRuntime {
 		prompt: string,
 		tools: string[],
 		outcome: string,
-		run: { extras?: RunExtras; onSuccess?: () => void } = {},
+		run: { extras?: RunExtras; onSuccess?: () => void | Promise<void> } = {},
 	) {
 		task.blockId = block.id;
 		block.taskId = task.id;
@@ -1305,7 +1631,7 @@ export class LearningRuntime {
 			// An extension command may do its work without a word; the round still needs a result.
 			block.summary = out.trim() || (block.kind === "request" ? L("Done.", "完成。") : "");
 			block.phase = "completed";
-			run.onSuccess?.();
+			await run.onSuccess?.();
 			block.agentPhase = null;
 			this.cueBlock(block, block.kind === "quiz" ? L("results ready", "结果出来了") : block.kind === "request" ? L("done", "完成") : L("feedback ready", "反馈好了"), 20000);
 			// A request's files (created, changed, deleted) are its result; keep them.
@@ -1338,7 +1664,7 @@ export class LearningRuntime {
 			// fully known — apply or drop it here instead of re-running the whole task.
 			const ok = answer.confirmed ? await this.applyReview(turn.review) : false;
 			const task = block.taskId ? this.ledger.get(block.taskId) : undefined;
-			if (ok && task) task.artifacts = [...task.artifacts, { kind: "edited", path: turn.review.path, label: basename(turn.review.path) }];
+			if (ok && task) addArtifact(task, { kind: "edited", path: turn.review.path, label: basename(turn.review.path) });
 			block.summary = answer.confirmed ? (ok ? L("Change applied.", "已应用修改。") : L("The note changed since; the edit could not be applied.", "笔记在此期间有改动，无法应用这处修改。")) : L("Left the note as it was.", "笔记保持原样。");
 			block.phase = "completed";
 			this.persist();
@@ -1457,6 +1783,7 @@ export class LearningRuntime {
 	async clearBlock(block: AskBlock) {
 		withdrawCue(block.id);
 		if (block.authored) return this.resetAuthored(block);
+		if (block.live) return this.endSession(block);
 		this.stopBlock(block);
 		block.settled = "cleared";
 		await spliceFile(this.app, block.notePath, (text) => askReplacement(text, block.id, ""));
@@ -1499,7 +1826,22 @@ export class LearningRuntime {
 		this.persist();
 	}
 
+	/**
+	 * End a session: its block leaves the note. The record above it is already there and stays, the
+	 * learner's to keep or delete; a round that had not finished is not in it.
+	 */
+	async endSession(block: AskBlock) {
+		withdrawCue(block.id);
+		this.stopBlock(block);
+		block.settled = "kept";
+		await spliceFile(this.app, block.notePath, (text) => askReplacement(text, block.id, ""));
+		this.blocks.delete(block.id);
+		this.dropSessions(block.id);
+		this.persist();
+	}
+
 	async keepBlock(block: AskBlock) {
+		if (block.live) return this.endSession(block);
 		const md = keptMarkdown(block, this.ledger.get(block.taskId ?? "")?.artifacts ?? []);
 		const ok = await this.writeAndShow(block.notePath, "follow", (text) => askReplacement(text, block.id, md));
 		if (!ok) return void new Notice(L("Could not find this interaction in the note.", "在笔记中找不到这段交互。"));
@@ -1690,7 +2032,177 @@ export class LearningRuntime {
 		return ok ? { status: "accepted" } : { status: "error", message: "The note changed; the edit could not be applied." };
 	}
 
+	/* ───────────── What the built-in agent's own tools may do (agent/permissions.ts) ───────────── */
+
+	private backups: Backups | null = null;
+
+	/** The originals of the files the agent's tools change, in the plugin's own folder. */
+	private backupStore(): Backups {
+		this.backups ??= new Backups(this.app.vault.adapter, `${this.plugin.manifest.dir ?? `${this.app.vault.configDir}/plugins/${this.plugin.manifest.id}`}/backups`);
+		return this.backups;
+	}
+
+	/** Remove the originals that are older than a month. */
+	pruneBackups() {
+		void this.backupStore().prune();
+	}
+
+	/**
+	 * The agent's edit or write tool wants a file to hold `content` (agent/desktop/tool-ops.ts). By the
+	 * tool scope and the confirmation mode this refuses, shows the learner the change and waits, or lets it
+	 * land at once; either way the original is kept first, and the file is recorded on the task.
+	 *
+	 * `rel`: the vault path, when the file is inside the vault's folder (its Obsidian folder included);
+	 * the plugin then writes it itself, through the open editor when there is one. Without `rel` the
+	 * answer "direct" tells the backend to write.
+	 */
+	private async writeFile(task: Task, p: Json): Promise<Json> {
+		const abs = String(p.path ?? "");
+		const rel = typeof p.rel === "string" ? p.rel : undefined;
+		const target: WriteTarget = p.target === "protected" || p.target === "outside" ? p.target : "vault";
+		const content = String(p.content ?? "");
+		const shown = rel ?? abs;
+		const decision = writeDecision(this.toolScope(), this.confirmMode(), target, rel !== undefined);
+		if (decision === "refuse") {
+			return { status: "refused", message: `"${shown}" is outside the vault: in this setup files are written only inside it.` };
+		}
+		const adapter = this.app.vault.adapter;
+		const file = rel !== undefined ? this.fileOf(rel) : null;
+		// The file as the tool read it: from disk, which is what its edit was computed against.
+		let before: string | null;
+		try {
+			before = rel !== undefined ? ((await adapter.exists(rel)) ? await adapter.read(rel) : null) : ((await this.backend.files?.readText(abs)) ?? null);
+		} catch {
+			before = null;
+		}
+		if (before === content) return { status: "written" };
+		const change: Hunk = before === null ? { find: "", replace: content, at: 0 } : hunk(before, content);
+		if (file && target === "vault") {
+			// The rules the prompt states for propose_edit hold for these tools too, before the learner sees anything.
+			const kind = noteTypeOf(file.path);
+			if (kind !== "note") {
+				const broken = structureProblem(kind, content);
+				if (broken) return { status: "error", message: `After this change the ${kind} would not open: ${broken}` };
+			} else {
+				const problem = editProblem(before ?? "", change.find, change.replace);
+				if (problem === "visual") return { status: "error", message: "A change to an existing note cannot add an ```icap-ui visual. Put the visual in your reply to the learner instead (or in a new note)." };
+				if (problem === "block") return { status: "error", message: "That change touches an ICAP block (an ```icap-ask fence), which belongs to the plugin. Change only the learner's own text, outside those blocks." };
+			}
+		}
+		const review: NonNullable<Turn["review"]> = {
+			path: shown,
+			find: change.find,
+			replace: change.replace,
+			// The path stands above the diff already: say whose change this is.
+			summary: before === null ? L("A new file the agent wants to create", "Agent 想新建的文件") : L("A change the agent's file tool wants to make", "Agent 的文件工具想做的修改"),
+			at: change.at,
+			...(before === null ? { create: true } : {}),
+			...(rel === undefined ? { outside: true } : {}),
+		};
+		if (decision === "ask") {
+			const block = (task.blockId ? this.blocks.get(task.blockId) : undefined) ?? (await this.ensureAgentBlock(task));
+			const pending = this.ask(task, block, { kind: "confirm", question: review.summary });
+			const turn = block.current!;
+			turn.kind = "review";
+			turn.review = review;
+			this.persist();
+			const a = await pending;
+			if (!a.confirmed) return { status: "declined", message: "The learner declined this change; the file is as it was." };
+		}
+		await this.backupStore().keep(task.id, shown, before);
+		if (rel === undefined) {
+			// Outside the vault the backend writes; the change is the task's all the same.
+			this.noteChange(task, review, before === null ? "created" : "edited", decision === "direct");
+			return { status: "direct" };
+		}
+		const ok = await this.applyChange(review, content);
+		if (!ok) return { status: "error", message: "The file changed in the meantime; the change could not be applied. Read it again." };
+		this.noteChange(task, review, before === null ? "created" : "edited", decision === "direct");
+		return { status: "written" };
+	}
+
+	/**
+	 * Record a file the agent's tools changed on its task. A change that landed without being asked about
+	 * (auto-accepted) also leaves its diff in the task's block, as a review already decided, so the learner
+	 * can open what happened; it is not part of the conversation and is not kept in the note.
+	 */
+	private noteChange(task: Task, review: NonNullable<Turn["review"]>, kind: "created" | "edited", landedByItself: boolean) {
+		if (!review.outside) addArtifact(task, { kind, path: review.path, label: basename(review.path) });
+		// A file outside the vault has no link in the note, but its round still changed a file.
+		else task.round = [...task.round, { kind, path: review.path, label: basename(review.path) }];
+		const block = task.blockId ? this.blocks.get(task.blockId) : undefined;
+		if (landedByItself && block) {
+			block.turns.push({ id: newId("u"), kind: "review", question: review.summary, review, answer: { confirmed: true }, confirmLabel: L("applied", "已应用"), control: true });
+		}
+		this.persist();
+	}
+
+	/** Write a change the learner agreed to (or need not be asked about) into the vault's folder. */
+	private async applyChange(r: NonNullable<Turn["review"]>, content?: string): Promise<boolean> {
+		const file = this.fileOf(r.path);
+		if (file) {
+			// An existing note: only the changed lines, in the note as it is now, through the open editor.
+			return this.writeAndShow(r.path, "point", (t) => {
+				const at = locate(t, { find: r.find, replace: r.replace, at: r.at ?? 0 });
+				return at ? { ...at, insert: r.replace } : null;
+			});
+		}
+		// A new file, or one Obsidian does not index (its own folder): written whole.
+		const adapter = this.app.vault.adapter;
+		const text = content ?? r.replace;
+		try {
+			const dir = r.path.split("/").slice(0, -1).join("/");
+			if (dir && !(await adapter.exists(dir))) await adapter.mkdir(dir);
+			if (r.create && (await adapter.exists(r.path))) return false;
+			await adapter.write(r.path, text);
+			return true;
+		} catch {
+			return false;
+		}
+	}
+
+	/**
+	 * The built-in agent wants to run a shell command or call one of the learner's connectors
+	 * (agent/desktop/icap-extension.ts). Asked in the task's block unless the confirmation mode lets it run,
+	 * or the learner already said "always" for this block. "Always" lasts as long as the block: it is never
+	 * written to the settings, and never covers a command that names a protected folder.
+	 */
+	private async permit(task: Task, p: Json): Promise<Json> {
+		const connector = p.kind === "connector";
+		const guarded = p.protected === true;
+		const decision = actionDecision(this.toolScope(), this.confirmMode(), guarded);
+		if (decision === "refuse") return { status: "refused", message: connector ? "Connectors are not available in this setup." : "The shell is not available in this setup." };
+		if (decision === "direct") return { status: "allowed" };
+		const tool = String(p.tool ?? "");
+		const key = connector ? `connector:${tool}` : "shell";
+		const block = (task.blockId ? this.blocks.get(task.blockId) : undefined) ?? (await this.ensureAgentBlock(task));
+		if (!guarded && block.allowed.has(key)) return { status: "allowed" };
+		const once = L("Allow once", "允许这一次");
+		const always = connector ? L("Always allow this tool in this block", "本块内总是允许这个工具") : L("Always allow commands in this block", "本块内总是允许命令");
+		const deny = L("Deny", "拒绝");
+		const what = connector
+			? `**${connectorLabel(tool)}**\n\n\`\`\`json\n${clipText(JSON.stringify(p.input ?? {}, null, 2), 1200)}\n\`\`\``
+			: `\`\`\`sh\n${clipText(String(p.command ?? ""), 2000)}\n\`\`\``;
+		const answer = await this.dialog(
+			task,
+			{
+				method: "select",
+				title: connector ? L("The agent wants to use a connector", "Agent 想使用一个 Connector") : L("The agent wants to run a command", "Agent 想运行一条命令"),
+				message: guarded ? `${what}\n\n${L("It names a protected folder (Obsidian's or Pi's own), so it always asks.", "它涉及受保护的文件夹（Obsidian 或 Pi 自己的），所以总是要问。")}` : what,
+				// A command that names a protected folder is decided one at a time.
+				options: guarded ? [once, deny] : [once, always, deny],
+			},
+			new AbortController().signal,
+		);
+		const chosen = answer && "value" in answer ? answer.value : "";
+		if (chosen === always) block.allowed.add(key);
+		if (chosen === once || chosen === always) return { status: "allowed" };
+		return { status: "denied", message: connector ? "The learner did not allow this connector call." : "The learner did not allow this command." };
+	}
+
 	private applyReview(r: NonNullable<Turn["review"]>): Promise<boolean> {
+		// A change from the agent's file tools (writeFile), decided after its agent was gone: inside the vault it can still be applied.
+		if (r.at !== undefined || r.create) return r.outside ? Promise.resolve(false) : this.applyChange(r);
 		return this.writeAndShow(r.path, "point", (t) => {
 			if (!r.find) return { from: t.length, to: t.length, insert: (t.endsWith("\n") ? "\n" : "\n\n") + r.replace };
 			const i = t.indexOf(r.find);
@@ -2031,13 +2543,16 @@ function setResult(task: Task, a: Artifact) {
 
 /** Add a file to a task's result once; a file created and then deleted again leaves no trace. */
 function addArtifact(task: Task, a: Artifact) {
-	const has = (kind: Artifact["kind"]) => task.artifacts.some((x) => x.kind === kind && x.path === a.path);
-	if (a.kind === "deleted" && has("created")) {
-		task.artifacts = task.artifacts.filter((x) => x.path !== a.path);
-		return;
-	}
-	if (has(a.kind) || (a.kind === "edited" && has("created"))) return;
-	task.artifacts = [...task.artifacts.filter((x) => !(a.kind === "deleted" && x.kind === "edited" && x.path === a.path)), a];
+	task.artifacts = withArtifact(task.artifacts, a);
+	// The same file, as this run's own doing (a request block: its latest round).
+	task.round = withArtifact(task.round, a);
+}
+
+function withArtifact(list: Artifact[], a: Artifact): Artifact[] {
+	const has = (kind: Artifact["kind"]) => list.some((x) => x.kind === kind && x.path === a.path);
+	if (a.kind === "deleted" && has("created")) return list.filter((x) => x.path !== a.path);
+	if (has(a.kind) || (a.kind === "edited" && has("created"))) return list;
+	return [...list.filter((x) => !(a.kind === "deleted" && x.kind === "edited" && x.path === a.path)), a];
 }
 
 /** What a note-making task is called as a task note: its subject, without the progressive verb of the ledger line. */

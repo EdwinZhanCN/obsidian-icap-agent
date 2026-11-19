@@ -140,7 +140,7 @@ export class TaskNotes {
 			const noteId = t.kind === "request" && t.blockId ? t.blockId : t.id;
 			if (this.find(noteId)) continue;
 			// Named after the conversation's first request while its block is still there; else the ledger's line.
-			const first = this.host.block(t.blockId)?.turns.find((x) => x.request && !x.control)?.answer?.text?.trim();
+			const first = this.host.block(t.blockId)?.openingRequest;
 			if ((await this.write(t, { noteId, request: (t.kind === "request" && first) || t.title, origin: t.kind })) === "written") made++;
 		}
 		if (made) await this.ensureBase();
@@ -243,8 +243,7 @@ export class TaskNotes {
 		if (a.origin === "note") return true;
 		if (task.steps?.length || task.status === "waiting") return true;
 		if (task.artifacts.some((x) => x.kind === "created" || x.kind === "edited" || x.kind === "deleted")) return true;
-		const rounds = this.host.block(task.blockId)?.turns.filter((t) => t.request && !t.control).length ?? 0;
-		return rounds > 1;
+		return (this.host.block(task.blockId)?.roundCount ?? 0) > 1;
 	}
 
 	/** The note that carries `icap-id: id`, wherever the learner has put it. */

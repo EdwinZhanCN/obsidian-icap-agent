@@ -1,14 +1,14 @@
 import type { NoteContext } from "../runtime/context";
 import { UI_LANG as VISUAL_FENCE } from "../genui/widget";
-import type { AgentConfig } from "./backend";
+import type { ToolScope } from "./backend";
 import { VISUAL_SKILL, visualSkill } from "./visual-skill";
 import { STRUCTURE_SKILLS } from "./skills";
 
 export { VISUAL_SKILL };
 
 /**
- * What the agent has besides ICAP's tools: Pi's file tools (read, grep, find, ls) and skills it reads
- * on demand (desktop), or neither (mobile: the visual skill's text is then part of the prompt).
+ * What the agent has besides ICAP's tools: the harness's file tools (read, edit, write) and skills it
+ * reads on demand (desktop), or neither (mobile: the visual skill's text is then part of the prompt).
  */
 export interface PromptEnv {
 	fileTools: boolean;
@@ -81,7 +81,7 @@ ${DOCUMENTS}`;
 export type Visuals = "auto" | "asked" | "off";
 
 const FILE_TOOLS_LINE =
-	"- read / grep / find / ls work inside the vault (the current folder). Use them sparingly and only when they improve the answer (e.g. to check what the learner already wrote about a related concept).\n";
+	"- read opens a file inside the vault (the current folder); to search the vault use the obsidian tool. edit and write change or create files there: the learner is shown each change and may be asked to approve it first, so a declined change is their decision, not an error to work around. For an existing note prefer propose_edit. Use these sparingly and only when they improve the answer (e.g. to check what the learner already wrote about a related concept).\n";
 
 function visualsRule(visuals: Visuals, env: PromptEnv): string {
 	if (visuals === "off") return "";
@@ -123,7 +123,7 @@ Obsidian's own structures, in a reply to a request or in a note you create, only
 ${how} Not in explanations, feedback or questions.${texts}`;
 }
 
-export function systemPrompt(config: AgentConfig, preferences = "", visuals: Visuals = "off", env: PromptEnv = DESKTOP_ENV): string {
+export function systemPrompt(config: ToolScope, preferences = "", visuals: Visuals = "off", env: PromptEnv = DESKTOP_ENV): string {
 	const head = (config === "isolated" ? ISOLATED_PROMPT : APPENDED_PROMPT).replace("{{FILE_TOOLS}}", env.fileTools ? FILE_TOOLS_LINE : "");
 	const base = head.replace("No HTML.", visuals === "off" ? "No HTML." : `No HTML outside an ${VISUAL_FENCE} block.`) + structuresRule(env) + visualsRule(visuals, env);
 	const prefs = preferences.trim();
@@ -323,6 +323,16 @@ export function followUpPrompt(request: string, pointed: { link: string; path: s
 	const parts = ["The learner followed up in the same request block.", fence("request", request)];
 	if (pointed.length) parts.push(pointedLines(pointed));
 	parts.push(RESULT_RULE);
+	return parts.join("\n\n");
+}
+
+/**
+ * What the learner adds while the agent is working on their request (AgentRun.steer): it reaches the
+ * agent between its tool calls, in the same conversation.
+ */
+export function steerPrompt(request: string, pointed: { link: string; path: string | null }[] = []): string {
+	const parts = ["The learner adds this while you are working on their request. Take it into account from here on.", fence("request", request)];
+	if (pointed.length) parts.push(pointedLines(pointed));
 	return parts.join("\n\n");
 }
 

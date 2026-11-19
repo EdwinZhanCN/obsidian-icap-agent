@@ -1,4 +1,4 @@
-import type { AgentPhase, BlockSession } from "../agent/backend";
+import type { AgentImage, AgentPhase, BlockSession } from "../agent/backend";
 import type { RunUsage } from "../agent/usage";
 import type { GlossMode } from "../agent/prompts";
 
@@ -20,7 +20,19 @@ export interface Step {
 	/** When the call started and ended (ms); `end` is absent while it runs, and on steps from before 1.2. */
 	at?: number;
 	end?: number;
+	/** The tool call's id, to match its end when calls run side by side. */
+	id?: string;
+	/** It failed. */
+	error?: true;
+	/** The start of what it returned, on one line; when it failed, its message whole, with its lines. */
+	out?: string;
 }
+
+export interface PhaseMark {
+	phase: AgentPhase;
+	at: number;
+}
+const MAX_PHASES = 400;
 
 /** Steps kept per task; the earliest ones go first. */
 export const MAX_STEPS = 40;
@@ -46,6 +58,16 @@ export interface TaskRecord {
 	usage?: RunUsage;
 	/** The model of the latest run, `provider/id`. */
 	model?: string;
+	/** The files this run of the task touched (a request block: its latest round). */
+	round?: Artifact[];
+	/** How full the model's context was after the latest reply. */
+	context?: ContextUse;
+}
+
+/** How much of a model's context a conversation fills: tokens, and the model's window. */
+export interface ContextUse {
+	used: number;
+	window: number;
 }
 
 export class Task {
@@ -62,10 +84,19 @@ export class Task {
 	artifacts = $state<Artifact[]>([]);
 	steps = $state<Step[]>([]);
 	stepsDropped = $state(0);
+	/** When the agent's phase changed, in order: where this run's time went. This device only, never kept. */
+	phases = $state.raw<PhaseMark[]>([]);
 	/** Tokens and price so far; null until a model has answered (agent/usage.ts). */
 	usage = $state<RunUsage | null>(null);
 	/** The model that answered last, `provider/id`; null until one has. */
 	model = $state<string | null>(null);
+	/**
+	 * The files this run touched. A request block starts a task for each round and carries the earlier
+	 * rounds' files over in `artifacts`; these are the latest round's only.
+	 */
+	round = $state<Artifact[]>([]);
+	/** How full the model's context was after the latest reply; null when the model's window is not known. */
+	context = $state<ContextUse | null>(null);
 	error = $state<string | null>(null);
 	/** What the learner's extensions threw during this run (`extension: message`), shown while it runs. Not kept. */
 	extensionErrors = $state<string[]>([]);
@@ -74,6 +105,8 @@ export class Task {
 	interrupted = false;
 	cancel: (() => void) | null = null;
 	retry: (() => void) | null = null;
+	/** Hands the running agent a message between its tool calls (AgentRun.steer); null when no run can take one. */
+	steer = $state.raw<((text: string, images?: AgentImage[]) => boolean) | null>(null);
 	/** Tool calls of this task's agent now running, and when the last one ended (file-change attribution). */
 	toolsRunning = 0;
 	toolEndedAt = 0;
@@ -90,19 +123,29 @@ export class Task {
 		return this.status === "processing" || this.status === "waiting";
 	}
 
-	addStep(tool: string, detail: string, at = Date.now()) {
-		const next = [...this.steps, { tool, detail, at }];
+	addStep(tool: string, detail: string, at = Date.now(), id?: string) {
+		const next = [...this.steps, { tool, detail, at, ...(id ? { id } : {}) }];
 		const over = next.length - MAX_STEPS;
 		if (over > 0) this.stepsDropped += over;
 		this.steps = over > 0 ? next.slice(over) : next;
 	}
 
+	setPhase(phase: AgentPhase, at = Date.now()) {
+		this.phase = phase;
+		if (this.phases.at(-1)?.phase === phase) return;
+		const next = [...this.phases, { phase, at }];
+		this.phases = next.length > MAX_PHASES ? next.slice(next.length - MAX_PHASES) : next;
+	}
+
 	/** The earliest step still running has ended (tool calls end in the order they started, or near enough). */
-	endStep(at = Date.now()) {
-		const i = this.steps.findIndex((s) => s.at !== undefined && s.end === undefined);
+	endStep(at = Date.now(), result?: { id?: string; error: boolean; preview: string }) {
+		const open = (s: Step) => s.at !== undefined && s.end === undefined;
+		let i = result?.id ? this.steps.findIndex((s) => open(s) && s.id === result.id) : -1;
+		if (i < 0) i = this.steps.findIndex(open);
 		if (i < 0) return;
 		const next = [...this.steps];
-		next[i] = { ...next[i], end: at };
+		const { id: _id, ...done } = next[i];
+		next[i] = { ...done, end: at, ...(result?.error ? { error: true as const } : {}), ...(result?.preview ? { out: result.preview } : {}) };
 		this.steps = next;
 	}
 
@@ -112,6 +155,7 @@ export class Task {
 		if (error !== undefined) this.error = error;
 		this.endedAt = Date.now();
 		this.cancel = null;
+		this.steer = null;
 	}
 
 	toJSON(): TaskRecord {
@@ -133,6 +177,8 @@ export class Task {
 			...(this.stepsDropped ? { stepsDropped: this.stepsDropped } : {}),
 			...(this.usage ? { usage: $state.snapshot(this.usage) } : {}),
 			...(this.model ? { model: this.model } : {}),
+			...(this.round.length ? { round: $state.snapshot(this.round) } : {}),
+			...(this.context ? { context: { ...this.context } } : {}),
 		};
 	}
 
@@ -148,6 +194,8 @@ export class Task {
 		t.stepsDropped = r.stepsDropped ?? 0;
 		t.usage = r.usage ?? null;
 		t.model = r.model ?? null;
+		t.round = r.round ?? [];
+		t.context = r.context ?? null;
 		t.error = r.error;
 		t.endedAt = r.endedAt ?? r.createdAt;
 		t.blockId = r.blockId;
@@ -266,7 +314,18 @@ export interface Turn {
 	revise?: boolean;
 	confirmLabel?: string;
 	cancelLabel?: string;
-	review?: { path: string; find: string; replace: string; summary: string };
+	review?: {
+		path: string;
+		find: string;
+		replace: string;
+		summary: string;
+		/** A change from the agent's edit or write tool: where `find` stood in the file the tool read (runtime/file-change.ts). */
+		at?: number;
+		/** The file does not exist yet: `replace` is all of it. */
+		create?: boolean;
+		/** The file is outside the vault (`path` is absolute): the backend writes it, the plugin cannot. */
+		outside?: boolean;
+	};
 	/** Plugin-authored turn (e.g. the opening recall prompt); not from the agent. */
 	local?: boolean;
 	/** For "check": the learner's text lives in the note above the block. */
@@ -284,6 +343,8 @@ export interface Turn {
 	 * block's agent runs; it is not part of the conversation and is not kept in the note.
 	 */
 	control?: boolean;
+	/** Request block: the plugin's remark on this request (its images were not sent). Shown under it; not part of the conversation. */
+	note?: string;
 	answer?: Answer;
 	feedback?: string;
 	verdict?: "holds" | "partly" | "reconsider";
@@ -319,6 +380,21 @@ export interface BlockRecord {
 	sessionSeq?: number;
 	/** Folded to its header line by the learner. */
 	collapsed?: boolean;
+	/** Request block: its record is written into the note as it goes (a session note; `record: live` in the fence). */
+	live?: boolean;
+	/** A live record: how many rounds are in the note already, and the conversation's first request. */
+	recorded?: number;
+	firstRequest?: string;
+}
+
+/** What the learner wrote while the agent was working: sent when the round ends, or handed to the agent at once. */
+export interface Queued {
+	id: string;
+	text: string;
+	/** "delivering": on its way to the working agent (steer); it becomes a request in the block when the agent reads it. */
+	state: "queued" | "delivering";
+	/** The message as it was handed to the agent. */
+	sent?: string;
 }
 
 export class AskBlock {
@@ -353,6 +429,32 @@ export class AskBlock {
 	resolver: ((answer: Record<string, unknown>) => void) | null = null;
 	/** Resolves a pending dialog from one of the learner's extensions; not persisted. */
 	dialogResolver: ((answer: Answer | undefined) => void) | null = null;
+	/**
+	 * What the learner allowed "always in this block" when the built-in agent asked (runtime: permit):
+	 * "shell", or `connector:<tool>`. It lasts as long as the block is open; not persisted, never a setting.
+	 */
+	allowed = new Set<string>();
+	/**
+	 * Request block: what the learner wrote while the agent was working. Runtime state: an entry becomes
+	 * a request (a turn, part of the conversation and of the record) only when it is sent. Not persisted.
+	 */
+	queue = $state<Queued[]>([]);
+	/**
+	 * Request block: the record is written into the note as it goes (FORMAT.md 7, a session note). The
+	 * `[!request]` callout above the fence then holds the finished rounds, and `turns` only the one in progress.
+	 */
+	live = false;
+	/** A live record: how many rounds are in the note already. */
+	recorded = $state(0);
+	/** A live record: the conversation's first request (the task note's name). */
+	firstRequest = "";
+	/**
+	 * A live record: the plugin's remark on the round just written into the note (its images were not
+	 * sent). The round's turns, which carried it, have left the block. Runtime state.
+	 */
+	remark = $state("");
+	/** A new session: the link to the note it was started from, put in its first request (not part of the note's name). */
+	prefill = "";
 
 	constructor(id: string, kind: BlockKind, topic: string, notePath: string, createdAt = Date.now()) {
 		this.id = id;
@@ -364,6 +466,16 @@ export class AskBlock {
 
 	get current(): Turn | undefined {
 		return this.turns[this.turns.length - 1];
+	}
+
+	/** Request block: how many requests the conversation has had (the rounds in the note's record included). */
+	get roundCount(): number {
+		return this.recorded + this.turns.filter((t) => t.request && !t.control && t.answer).length;
+	}
+
+	/** Request block: the conversation's first request, in the learner's words. */
+	get openingRequest(): string {
+		return this.firstRequest || (this.turns.find((t) => t.request && !t.control)?.answer?.text?.trim() ?? "");
 	}
 
 	get awaiting(): Turn | undefined {
@@ -392,6 +504,9 @@ export class AskBlock {
 			...(this.session ? { session: { ...this.session } } : {}),
 			...(this.sessionSeq ? { sessionSeq: this.sessionSeq } : {}),
 			...(this.collapsed ? { collapsed: true } : {}),
+			...(this.live ? { live: true } : {}),
+			...(this.recorded ? { recorded: this.recorded } : {}),
+			...(this.firstRequest ? { firstRequest: this.firstRequest } : {}),
 		};
 	}
 
@@ -406,6 +521,9 @@ export class AskBlock {
 		b.session = r.session ?? null;
 		b.sessionSeq = r.sessionSeq ?? 0;
 		b.collapsed = !!r.collapsed;
+		b.live = !!r.live;
+		b.recorded = r.recorded ?? 0;
+		b.firstRequest = r.firstRequest ?? "";
 		// A dialog from an extension belongs to the Pi process that asked; it is gone after a restart.
 		b.turns = (r.turns ?? []).filter((t) => !(t.dialog && !t.answer));
 		const live = r.phase === "preparing" || r.phase === "thinking" || r.phase === "waiting";

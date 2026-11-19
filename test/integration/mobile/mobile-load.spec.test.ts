@@ -74,7 +74,7 @@ describe.skipIf(!existsSync(MAIN))("main.js on a phone (no Node)", () => {
 		const phone = await boot(main);
 		expect(phone.required.filter((r) => !r.startsWith("@codemirror/") && !r.startsWith("@lezer/") && r !== "obsidian")).toEqual([]);
 		expect(phone.plugin.backend.platform).toBe("mobile");
-		expect(phone.plugin.backend.capabilities.ownSetup).toBe(false);
+		expect(phone.plugin.backend.capabilities.fullScope).toBe(false);
 		// Mobile has no status bar: the activity opens from the ribbon.
 		expect(phone.plugin.statusBar).toBe(0);
 		expect(phone.plugin.ribbon.map((r: any) => r.icon)).toContain("activity");
@@ -123,6 +123,69 @@ describe.skipIf(!existsSync(MAIN))("main.js on a phone (no Node)", () => {
 		expect(records.records[0]).toMatchObject({ kind: "request" });
 		expect(records.records[0]).toMatchObject({ title: "What is the heap?" });
 		expect(note).toContain("memory you allocate at run time");
+	});
+
+	it("a session note: each round goes into its record, a message written meanwhile follows, regenerate asks the last again", async () => {
+		const phone = await boot(main, { files: { "Heap.md": NOTE }, secrets: { "icap-deepseek": "sk-test" } });
+		// Started from a note: the first request links it, and that link is not what names the session.
+		phone.app.workspace.getActiveFile = () => phone.app.vault.getFileByPath("Heap.md");
+		const bodies: any[] = [];
+		let n = 0;
+		let release: (() => void) | null = null;
+		phone.setFetch(async (_input: any, init?: RequestInit) => {
+			const body = JSON.parse(String(init?.body));
+			bodies.push(body);
+			const k = ++n;
+			// The first reply waits until the test has written its next message.
+			if (k === 1) await new Promise<void>((r) => (release = r));
+			return new Response(sse([chunk({ role: "assistant", content: `Reply ${k}.` }), chunk({}, "stop", { prompt_tokens: 10, completion_tokens: 3, total_tokens: 13 })]), {
+				status: 200,
+				headers: { "content-type": "text/event-stream" },
+			});
+		});
+		const rt = phone.plugin.runtime;
+		await rt.newSession();
+		const [path] = [...phone.files.keys()].filter((p) => p.startsWith("Session "));
+		expect(path).toMatch(/^Session \d{4}-\d{2}-\d{2} \d{4}\.md$/);
+		expect(phone.files.get(path)).toContain("icap: session\n");
+		const block = [...rt.blocks.values()][0];
+		expect(block.live).toBe(true);
+
+		// The first request; while the agent works, the learner writes another.
+		expect(block.turns[0].draft).toBe("[[Heap]] ");
+		void rt.answer(block, block.turns[0], { text: "[[Heap]] What is RAII?" });
+		await settle(phone, () => release !== null);
+		rt.enqueue(block, "And move semantics?");
+		expect(block.queue.map((q: any) => q.text)).toEqual(["And move semantics?"]);
+		release!();
+		await settle(phone, () => n === 2 && block.phase === "completed" && !block.queue.length);
+
+		// The note was named once, from the first request, and holds both rounds; the block holds neither.
+		const named = "What is RAII.md";
+		expect(phone.files.has(path)).toBe(false);
+		expect(block.notePath).toBe(named);
+		const note = phone.files.get(named)!;
+		expect(note).toContain("> [!request] [[Heap]] What is RAII?\n> **Request:** [[Heap]] What is RAII?\n>\n> Reply 1.\n>\n> **Request:** And move semantics?\n>\n> Reply 2.\n\n```icap-ask");
+		expect(block.turns).toEqual([]);
+		expect(readRecords(note)).toMatchObject({ session: { id: block.id }, recording: [block.id] });
+		// The second round was told the first from the record.
+		expect(JSON.stringify(bodies[1].messages)).toContain("Reply 1.");
+
+		// Regenerate: the last round leaves the record and comes back with the new reply.
+		expect(rt.canRedo(block)).toBe(true);
+		await rt.redo(block);
+		await settle(phone, () => n === 3 && block.phase === "completed" && !block.turns.length);
+		const again = phone.files.get(named)!;
+		expect(again).not.toContain("Reply 2.");
+		expect(again).toContain("> **Request:** And move semantics?\n>\n> Reply 3.\n\n```icap-ask");
+		expect(readRecords(again).records[0].rounds).toHaveLength(2);
+
+		// Ending the session leaves the record and takes the block away.
+		await rt.endSession(block);
+		const ended = phone.files.get(named)!;
+		expect(ended).not.toContain("```icap-ask");
+		expect(ended).toContain("Reply 3.");
+		expect(rt.blocks.has(block.id)).toBe(false);
 	});
 
 	it("a custom endpoint that only answers through requestUrl arrives whole", async () => {
