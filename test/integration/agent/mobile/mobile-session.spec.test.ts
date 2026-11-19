@@ -91,15 +91,20 @@ describe("MobileSession on pi-agent-core", () => {
 		]);
 		const steps: string[] = [];
 		const phases: AgentPhase[] = [];
+		const texts: string[] = [];
+		let textAtAsk = "";
 		const r = await session("check me", {
+			onText: (t) => texts.push(t),
 			onBridge: async (op, p) => {
 				calls.push([op, p]);
+				if (op === "ask") textAtAsk = texts.at(-1) ?? "";
 				return { status: "answered", answer: "scope-bound cleanup" };
 			},
 			onStep: (tool, detail) => steps.push(`${tool}: ${detail}`),
 			onPhase: (p) => phases.push(p),
 		}).run();
 		expect(calls).toEqual([["ask", { kind: "text", question: "What is RAII?" }]]);
+		expect(textAtAsk).toBe("let me ask");
 		expect(toolResult).toContain("scope-bound cleanup");
 		expect(steps).toEqual(["ask_learner: What is RAII?"]);
 		expect(phases).toContain("waiting");

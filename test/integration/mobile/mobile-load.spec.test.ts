@@ -259,4 +259,44 @@ describe.skipIf(!existsSync(MAIN))("main.js on a phone (no Node)", () => {
 		expect(models.current).toMatch(/^anthropic\//);
 		expect(models.available.every((m: string) => m.startsWith("anthropic/"))).toBe(true);
 	});
+
+	it("preserves prose written alongside ask_learner while waiting and when kept", async () => {
+		const phone = await boot(main, { files: { "Heap.md": NOTE }, secrets: { "icap-deepseek": "sk-test" } });
+		let call = 0;
+		phone.setFetch(async () => {
+			if (++call === 1) {
+				const args = JSON.stringify({ kind: "text", question: "What happens if you free it twice?" });
+				return new Response(
+					sse([
+						chunk({ role: "assistant", content: "Heap memory stays alive until you free it." }),
+						chunk({ tool_calls: [{ index: 0, id: "c1", type: "function", function: { name: "ask_learner", arguments: args } }] }),
+						chunk({}, "tool_calls", { prompt_tokens: 10, completion_tokens: 12, total_tokens: 22 }),
+					]),
+					{ status: 200, headers: { "content-type": "text/event-stream" } },
+				);
+			}
+			return new Response(
+				sse([chunk({ role: "assistant", content: "Right — double free is undefined behavior." }), chunk({}, "stop", { prompt_tokens: 20, completion_tokens: 8, total_tokens: 28 })]),
+				{ status: 200, headers: { "content-type": "text/event-stream" } },
+			);
+		});
+		const rt = phone.plugin.runtime;
+		const running = rt.requestBelow("Heap.md", 2, "Explain the heap");
+		await settle(phone, () => {
+			const b = [...rt.blocks.values()][0];
+			return !!b && (b.phase === "waiting" || b.phase === "failed");
+		});
+		const block = [...rt.blocks.values()][0];
+		expect(block.phase).toBe("waiting");
+		expect(block.turns[0].reply).toBe("Heap memory stays alive until you free it.");
+		expect(block.turns[1].question).toBe("What happens if you free it twice?");
+
+		await rt.answer(block, block.turns[1], { text: "Undefined behavior" });
+		await running;
+		expect(block.phase).toBe("completed");
+		await rt.keepBlock(block);
+		const note = phone.files.get("Heap.md")!;
+		expect(note).toContain("Heap memory stays alive until you free it.");
+		expect(note).toContain("Right — double free is undefined behavior.");
+	});
 });

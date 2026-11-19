@@ -10,12 +10,18 @@ import type { Artifact, AskBlock } from "./state.svelte";
 /** A request block's conversation as rounds: each request with the reply it got. Commands are not part of it. */
 export function roundsOf(block: { turns: AskBlock["turns"]; summary: string }): { request: string; reply: string }[] {
 	const rounds: { request: string; reply: string }[] = [];
+	const append = (text: string) => {
+		const s = text.trim();
+		if (!s || !rounds.length) return;
+		const last = rounds[rounds.length - 1];
+		last.reply = last.reply ? `${last.reply}\n\n${s}` : s;
+	};
 	for (const t of block.turns) {
 		if (t.control) continue;
 		if (t.request) rounds.push({ request: t.answer?.text ?? "", reply: "" });
-		if (t.reply && rounds.length) rounds[rounds.length - 1].reply = t.reply;
+		if (t.reply) append(t.reply);
 	}
-	if (rounds.length && block.summary.trim()) rounds[rounds.length - 1].reply = block.summary.trim();
+	append(block.summary);
 	return rounds;
 }
 
