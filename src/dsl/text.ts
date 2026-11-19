@@ -208,6 +208,50 @@ export function balanceStreamingMarkdown(md: string): string {
 }
 
 /**
+ * Models often write math as `\(…\)` and `\[…\]`, which Obsidian shows as plain text. Rewrite them
+ * as `$…$` and `$$…$$`, outside fenced and inline code, so they render. Only for display: what the
+ * agent wrote is stored unchanged.
+ */
+export function obsidianMath(md: string): string {
+	if (!md.includes("\\(") && !md.includes("\\[")) return md;
+	const lines = splitLines(md);
+	const code = fencedLines(lines);
+	const out: string[] = [];
+	let run: string[] = [];
+	const flush = () => {
+		if (run.length) out.push(mathOutsideInlineCode(run.join("\n")));
+		run = [];
+	};
+	lines.forEach((l, i) => {
+		if (code[i]) {
+			flush();
+			out.push(l.text);
+		} else run.push(l.text);
+	});
+	flush();
+	return out.join("\n");
+}
+
+function mathOutsideInlineCode(text: string): string {
+	// Odd indices are inline code spans, kept as they are.
+	return text
+		.split(/(`+[^`]*?`+)/)
+		.map((part, i) =>
+			i % 2
+				? part
+				: part
+						.replace(/(?<!\\)\\\[([\s\S]+?)\\\]/g, (_, m: string) => `$$${m.trim()}$$`)
+						.replace(/(?<!\\)\\\(([\s\S]+?)\\\)/g, (_, m: string) => `$${m.trim()}$`),
+		)
+		.join("");
+}
+
+/** Whether text has math Obsidian would render (after obsidianMath): `$…$`, `$$…$$`, `\(…\)`, `\[…\]`. */
+export function hasMath(text: string): boolean {
+	return /\$\$[\s\S]+?\$\$|\$[^\s$](?:[^$\n]*[^\s$])?\$|\\\([\s\S]+?\\\)|\\\[[\s\S]+?\\\]/.test(text);
+}
+
+/**
  * A short title from free text (a request, a concept): one line, about `max` characters. It never
  * cuts a `[[link]]` in two: a link that crosses the cut stays whole when it ends soon after, or the
  * title ends before it.

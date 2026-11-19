@@ -346,12 +346,16 @@ body.icap-style-theme {
 	border-radius: 2px;
 }
 
-/* Live Preview paints-contains widgets; the ink rule lives in the gutter, so let it out. */
+/* Live Preview paints-contains widgets; the ink rule lives in the gutter, so let it out. Without
+   containment a callout's margins would escape the widget, where CodeMirror's height map does not
+   count them: every line below would sit lower than CodeMirror thinks (line numbers off, clicks
+   landing a line above). flow-root keeps the margins inside and still paints outside. */
 .markdown-source-view.mod-cm6 .cm-content > .icap-gloss-host,
 .markdown-source-view.mod-cm6 .cm-content > .cm-embed-block:has(.icap-ask-host),
 .icap-gloss-host,
 .cm-embed-block:has(.icap-ask-host),
 body:not(.icap-style-theme) .cm-embed-block.cm-callout:has(.callout:is([data-callout="gloss"], [data-callout="feedback"], [data-callout="practice"])) {
+	display: flow-root !important;
 	contain: none !important;
 	overflow: visible !important;
 }
@@ -553,9 +557,25 @@ body:not(.icap-style-theme) .cm-embed-block.cm-callout:has(.callout:is([data-cal
 .icap-writing textarea:focus {
 	--icap-ink-faint: color-mix(in oklab, var(--icap-ink) 38%, transparent);
 }
-.icap-writing textarea::placeholder {
+.icap-writing textarea::placeholder,
+.icap-writing-hint {
 	@apply tw:text-faint;
 	font-style: italic;
+}
+/* A hint with math, rendered: stacked under the textarea in one grid cell, so the field is as tall
+   as the longer of the two and clicks go to the textarea. */
+.icap-writing-field {
+	display: grid;
+}
+.icap-writing-field > * {
+	grid-area: 1 / 1;
+}
+.icap-writing-hint {
+	pointer-events: none;
+	line-height: var(--line-height-normal);
+}
+.icap-writing-hint .icap-md p {
+	margin-block: 0;
 }
 .icap-writing-foot {
 	@apply tw:flex tw:items-baseline tw:justify-end tw:gap-3 tw:font-ui;
@@ -1232,7 +1252,8 @@ button.icap-row-title.icap-row-title:hover {
 	color: var(--icap-ink);
 	font-variant-numeric: tabular-nums;
 }
-.icap-row-steps-toggle.icap-row-steps-toggle {
+.icap-row-steps-toggle.icap-row-steps-toggle,
+.icap-row-copy.icap-row-copy {
 	all: unset;
 	display: inline-flex;
 	align-items: center;
@@ -1241,13 +1262,19 @@ button.icap-row-title.icap-row-title:hover {
 	color: var(--text-faint);
 }
 .icap-row-steps-toggle:hover,
-.icap-row-steps-toggle[aria-expanded="true"] {
+.icap-row-steps-toggle[aria-expanded="true"],
+.icap-row-copy:hover {
 	color: var(--text-muted);
 }
-.icap-row-steps-toggle:focus-visible {
+.icap-row-steps-toggle:focus-visible,
+.icap-row-copy:focus-visible {
 	outline: 1.5px solid var(--icap-ink-soft);
 	outline-offset: 2px;
 	border-radius: 2px;
+}
+/* An icon alone has no text to sit on the line's baseline with: centre it. */
+.icap-row-copy.icap-row-copy {
+	align-self: center;
 }
 /* The agent's steps: tool, what it was given, how long it took. */
 .icap-row-steps {

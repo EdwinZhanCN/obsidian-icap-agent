@@ -5,6 +5,8 @@
 	import { Platform, TFile, prepareFuzzySearch, type App } from "obsidian";
 	import { keyGuard } from "./keys";
 	import Keys from "./Keys.svelte";
+	import Markdown from "./Markdown.svelte";
+	import { hasMath } from "../dsl/text";
 	import ImagePlus from "@lucide/svelte/icons/image-plus";
 	import { imageType, insertLink, linkTrigger, type LinkTrigger } from "../dsl/links";
 	import { commandTrigger, insertArg, insertCommand, rankArgs, rankCommands, type CommandProvider, type CommandSource, type CommandTrigger } from "../dsl/commands";
@@ -31,6 +33,9 @@
 		onimage?: (file: File) => Promise<string | null>;
 	}
 	let { app, value, placeholder = L("Write here…", "在这里写…"), autofocus = false, label, submitLabel = L("submit", "提交"), onchange, onsubmit, onescape, linksFrom, commands, onimage }: Props = $props();
+
+	/** A textarea's placeholder is plain text: a hint with math is rendered under the empty line instead. */
+	const mathHint = $derived(hasMath(placeholder));
 
 	let ta: HTMLTextAreaElement;
 	// svelte-ignore state_referenced_locally
@@ -243,12 +248,17 @@
 </script>
 
 <div class="icap-writing" use:keyGuard={{ app, submit, escape: () => (items.length ? close() : onescape ? onescape() : ta.blur()) }}>
+	<div class="icap-writing-field">
+	{#if mathHint && !text}
+		<div class="icap-writing-hint" id={`${listId}-hint`}><Markdown {app} markdown={placeholder} sourcePath={linksFrom ?? ""} /></div>
+	{/if}
 	<textarea
 		bind:this={ta}
 		bind:value={text}
 		rows="2"
 		aria-label={label}
-		{placeholder}
+		placeholder={mathHint ? undefined : placeholder}
+		aria-describedby={mathHint && !text ? `${listId}-hint` : undefined}
 		spellcheck="true"
 		role={offers ? "combobox" : undefined}
 		aria-expanded={offers ? items.length > 0 : undefined}
@@ -266,6 +276,7 @@
 		ondrop={(e) => taken(e, e.dataTransfer?.files)}
 		{onkeydown}
 	></textarea>
+	</div>
 	{#if items.length || note}
 		<div class="icap-suggest">
 			{#if items.length}

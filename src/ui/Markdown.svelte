@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Component, Keymap, MarkdownRenderer, type App } from "obsidian";
 	import { onDestroy } from "svelte";
-	import { balanceStreamingMarkdown } from "../dsl/text";
+	import { balanceStreamingMarkdown, obsidianMath } from "../dsl/text";
 	import { veilWidgets } from "../genui/widget";
 	import { L } from "../i18n";
 
@@ -68,10 +68,10 @@
 	}
 
 	/** While streaming, an interactive visual is a placeholder: half a script would only flash errors. */
-	const streamed = (md: string) => veilWidgets(balanceStreamingMarkdown(md), L("Drawing a visual…", "正在画图示…"));
+	const streamed = (md: string) => veilWidgets(balanceStreamingMarkdown(obsidianMath(md)), L("Drawing a visual…", "正在画图示…"));
 
 	$effect(() => {
-		const md = streaming ? streamed(markdown) : markdown;
+		const md = streaming ? streamed(markdown) : obsidianMath(markdown);
 		if (md === lastRendered) return;
 		if (!streaming) {
 			if (timer) window.clearTimeout(timer);
@@ -82,7 +82,7 @@
 		if (timer) return;
 		timer = window.setTimeout(() => {
 			timer = null;
-			void render(streaming ? streamed(markdown) : markdown);
+			void render(streaming ? streamed(markdown) : obsidianMath(markdown));
 		}, 90);
 	});
 
