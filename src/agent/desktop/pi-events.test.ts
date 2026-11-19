@@ -27,6 +27,42 @@ describe("Pi's events as a run's events", () => {
 		expect(ev.result(false, false)).toEqual({ text: "done", aborted: false, handled: false });
 	});
 
+	it("keeps text written alongside ask_learner while still dropping narration before other tools", () => {
+		const texts: string[] = [];
+		const ev = new PiEvents({ onBridge: async () => ({}), onText: (t) => texts.push(t) });
+		// Narration before a non-ask_learner tool is dropped.
+		ev.handle({ type: "message_start", message: { role: "assistant" } });
+		ev.handle({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "let me read" } });
+		ev.handle({
+			type: "message_end",
+			message: {
+				role: "assistant",
+				content: [
+					{ type: "text", text: "let me read" },
+					{ type: "toolCall", name: "read", arguments: { path: "note.md" } },
+				],
+				stopReason: "toolUse",
+			},
+		});
+		// Explanation written in the same turn as ask_learner is kept so ask() can attach it to the turn.
+		ev.handle({ type: "message_start", message: { role: "assistant" } });
+		ev.handle({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "Here is the explanation." } });
+		ev.handle({
+			type: "message_end",
+			message: {
+				role: "assistant",
+				content: [
+					{ type: "text", text: "Here is the explanation." },
+					{ type: "toolCall", name: "ask_learner", arguments: { kind: "text", question: "Try plugging in u = ln r?" } },
+				],
+				stopReason: "toolUse",
+			},
+		});
+		ev.handle(assistant("Nice work!"));
+		expect(texts).toEqual(["let me read", "", "Here is the explanation.", "Here is the explanation.", "Nice work!"]);
+		expect(ev.result(false, false)).toEqual({ text: "Nice work!", aborted: false, handled: false });
+	});
+
 	it("reports each reply's usage and model", () => {
 		const used: [number | undefined, string | null][] = [];
 		const ev = new PiEvents({ onBridge: async () => ({}), onUsage: (u, m) => used.push([u?.cost, m]) });

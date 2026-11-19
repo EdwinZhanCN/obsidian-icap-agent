@@ -33,6 +33,12 @@ export interface PiEventView {
 interface PiContent {
 	type?: string;
 	text?: string;
+	name?: string;
+}
+
+/** Whether a tool-use message is handing the turn to the learner via `ask_learner`. */
+function asksLearner(content: unknown): boolean {
+	return Array.isArray(content) && (content as PiContent[]).some((c) => c?.type === "toolCall" && c.name === "ask_learner");
 }
 
 /** Images as Pi's message content. */
@@ -170,8 +176,11 @@ export class PiEvents {
 					this.lastError = m.errorMessage || (m.stopReason === "aborted" ? "Stopped." : "The model returned an error.");
 				}
 				if (m.stopReason === "toolUse") {
-					// Narration before a tool call is not part of the result.
-					if (this.currentText) o.onText?.(this.finalText);
+					// Text written alongside `ask_learner` is addressed to the learner (e.g. an explanation
+					// before a follow-up question); keep it so `ask()` can attach it to the preceding turn.
+					// Narration before any other tool call is not part of the result.
+					if (asksLearner(m.content) && text.trim()) o.onText?.(text);
+					else if (this.currentText) o.onText?.(this.finalText);
 				} else if (text.trim()) {
 					this.finalText = text;
 					o.onText?.(text);

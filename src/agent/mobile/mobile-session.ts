@@ -236,9 +236,11 @@ export class MobileSession {
 				if (m.stopReason === "error" || m.stopReason === "aborted") {
 					this.lastError = m.errorMessage || (m.stopReason === "aborted" ? "Stopped." : "The model returned an error.");
 				}
+				const asks = m.content.some((c) => c.type === "toolCall" && (c as { name?: string }).name === "ask_learner");
 				if (m.stopReason === "toolUse") {
-					// Narration before a tool call is not part of the result.
-					if (this.currentText) o.onText?.(this.finalText);
+					// Text written alongside `ask_learner` is addressed to the learner; narration before other tool calls is dropped.
+					if (asks && text.trim()) o.onText?.(text);
+					else if (this.currentText) o.onText?.(this.finalText);
 				} else if (text.trim()) {
 					this.finalText = text;
 					o.onText?.(text);

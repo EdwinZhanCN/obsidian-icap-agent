@@ -1904,6 +1904,12 @@ export class LearningRuntime {
 			const v = p.verdict;
 			if (v === "holds" || v === "partly" || v === "reconsider") prev.verdict = v;
 		}
+		// Preserve visible prose the agent wrote in the same turn as `ask_learner` (e.g. an explanation
+		// followed by a check question) on the preceding answered turn instead of clearing it away.
+		const spoken = block.summary.trim();
+		if (prev && spoken && prev.feedback?.trim() !== spoken) {
+			prev.reply = prev.reply ? `${prev.reply}\n\n${spoken}` : spoken;
+		}
 		const kind = (["single", "multi", "text", "confirm"] as const).includes(p.kind as never) ? (p.kind as Turn["kind"]) : "text";
 		const lastText = [...block.turns].reverse().find((t) => t.answer?.text)?.answer?.text;
 		const options = Array.isArray(p.options)
