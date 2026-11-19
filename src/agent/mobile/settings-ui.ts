@@ -1,4 +1,4 @@
-import { Modal, Notice, SecretComponent, Setting, SettingGroup, setIcon, type App, type ButtonComponent } from "obsidian";
+import { Modal, Notice, SecretComponent, Setting, SettingGroup, requireApiVersion, setIcon, type App, type ButtonComponent } from "obsidian";
 import { L } from "../../i18n";
 import { ENDPOINT_APIS, MOBILE_PROVIDERS, endpointSecretId, providerById, providerSecretId, slugOf, type EndpointApi, type MobileEndpoint } from "./providers";
 import { probeTransport, type RequestUrl } from "./transport";
@@ -25,7 +25,7 @@ function checkedId(id: string): string {
 
 /** A button that deletes: setDestructive is Obsidian 1.13's; earlier versions style it with the class. */
 function destructive(b: ButtonComponent): ButtonComponent {
-	if (typeof b.setDestructive === "function") return b.setDestructive();
+	if (requireApiVersion("1.13.0")) return b.setDestructive();
 	b.buttonEl.addClass("mod-warning");
 	return b;
 }
